@@ -1,0 +1,309 @@
+name: CI
+
+on:
+  push:
+    branches: [main, polars]
+  pull_request:
+    branches: [main, polars]
+  workflow_dispatch:
+
+env:
+  UV_SYSTEM_PYTHON: 1
+
+jobs:
+  # ==========================================================================
+  # Lint and Format Check
+  # ==========================================================================
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dev dependencies
+        run: uv pip install ruff black
+
+      - name: Run ruff check
+        run: ruff check pyrsm tests
+
+      - name: Run black check
+        run: black --check pyrsm tests
+
+  # ==========================================================================
+  # Core Tests (minimal dependencies)
+  # ==========================================================================
+  test-core:
+    name: Test Core (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install core + dev dependencies
+        run: |
+          uv pip install -e ".[dev]"
+
+      - name: Test core import works
+        run: |
+          python -c "import pyrsm; print(f'pyrsm {pyrsm.__version__} imported successfully')"
+
+      - name: Run smoke tests (core modules only)
+        run: |
+          pytest tests/test_basics.py tests/test_utils.py tests/test_bins.py -v --tb=short
+
+  # ==========================================================================
+  # Full Tests (all dependencies)
+  # ==========================================================================
+  test-full:
+    name: Test Full (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install all dependencies
+        run: |
+          uv pip install -e ".[full]"
+
+      - name: Run full test suite
+        run: |
+          pytest tests/ -v --tb=short --ignore=tests/test_import_performance.py
+
+      - name: Run tests with coverage
+        run: |
+          pytest tests/ --cov=pyrsm --cov-report=xml --cov-report=term-missing \
+            --ignore=tests/test_import_performance.py \
+            -q
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        if: matrix.python-version == '3.13'
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+          verbose: true
+        continue-on-error: true
+
+  # ==========================================================================
+  # Import Performance Tests
+  # ==========================================================================
+  import-performance:
+    name: Import Performance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install all dependencies
+        run: |
+          uv pip install -e ".[full]"
+
+      - name: Run import performance tests
+        run: |
+          python -c "
+          import subprocess
+          import time
+          import sys
+
+          # Thresholds (seconds) - generous to avoid flakiness on CI
+          THRESHOLDS = {
+              'pyrsm': 1.0,
+              'pyrsm.basics.compare_means': 3.0,
+              'pyrsm.basics.compare_props': 3.0,
+              'pyrsm.basics.correlation': 3.0,
+              'pyrsm.basics.cross_tabs': 3.0,
+              'pyrsm.basics.single_mean': 3.0,
+              'pyrsm.basics.single_prop': 3.0,
+              'pyrsm.basics.goodness': 3.0,
+              'pyrsm.model.logistic': 10.0,
+              'pyrsm.model.rforest': 5.0,
+              'pyrsm.model.mlp': 5.0,
+              'pyrsm.model.xgboost': 5.0,
+          }
+
+          print('Import Performance Test')
+          print('=' * 60)
+
+          failures = []
+          for mod, threshold in THRESHOLDS.items():
+              code = f'import {mod}'
+              start = time.perf_counter()
+              result = subprocess.run(
+                  [sys.executable, '-c', code],
+                  capture_output=True,
+                  text=True
+              )
+              elapsed = time.perf_counter() - start
+
+              if result.returncode != 0:
+                  status = 'FAIL (import error)'
+                  failures.append((mod, f'Import failed: {result.stderr}'))
+              elif elapsed > threshold:
+                  status = f'FAIL ({elapsed:.2f}s > {threshold}s threshold)'
+                  failures.append((mod, f'{elapsed:.2f}s exceeds {threshold}s threshold'))
+              else:
+                  status = f'OK ({elapsed:.2f}s)'
+
+              print(f'{mod}: {status}')
+
+          print('=' * 60)
+          if failures:
+              print('\\nFAILURES:')
+              for mod, reason in failures:
+                  print(f'  - {mod}: {reason}')
+              sys.exit(1)
+          else:
+              print('All import performance tests passed!')
+          "
+
+  # ==========================================================================
+  # Smoke Tests for Lazy Imports
+  # ==========================================================================
+  smoke-tests:
+    name: Smoke Tests (Lazy Imports)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install all dependencies
+        run: |
+          uv pip install -e ".[full]"
+
+      - name: Run smoke tests for lazy imports
+        run: |
+          pytest tests/test_smoke.py -v --tb=short
+
+  # ==========================================================================
+  # Packaging Tests
+  # ==========================================================================
+  packaging:
+    name: Packaging Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install build tools
+        run: uv pip install build twine
+
+      - name: Build sdist and wheel
+        run: python -m build
+
+      - name: Check package metadata
+        run: twine check dist/*
+
+      - name: List package contents
+        run: |
+          echo "=== Wheel contents ==="
+          unzip -l dist/*.whl | head -50
+          echo ""
+          echo "=== Package size ==="
+          ls -lh dist/
+
+      - name: Test wheel installation (minimal deps)
+        run: |
+          # Create fresh virtual environment
+          python -m venv /tmp/test-venv
+          /tmp/test-venv/bin/pip install dist/*.whl
+
+          # Test import works without optional extras
+          /tmp/test-venv/bin/python -c "
+          import pyrsm
+          print(f'Version: {pyrsm.__version__}')
+
+          # Test core imports work
+          from pyrsm.basics import correlation, cross_tabs
+          from pyrsm.model import regress
+          print('Core imports successful!')
+          "
+
+      - name: Test wheel installation (all extras)
+        run: |
+          # Create fresh virtual environment
+          python -m venv /tmp/test-venv-full
+          # Find the wheel file and install with extras
+          WHEEL=$(ls dist/*.whl)
+          /tmp/test-venv-full/bin/pip install "${WHEEL}[all]"
+
+          # Test all imports work
+          /tmp/test-venv-full/bin/python -c "
+          import pyrsm
+          print(f'Version: {pyrsm.__version__}')
+
+          # Test optional imports work
+          from pyrsm.basics import compare_means, compare_props
+          from pyrsm.model import logistic, rforest, mlp, xgboost
+          print('All imports successful!')
+          "
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
