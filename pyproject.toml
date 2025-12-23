@@ -1,0 +1,105 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyrsm"
+dynamic = ["version"]
+description = "Python package used in the MSBA program the Rady School of Management @ UCSD"
+readme = "README.md"
+license = {text = "AGPL-3.0-only"}
+requires-python = ">=3.12,<3.14"
+authors = [
+    {name = "Vincent Nijs", email = "vnijs@ucsd.edu"},
+    {name = "Vikram Jambulapati", email = "vikjam@ucsd.edu"},
+    {name = "Suhas Goutham", email = "sgoutham@ucsd.edu"},
+    {name = "Raghav Prasad", email = "rprasad@ucsd.edu"},
+]
+
+# Core dependencies - minimal set for basic functionality
+dependencies = [
+    "numpy>=2.0.2",
+    "pandas>=2.2.2",
+    "polars==1.36.1",
+    "matplotlib>=3.1.1",
+    "plotnine>=0.15.1",
+    "statsmodels>=0.14.4",
+    "scipy<=1.15.3",
+    "scikit-learn>=1.5.2,!=1.6.*",
+    "IPython>=7.34.0",
+    "pyarrow>=17.0.0",
+]
+
+[project.optional-dependencies]
+# Machine learning extras
+ml = [
+    "xgboost>=2.1.1",
+    "scikit-misc>=0.5.1",
+    "xlogit",
+]
+# Plotting extras (interactive/optional)
+plot = [
+    "plotly>=6.5.0",
+    "pillow>=11.2.1",
+]
+# Table formatting extras
+tables = [
+    "great-tables>=0.20.0",
+]
+# Development tools (not shipped to users)
+dev = [
+    "ruff",
+    "black",
+    "pytest>=8.4.2",
+    "pytest-cov>=4.0.0",
+    "ipykernel>=6.17.1",
+    "jupyter>=1.0.0",
+    "nbconvert>=7.0.0",
+    "twine>=5.0.0",
+]
+
+# Notebook execution extras (if you want to keep dev minimal)
+notebooks = [
+    "ipykernel>=6.17.1",
+    "jupyter>=1.0.0",
+    "nbconvert>=7.0.0",
+]
+# All optional dependencies
+all = [
+    "pyrsm[ml,plot,tables]",
+]
+# Full installation including dev tools
+full = [
+    "pyrsm[all,dev]",
+]
+
+[project.urls]
+"Bug Reports" = "https://github.com/radiant-ai-hub/issues"
+"Source" = "https://github.com/vnijs/pyrsm"
+
+[tool.setuptools]
+include-package-data = true
+packages = {find = {include = ["pyrsm*"], exclude = ["*.tests", "*.tests.*", "tests.*", "tests", "examples"]}}
+
+[tool.setuptools.package-data]
+"*" = ["www/*", "www/imgs/*", "www/js/*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "pyrsm.__version__"}
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = [
+    "E402",  # Allow module level imports not at top
+    "E501",  # Allow long lines (common in docstrings)
+    "E722",  # Allow bare except
+    "E731",  # Allow lambda assignments
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F403", "F405"]  # Allow * imports in __init__.py files
+"pyrsm/basics/prob_calc/utils.py" = ["F401"]  # ceil, floor are re-exported

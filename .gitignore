@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+*.egg
+
+# Build & Distribution
+build/
+dist/
+wheels/
+
+# Virtual environments
+.venv/
+venv/
+.env
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.hypothesis/
+tests/plot_comparisons/
+
+# Linting & Type checking
+.ruff_cache/
+.mypy_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE & Editors
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# Project-specific
+plans/
+examples/model/cv-objects/
+Makefile
+TESTING.md
