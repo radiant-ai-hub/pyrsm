@@ -1,6 +1,6 @@
 """
 Basics datasets are available via direct URLs, for example:
-`pl.read_parquet("https://github.com/radiant-ai-hub/raw/refs/heads/main/examples/data/basics/salary.parquet")`.
+`pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/basics/salary.parquet")`.
 
 - salary -> salary_description.md
 - consider -> consider_description.md
