@@ -1795,6 +1795,7 @@ dependencies = [
     { name = "polars" },
     { name = "pyarrow" },
     { name = "scikit-learn" },
+    { name = "scikit-misc" },
     { name = "scipy" },
     { name = "statsmodels" },
 ]
@@ -1877,6 +1878,7 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "scikit-learn", specifier = ">=1.5.2,!=1.6.*" },
+    { name = "scikit-misc", specifier = ">=0.5.2" },
     { name = "scikit-misc", marker = "extra == 'ml'", specifier = ">=0.5.1" },
     { name = "scipy", specifier = "<=1.15.3" },
     { name = "statsmodels", specifier = ">=0.14.4" },

@@ -75,7 +75,7 @@ reg.plot()
 
 ## Examples
 
-Extensive example notebooks are available at: <https://github.com/radiant-ai-hub/tree/main/examples>
+Extensive example notebooks are available at: <https://github.com/radiant-ai-hub/pyrsm/tree/main/examples>
 
 ## License
 

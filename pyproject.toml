@@ -28,6 +28,7 @@ dependencies = [
     "scikit-learn>=1.5.2,!=1.6.*",
     "IPython>=7.34.0",
     "pyarrow>=17.0.0",
+    "scikit-misc>=0.5.2",
 ]
 
 [project.optional-dependencies]
@@ -74,7 +75,7 @@ full = [
 ]
 
 [project.urls]
-"Bug Reports" = "https://github.com/radiant-ai-hub/issues"
+"Bug Reports" = "https://github.com/radiant-ai-hub/pyrsm/issues"
 "Source" = "https://github.com/vnijs/pyrsm"
 
 [tool.setuptools]
