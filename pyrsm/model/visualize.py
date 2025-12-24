@@ -1,5 +1,6 @@
 import math
 import time
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -25,6 +26,9 @@ from plotnine import (
 from sklearn.inspection import permutation_importance
 
 from pyrsm.utils import expand_grid, ifelse, intersect, setdiff
+
+# Suppress plotnine warnings about missing values in ICE lines
+warnings.filterwarnings("ignore", message=".*Removed.*rows containing missing values.*")
 
 from .model import (
     extract_evars,
@@ -427,6 +431,7 @@ def _create_single_var_plot(
     min_max: tuple,
     hline_val: float | None,
     cat_order: list | None = None,
+    ice_data: list | None = None,
 ) -> ggplot:
     """Create a single-variable prediction plot.
 
@@ -444,19 +449,51 @@ def _create_single_var_plot(
         Horizontal line value (mean of target), or None to skip
     cat_order : list or None
         Category order for x-axis (for Enum columns)
+    ice_data : list or None
+        ICE data: list of arrays, one per grid point, each containing predictions
+        for all observations at that grid point
 
     Returns
     -------
     plotnine ggplot object
     """
+    # Build ICE layer first (so PDP line is drawn on top)
+    ice_layer = None
+    if ice_data is not None and len(ice_data) > 0:
+        # Get grid values from data
+        grid_vals = data[var].to_list()
+
+        # Build ICE DataFrame: one row per (observation, grid_point)
+        ice_rows = []
+        for grid_idx, preds in enumerate(ice_data):
+            for obs_idx, pred in enumerate(preds):
+                ice_rows.append({var: grid_vals[grid_idx], "prediction": pred, "obs": obs_idx})
+        ice_df = pl.DataFrame(ice_rows).drop_nulls()
+
+        # Suppress plotnine warnings about missing values in ICE lines
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*missing values.*", category=UserWarning)
+            if is_numeric:
+                ice_layer = geom_line(
+                    data=ice_df, mapping=aes(x=var, y="prediction", group="obs"),
+                    color="gray", alpha=0.2, size=0.3
+                )
+            else:
+                ice_layer = geom_line(
+                    data=ice_df, mapping=aes(x=var, y="prediction", group="obs"),
+                    color="gray", alpha=0.2, size=0.3
+                )
+
     if is_numeric:
-        p = ggplot(data, aes(x=var, y="prediction")) + geom_line(color="steelblue")
+        p = ggplot(data, aes(x=var, y="prediction"))
+        if ice_layer is not None:
+            p = p + ice_layer
+        p = p + geom_line(color="steelblue", size=1)
     else:
-        p = (
-            ggplot(data, aes(x=var, y="prediction"))
-            + geom_line(color="steelblue", group=1)
-            + geom_point(color="steelblue", size=3)
-        )
+        p = ggplot(data, aes(x=var, y="prediction"))
+        if ice_layer is not None:
+            p = p + ice_layer
+        p = p + geom_line(color="steelblue", group=1, size=1) + geom_point(color="steelblue", size=3)
         # Preserve category order for categorical variables
         if cat_order is not None:
             p = p + scale_x_discrete(limits=cat_order)
@@ -820,6 +857,8 @@ def pdp_sk(
     incl_int=[],
     transformed=None,
     mode="pdp",
+    ice=False,
+    ice_nobs=100,
     n_sample=2000,
     grid_resolution=50,
     minq=0.05,
@@ -844,6 +883,14 @@ def pdp_sk(
     mode : str, "fast" or "pdp"
         "fast" - uses sim_prediction (mean/mode for other vars, like pred_plot_sk)
         "pdp" - true PDP: samples rows, replaces feature values, averages predictions
+    ice : bool, default False
+        If True, show Individual Conditional Expectation (ICE) lines behind the PDP.
+        ICE lines show the prediction for each observation as the feature varies.
+        Only works with mode="pdp".
+    ice_nobs : int, default 100
+        Number of observations to sample for ICE lines. Only used when ice=True.
+        Limits the number of ICE lines to improve performance and readability.
+        Use -1 to show ICE lines for all observations.
     n_sample : int
         Number of samples to use for PDP mode (caps at dataset size)
     grid_resolution : int
@@ -946,6 +993,21 @@ def pdp_sk(
     else:
         sample_data = base_data
 
+    # Sample data for ICE lines (separate, smaller sample for performance)
+    # ice_nobs=-1 or None means use all observations
+    if ice and mode == "pdp":
+        if ice_nobs is None or ice_nobs < 0:
+            ice_sample_data = sample_data
+        else:
+            ice_sample_size = min(ice_nobs, sample_data.height)
+            ice_sample_data = (
+                sample_data.sample(ice_sample_size, seed=5678)
+                if ice_sample_size < sample_data.height
+                else sample_data
+            )
+    else:
+        ice_sample_data = None
+
     # Helper to build grid for a variable - preserves Enum ordering
     def build_grid(var):
         col = data[var]
@@ -964,15 +1026,26 @@ def pdp_sk(
     def compute_pdp_single(var):
         grid_vals = build_grid(var)
         predictions = []
+        ice_predictions = [] if ice_sample_data is not None else None
 
         if mode == "pdp":
             for gv in grid_vals:
+                # PDP: use full sample_data for mean prediction
                 modified = sample_data.with_columns(
                     pl.lit(gv).cast(sample_data[var].dtype).alias(var)
                 )
                 modified_dum = _dummify_for_sk(modified, transformed, fn).select(fn)
                 preds = pred_fun(fitted, modified_dum)
                 predictions.append(np.mean(preds))
+
+                # ICE: use smaller ice_sample_data for individual predictions
+                if ice_predictions is not None:
+                    ice_modified = ice_sample_data.with_columns(
+                        pl.lit(gv).cast(ice_sample_data[var].dtype).alias(var)
+                    )
+                    ice_modified_dum = _dummify_for_sk(ice_modified, transformed, fn).select(fn)
+                    ice_preds = pred_fun(fitted, ice_modified_dum)
+                    ice_predictions.append(ice_preds.tolist())
         else:
             iplot = sim_prediction(
                 base_data, vary=var, nnv=grid_resolution, minq=minq, maxq=maxq
@@ -982,7 +1055,7 @@ def pdp_sk(
             grid_vals = iplot[var].to_list()
             predictions = preds.tolist()
 
-        return pl.DataFrame({var: grid_vals, "prediction": predictions})
+        return pl.DataFrame({var: grid_vals, "prediction": predictions}), ice_predictions
 
     # Compute PDP for interaction (two variables)
     def compute_pdp_interaction(var1, var2):
@@ -1026,9 +1099,11 @@ def pdp_sk(
 
     # Compute PDPs for all variables
     pred_dict = {}
+    ice_dict = {}
     for v in incl:
-        result = compute_pdp_single(v)
+        result, ice_data = compute_pdp_single(v)
         pred_dict[v] = result
+        ice_dict[v] = ice_data
         min_max = _calc_ylim(result["prediction"].to_list(), min_max, fix)
 
     for v in incl_int:
@@ -1045,7 +1120,7 @@ def pdp_sk(
         is_num = _is_numeric_with_many_unique(data, v, 5)
         cat_order = None if is_num else _get_cat_order(data, v)
         p = _create_single_var_plot(
-            pred_dict[v], v, is_num, min_max, hline_val, cat_order
+            pred_dict[v], v, is_num, min_max, hline_val, cat_order, ice_dict.get(v)
         )
         plot_list.append(p)
 
@@ -1074,6 +1149,8 @@ def pdp_sm(
     excl=[],
     incl_int=[],
     mode="pdp",
+    ice=False,
+    ice_nobs=100,
     n_sample=2000,
     grid_resolution=50,
     minq=0.05,
@@ -1096,6 +1173,14 @@ def pdp_sm(
     mode : str, "fast" or "pdp"
         "fast" - uses sim_prediction (mean/mode for other vars)
         "pdp" - true PDP: samples rows, replaces feature values, averages predictions
+    ice : bool, default False
+        If True, show Individual Conditional Expectation (ICE) lines behind the PDP.
+        ICE lines show the prediction for each observation as the feature varies.
+        Only works with mode="pdp".
+    ice_nobs : int, default 100
+        Number of observations to sample for ICE lines. Only used when ice=True.
+        Limits the number of ICE lines to improve performance and readability.
+        Use -1 to show ICE lines for all observations.
     n_sample : int
         Number of samples to use for PDP mode
     grid_resolution : int
@@ -1156,6 +1241,21 @@ def pdp_sm(
     else:
         sample_data = base_data
 
+    # Sample data for ICE lines (separate, smaller sample for performance)
+    # ice_nobs=-1 or None means use all observations
+    if ice and mode == "pdp":
+        if ice_nobs is None or ice_nobs < 0:
+            ice_sample_data = sample_data
+        else:
+            ice_sample_size = min(ice_nobs, sample_data.height)
+            ice_sample_data = (
+                sample_data.sample(ice_sample_size, seed=5678)
+                if ice_sample_size < sample_data.height
+                else sample_data
+            )
+    else:
+        ice_sample_data = None
+
     # Helper to build grid - preserves Enum ordering
     def build_grid(var):
         col = data[var]
@@ -1174,23 +1274,34 @@ def pdp_sm(
     def compute_pdp_single(var):
         grid_vals = build_grid(var)
         predictions = []
+        ice_predictions = [] if ice_sample_data is not None else None
 
         if mode == "pdp":
             evars = extract_evars(model, data.columns)
             for gv in grid_vals:
+                # PDP: use full sample_data for mean prediction
                 modified = sample_data.select(evars).with_columns(
                     pl.lit(gv).cast(sample_data[var].dtype).alias(var)
                 )
                 modified_pd = _to_pandas_for_predict(modified)
                 preds = fitted.predict(modified_pd)
                 predictions.append(np.mean(preds))
-            return pl.DataFrame({var: grid_vals, "prediction": predictions})
+
+                # ICE: use smaller ice_sample_data for individual predictions
+                if ice_predictions is not None:
+                    ice_modified = ice_sample_data.select(evars).with_columns(
+                        pl.lit(gv).cast(ice_sample_data[var].dtype).alias(var)
+                    )
+                    ice_modified_pd = _to_pandas_for_predict(ice_modified)
+                    ice_preds = fitted.predict(ice_modified_pd)
+                    ice_predictions.append(list(ice_preds))
+            return pl.DataFrame({var: grid_vals, "prediction": predictions}), ice_predictions
         else:
             iplot = sim_prediction(
                 data, vary=var, nnv=grid_resolution, minq=minq, maxq=maxq
             )
             preds = fitted.predict(iplot.to_pandas())
-            return iplot.with_columns(prediction=pl.Series(list(preds)))
+            return iplot.with_columns(prediction=pl.Series(list(preds))), None
 
     # Compute PDP for interaction
     def compute_pdp_interaction(var1, var2):
@@ -1237,9 +1348,11 @@ def pdp_sm(
 
     # Compute PDPs
     pred_dict = {}
+    ice_dict = {}
     for v in incl:
-        result = compute_pdp_single(v)
+        result, ice_data = compute_pdp_single(v)
         pred_dict[v] = result
+        ice_dict[v] = ice_data
         min_max = _calc_ylim(result["prediction"].to_list(), min_max, fix)
 
     for v in incl_int:
@@ -1256,7 +1369,7 @@ def pdp_sm(
         is_num = _is_numeric_with_many_unique(data, v, 5)
         cat_order = None if is_num else _get_cat_order(data, v)
         p = _create_single_var_plot(
-            pred_dict[v], v, is_num, min_max, hline_val, cat_order
+            pred_dict[v], v, is_num, min_max, hline_val, cat_order, ice_dict.get(v)
         )
         plot_list.append(p)
 

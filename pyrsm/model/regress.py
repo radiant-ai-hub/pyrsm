@@ -382,6 +382,8 @@ class regress:
         incl_int=None,
         fix=True,
         hline=False,
+        ice=False,
+        ice_nobs=100,
         nnv=20,
         minq=0.025,
         maxq=0.975,
@@ -407,6 +409,13 @@ class regress:
             Fix the y-axis limits. Relevant for prediction plots (pred).
         hline : bool, default False
             Add a horizontal line to the plot at the mean of the response variable. Relevant for prediction plots (pred).
+        ice : bool, default False
+            Show Individual Conditional Expectation (ICE) lines behind the PDP.
+            ICE lines show the prediction for each observation as the feature varies.
+            Only applies to 'pdp' plots.
+        ice_nobs : int, default 100
+            Number of observations to sample for ICE lines. Only used when ice=True.
+            Use -1 to show ICE lines for all observations.
         nnv : int, default 20
             Number of predicted values to calculate and to plot. Relevant for prediction plots.
         minq : float, default 0.025
@@ -478,6 +487,8 @@ class regress:
                 incl=incl,
                 excl=excl,
                 incl_int=incl_int,
+                ice=ice,
+                ice_nobs=ice_nobs,
                 grid_resolution=nnv,
                 minq=minq,
                 maxq=maxq,

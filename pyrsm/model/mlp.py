@@ -360,6 +360,8 @@ class mlp:
         nobs: int = 1000,
         fix=True,
         hline=True,
+        ice=False,
+        ice_nobs=100,
         nnv=30,
         minq=0.025,
         maxq=0.975,
@@ -386,6 +388,13 @@ class mlp:
             Whether to fix the scale of the plots based on the maximum impact range of the included explanatory variables.
         hline : bool, default=False
             Whether to include a horizontal line at the mean response rate in the plots.
+        ice : bool, default False
+            Show Individual Conditional Expectation (ICE) lines behind the PDP.
+            ICE lines show the prediction for each observation as the feature varies.
+            Only applies to 'pdp' plots.
+        ice_nobs : int, default 100
+            Number of observations to sample for ICE lines. Only used when ice=True.
+            Use -1 to show ICE lines for all observations.
         nnv : int, default=30
             Number of values to use for the prediction plot.
         minq : float, default=0.025
@@ -475,6 +484,8 @@ class mlp:
                 incl=incl,
                 excl=excl,
                 incl_int=incl_int,
+                ice=ice,
+                ice_nobs=ice_nobs,
                 grid_resolution=nnv,
                 minq=minq,
                 maxq=maxq,
