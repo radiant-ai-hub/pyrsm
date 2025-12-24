@@ -41,7 +41,7 @@ class compare_means:
     Quick start
     -----------
     >>> import pyrsm as rsm
-    >>> salary = pl.read_parquet("https://github.com/radiant-ai-hub/raw/refs/heads/main/examples/data/basics/salary.parquet")
+    >>> salary = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/basics/salary.parquet")
     >>> cm = rsm.basics.compare_means({"salary": salary}, var1="rank", var2="salary")
     >>> cm.summary()
     >>> cm.plot()  # returns (Figure, Axes)

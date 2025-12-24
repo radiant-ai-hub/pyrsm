@@ -410,7 +410,7 @@ def md(x: str) -> None:
     radius = 10
     md(f"The radius of the circle is {radius}.")
     md("./path-to-markdown-file.md")
-    md("https://raw.githubusercontent.com/radiant-ai-hub/refs/heads/main/pyrsm/data/basics/salary_description.md")
+    md("https://raw.githubusercontent.com/radiant-ai-hub/pyrsm/refs/heads/main/pyrsm/data/basics/salary_description.md")
     """
     import os
     from pathlib import Path

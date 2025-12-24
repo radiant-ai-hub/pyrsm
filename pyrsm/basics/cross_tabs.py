@@ -56,7 +56,7 @@ class cross_tabs:
     Examples
     --------
     import polars as pl
-    newspaper = pl.read_parquet("https://github.com/radiant-ai-hub/raw/refs/heads/main/examples/data/basics/newspaper.parquet")
+    newspaper = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/basics/newspaper.parquet")
     ct = rsm.cross_tabs(newspaper, "Income", "Newspaper")
     ct.expected
     """
@@ -258,7 +258,7 @@ class cross_tabs:
         Examples
         --------
         import polars as pl
-        newspaper = pl.read_parquet("https://github.com/radiant-ai-hub/raw/refs/heads/main/examples/data/basics/newspaper.parquet")
+        newspaper = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/basics/newspaper.parquet")
         ct = rsm.cross_tabs(newspaper)
         ct.summary()
         """
@@ -498,7 +498,7 @@ Chi-squared: {round(self.chisq_test[0], dec)} df({int(self.chisq_test[2])}), p.v
         Examples
         --------
         import polars as pl
-        newspaper = pl.read_parquet("https://github.com/radiant-ai-hub/raw/refs/heads/main/examples/data/basics/newspaper.parquet")
+        newspaper = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/basics/newspaper.parquet")
         ct = rsm.cross_tabs(newspaper, "Income", "Newspaper")
         ct.plot()
         """

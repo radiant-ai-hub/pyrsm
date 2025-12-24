@@ -288,7 +288,7 @@ class single_prop:
 if __name__ == "__main__":
 
     consider = pl.read_parquet(
-        "https://github.com/radiant-ai-hub/raw/refs/heads/main/examples/data/basics/consider.parquet"
+        "https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/basics/consider.parquet"
     )
     sp = single_prop(
         data={"consider": consider},

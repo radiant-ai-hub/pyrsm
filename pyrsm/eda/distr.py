@@ -6,7 +6,7 @@ Provides summary statistics and plots for numeric, categorical, and other variab
 Examples:
     import pyrsm as rsm
 
-    diamonds = pl.read_parquet("https://github.com/radiant-ai-hub/raw/refs/heads/main/examples/data/data/diamonds.parquet")
+    diamonds = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/data/diamonds.parquet")
 
     # Basic usage
     d = rsm.distr(diamonds)
@@ -131,7 +131,7 @@ class distr:
     Examples
     --------
     import pyrsm as rsm
-    diamonds = pl.read_parquet("https://github.com/radiant-ai-hub/raw/refs/heads/main/examples/data/data/diamonds.parquet")
+    diamonds = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/data/diamonds.parquet")
     d = rsm.distr(diamonds)
     d.summary()
     d.plot()

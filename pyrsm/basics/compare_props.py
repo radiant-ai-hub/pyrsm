@@ -41,7 +41,7 @@ class compare_props:
     dataframe. See the notebook linked below for a worked example,
     including the web UI:
 
-    https://github.com/radiant-ai-hub/blob/main/examples/basics-compare-means.ipynb
+    https://github.com/radiant-ai-hub/pyrsm/blob/main/examples/basics-compare-means.ipynb
     """
 
     def __init__(

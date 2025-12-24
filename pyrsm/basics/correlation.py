@@ -33,7 +33,7 @@ class correlation:
     Examples
     --------
     import pyrsm as rsm
-    salary = pl.read_parquet("https://github.com/radiant-ai-hub/raw/refs/heads/main/examples/data/basics/salary.parquet")
+    salary = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/basics/salary.parquet")
     cr = rsm.correlation(salary.select(["salary", "yrs.since.phd", "yrs.service"]))
     cr.cr
     """
@@ -116,7 +116,7 @@ class correlation:
         Examples
         --------
         import pyrsm as rsm
-        salary = pl.read_parquet("https://github.com/radiant-ai-hub/raw/refs/heads/main/examples/data/basics/salary.parquet")
+        salary = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/basics/salary.parquet")
         cr = rsm.correlation(salary.select(["salary", "yrs.since.phd", "yrs.service"]))
         cr.summary()
         """
@@ -271,7 +271,7 @@ class correlation:
         Examples
         --------
         import pyrsm as rsm
-        salary = pl.read_parquet("https://github.com/radiant-ai-hub/raw/refs/heads/main/examples/data/basics/salary.parquet")
+        salary = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/basics/salary.parquet")
         cr = rsm.correlation(salary.select(["salary", "yrs_since_phd", "yrs_service"]))
         cr.plot(figsize=(7, 7))
         """
