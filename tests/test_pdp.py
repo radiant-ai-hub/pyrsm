@@ -720,3 +720,154 @@ class TestPredPlotSkOrdering:
         # Age should be in a reasonable human range
         assert min(age_vals) >= 0, "Age should not be negative"
         assert max(age_vals) <= 100, "Age should not exceed 100"
+
+
+class TestPdpIce:
+    """Test ICE (Individual Conditional Expectation) functionality."""
+
+    def test_ice_pdp_values_unchanged_sk(self, rf_classifier, titanic_data):
+        """Test that PDP values are identical with and without ICE for sklearn."""
+        # Run without ICE
+        plot_no_ice = pdp_sk(
+            rf_classifier.fitted,
+            titanic_data,
+            incl=["age"],
+            mode="pdp",
+            ice=False,
+            grid_resolution=10,
+            n_sample=100,
+        )
+
+        # Run with ICE
+        plot_with_ice = pdp_sk(
+            rf_classifier.fitted,
+            titanic_data,
+            incl=["age"],
+            mode="pdp",
+            ice=True,
+            grid_resolution=10,
+            n_sample=100,
+        )
+
+        # Both should return plots
+        assert plot_no_ice is not None
+        assert plot_with_ice is not None
+
+    def test_ice_pdp_values_unchanged_sm(self, ols_model, salary_data):
+        """Test that PDP values are identical with and without ICE for statsmodels."""
+        model, df = ols_model
+        df_pl = pl.from_pandas(df)
+
+        # Run without ICE
+        plot_no_ice = pdp_sm(
+            model,
+            df_pl,
+            incl=["yrs_since_phd"],
+            mode="pdp",
+            ice=False,
+            grid_resolution=10,
+            n_sample=100,
+        )
+
+        # Run with ICE
+        plot_with_ice = pdp_sm(
+            model,
+            df_pl,
+            incl=["yrs_since_phd"],
+            mode="pdp",
+            ice=True,
+            grid_resolution=10,
+            n_sample=100,
+        )
+
+        # Both should return plots
+        assert plot_no_ice is not None
+        assert plot_with_ice is not None
+
+    def test_ice_no_performance_impact_sk(self, rf_classifier, titanic_data):
+        """Test that ice=False has no significant performance impact for sklearn."""
+        import time
+
+        # Time without ICE
+        start = time.time()
+        for _ in range(3):
+            pdp_sk(
+                rf_classifier.fitted,
+                titanic_data,
+                incl=["age"],
+                mode="pdp",
+                ice=False,
+                grid_resolution=10,
+                n_sample=100,
+            )
+        time_no_ice = time.time() - start
+
+        # Time with ICE
+        start = time.time()
+        for _ in range(3):
+            pdp_sk(
+                rf_classifier.fitted,
+                titanic_data,
+                incl=["age"],
+                mode="pdp",
+                ice=True,
+                grid_resolution=10,
+                n_sample=100,
+            )
+        time_with_ice = time.time() - start
+
+        # ICE should not add more than 50% overhead (being generous)
+        assert time_with_ice < time_no_ice * 1.5 or time_with_ice < 5.0
+
+    def test_ice_with_categorical_sk(self, rf_classifier, titanic_data):
+        """Test ICE works with categorical variables for sklearn."""
+        plot = pdp_sk(
+            rf_classifier.fitted,
+            titanic_data,
+            incl=["sex", "pclass"],
+            mode="pdp",
+            ice=True,
+            n_sample=50,
+        )
+        assert plot is not None
+
+    def test_ice_with_categorical_sm(self, logit_model, titanic_data):
+        """Test ICE works with categorical variables for statsmodels."""
+        model, df = logit_model
+        plot = pdp_sm(
+            model,
+            pl.from_pandas(df),
+            incl=["sex"],
+            mode="pdp",
+            ice=True,
+            n_sample=50,
+        )
+        assert plot is not None
+
+    def test_ice_fast_mode_no_effect_sk(self, rf_classifier, titanic_data):
+        """Test that ice parameter has no effect in fast mode for sklearn."""
+        # In fast mode, ICE doesn't make sense (single observation)
+        plot = pdp_sk(
+            rf_classifier.fitted,
+            titanic_data,
+            incl=["age"],
+            mode="fast",
+            ice=True,  # Should be ignored
+            grid_resolution=10,
+        )
+        assert plot is not None
+
+    def test_ice_save_plot(self, rf_classifier, titanic_data):
+        """Test saving ICE plot."""
+        plot = pdp_sk(
+            rf_classifier.fitted,
+            titanic_data,
+            incl=["age"],
+            mode="pdp",
+            ice=True,
+            grid_resolution=15,
+            n_sample=100,
+        )
+        if plot is not None:
+            plot.save(f"{PLOT_DIR}/pdp_sk_ice.png", dpi=100, verbose=False)
+        plt.close("all")

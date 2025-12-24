@@ -285,7 +285,7 @@ class TestRegressIntegration:
     def diamonds_data(self):
         """Load diamonds dataset with categorical columns."""
         return pl.read_parquet(
-            "https://github.com/radiant-ai-hub/raw/refs/heads/main/examples/data/data/diamonds.parquet"
+            "https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/data/diamonds.parquet"
         ).sample(500, seed=1234)
 
     def test_regress_stores_enum_types(self, diamonds_data):
@@ -354,7 +354,7 @@ class TestLogisticIntegration:
     def titanic_data(self):
         """Load titanic dataset with categorical columns."""
         return pl.read_parquet(
-            "https://github.com/radiant-ai-hub/raw/refs/heads/main/examples/data/data/titanic.parquet"
+            "https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/data/titanic.parquet"
         ).sample(500, seed=1234)
 
     def test_logistic_stores_enum_types(self, titanic_data):

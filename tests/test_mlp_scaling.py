@@ -25,7 +25,7 @@ from pyrsm.stats import scale_df
 def titanic_data():
     """Titanic dataset for classification tests."""
     return pl.read_parquet(
-        "https://github.com/radiant-ai-hub/raw/refs/heads/main/examples/data/model/titanic.parquet"
+        "https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/model/titanic.parquet"
     ).drop_nulls(subset=["age"])
 
 
@@ -33,7 +33,7 @@ def titanic_data():
 def salary_data():
     """Salary dataset for regression tests."""
     return pl.read_parquet(
-        "https://github.com/radiant-ai-hub/raw/refs/heads/main/examples/data/basics/salary.parquet"
+        "https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/basics/salary.parquet"
     )
 
 
@@ -41,7 +41,7 @@ def salary_data():
 def diamonds_data():
     """Diamonds dataset - has multiple categorical columns."""
     return pl.read_parquet(
-        "https://github.com/radiant-ai-hub/raw/refs/heads/main/examples/data/model/diamonds.parquet"
+        "https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/model/diamonds.parquet"
     ).sample(500, seed=1234)
 
 
