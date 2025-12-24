@@ -467,21 +467,31 @@ def _create_single_var_plot(
         ice_rows = []
         for grid_idx, preds in enumerate(ice_data):
             for obs_idx, pred in enumerate(preds):
-                ice_rows.append({var: grid_vals[grid_idx], "prediction": pred, "obs": obs_idx})
+                ice_rows.append(
+                    {var: grid_vals[grid_idx], "prediction": pred, "obs": obs_idx}
+                )
         ice_df = pl.DataFrame(ice_rows).drop_nulls()
 
         # Suppress plotnine warnings about missing values in ICE lines
         with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", message=".*missing values.*", category=UserWarning)
+            warnings.filterwarnings(
+                "ignore", message=".*missing values.*", category=UserWarning
+            )
             if is_numeric:
                 ice_layer = geom_line(
-                    data=ice_df, mapping=aes(x=var, y="prediction", group="obs"),
-                    color="gray", alpha=0.2, size=0.3
+                    data=ice_df,
+                    mapping=aes(x=var, y="prediction", group="obs"),
+                    color="gray",
+                    alpha=0.2,
+                    size=0.3,
                 )
             else:
                 ice_layer = geom_line(
-                    data=ice_df, mapping=aes(x=var, y="prediction", group="obs"),
-                    color="gray", alpha=0.2, size=0.3
+                    data=ice_df,
+                    mapping=aes(x=var, y="prediction", group="obs"),
+                    color="gray",
+                    alpha=0.2,
+                    size=0.3,
                 )
 
     if is_numeric:
@@ -493,7 +503,11 @@ def _create_single_var_plot(
         p = ggplot(data, aes(x=var, y="prediction"))
         if ice_layer is not None:
             p = p + ice_layer
-        p = p + geom_line(color="steelblue", group=1, size=1) + geom_point(color="steelblue", size=3)
+        p = (
+            p
+            + geom_line(color="steelblue", group=1, size=1)
+            + geom_point(color="steelblue", size=3)
+        )
         # Preserve category order for categorical variables
         if cat_order is not None:
             p = p + scale_x_discrete(limits=cat_order)
@@ -1043,7 +1057,9 @@ def pdp_sk(
                     ice_modified = ice_sample_data.with_columns(
                         pl.lit(gv).cast(ice_sample_data[var].dtype).alias(var)
                     )
-                    ice_modified_dum = _dummify_for_sk(ice_modified, transformed, fn).select(fn)
+                    ice_modified_dum = _dummify_for_sk(
+                        ice_modified, transformed, fn
+                    ).select(fn)
                     ice_preds = pred_fun(fitted, ice_modified_dum)
                     ice_predictions.append(ice_preds.tolist())
         else:
@@ -1055,7 +1071,10 @@ def pdp_sk(
             grid_vals = iplot[var].to_list()
             predictions = preds.tolist()
 
-        return pl.DataFrame({var: grid_vals, "prediction": predictions}), ice_predictions
+        return (
+            pl.DataFrame({var: grid_vals, "prediction": predictions}),
+            ice_predictions,
+        )
 
     # Compute PDP for interaction (two variables)
     def compute_pdp_interaction(var1, var2):
@@ -1295,7 +1314,10 @@ def pdp_sm(
                     ice_modified_pd = _to_pandas_for_predict(ice_modified)
                     ice_preds = fitted.predict(ice_modified_pd)
                     ice_predictions.append(list(ice_preds))
-            return pl.DataFrame({var: grid_vals, "prediction": predictions}), ice_predictions
+            return (
+                pl.DataFrame({var: grid_vals, "prediction": predictions}),
+                ice_predictions,
+            )
         else:
             iplot = sim_prediction(
                 data, vary=var, nnv=grid_resolution, minq=minq, maxq=maxq
