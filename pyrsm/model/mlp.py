@@ -86,8 +86,27 @@ class mlp:
         max_iter: int = 1_000_000,
         random_state: int = 1234,
         mod_type: Literal["regression", "classification"] = "classification",
+        cv=None,
         **kwargs,
     ) -> None:
+        # Apply best_params_ from cross-validation if provided
+        if cv is not None and hasattr(cv, "best_params_"):
+            best = cv.best_params_
+            if "hidden_layer_sizes" in best:
+                hidden_layer_sizes = best["hidden_layer_sizes"]
+            if "alpha" in best:
+                alpha = best["alpha"]
+            if "activation" in best:
+                activation = best["activation"]
+            if "solver" in best:
+                solver = best["solver"]
+            if "batch_size" in best:
+                batch_size = best["batch_size"]
+            if "learning_rate_init" in best:
+                learning_rate_init = best["learning_rate_init"]
+            if "max_iter" in best:
+                max_iter = best["max_iter"]
+
         if isinstance(data, dict):
             self.name = list(data.keys())[0]
             self.data = data[self.name]
@@ -108,6 +127,7 @@ class mlp:
         self.learning_rate_init = learning_rate_init
         self.max_iter = max_iter
         self.random_state = random_state
+        self.cv = cv
         self.kwargs = kwargs
         self.nobs_all = self.data.height
         self.mod_type = mod_type

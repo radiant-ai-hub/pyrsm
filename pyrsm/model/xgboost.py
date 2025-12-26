@@ -61,8 +61,25 @@ class xgboost:
         colsample_bytree: float = 1.0,
         random_state: int = 1234,
         mod_type: Literal["regression", "classification"] = "classification",
+        cv=None,
         **kwargs,
     ) -> None:
+        # Apply best_params_ from cross-validation if provided
+        if cv is not None and hasattr(cv, "best_params_"):
+            best = cv.best_params_
+            if "n_estimators" in best:
+                n_estimators = best["n_estimators"]
+            if "max_depth" in best:
+                max_depth = best["max_depth"]
+            if "min_child_weight" in best:
+                min_child_weight = best["min_child_weight"]
+            if "learning_rate" in best:
+                learning_rate = best["learning_rate"]
+            if "subsample" in best:
+                subsample = best["subsample"]
+            if "colsample_bytree" in best:
+                colsample_bytree = best["colsample_bytree"]
+
         if isinstance(data, dict):
             self.name = list(data.keys())[0]
             self.data = data[self.name]
@@ -84,6 +101,7 @@ class xgboost:
         self.colsample_bytree = colsample_bytree
         self.random_state = random_state
         self.ml_model = {"model": "xgboost", "mod_type": mod_type}
+        self.cv = cv
         self.kwargs = kwargs
         self.nobs_all = self.data.height
 

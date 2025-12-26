@@ -61,8 +61,21 @@ class rforest:
         oob_score: bool = True,
         random_state: int = 1234,
         mod_type: Literal["regression", "classification"] = "classification",
+        cv=None,
         **kwargs,
     ) -> None:
+        # Apply best_params_ from cross-validation if provided
+        if cv is not None and hasattr(cv, "best_params_"):
+            best = cv.best_params_
+            if "n_estimators" in best:
+                n_estimators = best["n_estimators"]
+            if "max_features" in best:
+                max_features = best["max_features"]
+            if "min_samples_leaf" in best:
+                min_samples_leaf = best["min_samples_leaf"]
+            if "max_samples" in best:
+                max_samples = best["max_samples"]
+
         if isinstance(data, dict):
             self.name = list(data.keys())[0]
             self.data = data[self.name]
@@ -84,6 +97,7 @@ class rforest:
         self.random_state = random_state
         self.ml_model = {"model": "rforest", "mod_type": mod_type}
         self.sample_weight = sample_weight
+        self.cv = cv
         self.kwargs = kwargs
         self.nobs_all = self.data.height
 
