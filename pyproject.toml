@@ -29,6 +29,7 @@ dependencies = [
     "IPython>=7.34.0",
     "pyarrow>=17.0.0",
     "scikit-misc>=0.5.2",
+    "fastexcel>=0.18.0",
 ]
 
 [project.optional-dependencies]
@@ -104,3 +105,8 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F403", "F405"]  # Allow * imports in __init__.py files
 "pyrsm/basics/prob_calc/utils.py" = ["F401"]  # ceil, floor are re-exported
+
+[dependency-groups]
+dev = [
+    "xlwt>=1.3.0",
+]

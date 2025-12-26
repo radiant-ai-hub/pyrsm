@@ -486,6 +486,19 @@ wheels = [
 ]
 
 [[package]]
+name = "fastexcel"
+version = "0.18.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/8a/bd/29c2e1689587ca5fa23f2e422e1a845cb6c3b6e19197f56d8ac8360f9889/fastexcel-0.18.0.tar.gz", hash = "sha256:00d82b787ca6dd0fae9c5d75e6c7b0a2c489236ac93e63cba70571e6d3e87568", size = 59027, upload-time = "2025-11-24T11:07:52.799Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c9/af/86df57906c473d0072785360f1951b222ba6d33b2ff1e0bea86ff6070503/fastexcel-0.18.0-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:6ec6e53de42519b8a080dcaf1ec8e8eca99c5e6a19d30022d168f488b1f0ec12", size = 3065735, upload-time = "2025-11-24T11:07:41.223Z" },
+    { url = "https://files.pythonhosted.org/packages/81/74/ce74f5d5a7fd36e3384499fe43bb5db23cf16c98b7f95b0f3a2456361cb3/fastexcel-0.18.0-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:b7fadce17c6649819709bd06f5acb66bae3ce38112237d80b4816ab791693b73", size = 2857635, upload-time = "2025-11-24T11:07:43.6Z" },
+    { url = "https://files.pythonhosted.org/packages/1c/05/68f6145b7230a4e75b8c08a592ce4dcac88567420967aca190b7feee73e3/fastexcel-0.18.0-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:3f8edb3e38aa458a110dffd3fb6aabb64ef8e10b8c5cede2d2346e5c04e5e1ef", size = 3185991, upload-time = "2025-11-24T11:07:33.102Z" },
+    { url = "https://files.pythonhosted.org/packages/81/c5/d2833ce05892e78979450c0a439a0298bddbb5613244d5d43406341cc217/fastexcel-0.18.0-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:9eaebd921d4d89d02293e94739d92965f58873433e77a44a187ed1947769592c", size = 3359228, upload-time = "2025-11-24T11:07:35.07Z" },
+    { url = "https://files.pythonhosted.org/packages/d8/71/61572e6c59029a1edfe99ec05722cb1fcdf4825adc49c5c9308fa7e83c24/fastexcel-0.18.0-cp310-abi3-win_amd64.whl", hash = "sha256:259d29c1f40828e4665d64762232dd6680fec2344192ea850ba9fe4f4fddd6de", size = 2890696, upload-time = "2025-11-24T11:07:49.238Z" },
+]
+
+[[package]]
 name = "fastjsonschema"
 version = "2.21.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1787,6 +1800,7 @@ wheels = [
 name = "pyrsm"
 source = { editable = "." }
 dependencies = [
+    { name = "fastexcel" },
     { name = "ipython" },
     { name = "matplotlib" },
     { name = "numpy" },
@@ -1853,9 +1867,15 @@ tables = [
     { name = "great-tables" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "xlwt" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "black", marker = "extra == 'dev'" },
+    { name = "fastexcel", specifier = ">=0.18.0" },
     { name = "great-tables", marker = "extra == 'tables'", specifier = ">=0.20.0" },
     { name = "ipykernel", marker = "extra == 'dev'", specifier = ">=6.17.1" },
     { name = "ipykernel", marker = "extra == 'notebooks'", specifier = ">=6.17.1" },
@@ -1887,6 +1907,9 @@ requires-dist = [
     { name = "xlogit", marker = "extra == 'ml'" },
 ]
 provides-extras = ["ml", "plot", "tables", "dev", "notebooks", "all", "full"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "xlwt", specifier = ">=1.3.0" }]
 
 [[package]]
 name = "pytest"
@@ -2602,6 +2625,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/52/ce/c2d15e5b5a98334b1d5093c24698a2a747d623a053c84d33d844d6b67491/xlogit-0.2.7.tar.gz", hash = "sha256:60b3a657082cfe0b5b5a1ce1c49496da07ad14f51b2a4b6cda3e6089d5371608", size = 39423, upload-time = "2023-07-25T13:56:00.465Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5b/ab/5280d6920d59e739063effb59b54349a71ee66bdd11daa1664d08e68564a/xlogit-0.2.7-py3-none-any.whl", hash = "sha256:7b091b5bb1e0b806892eccbc2b0f9b8b876bb80fcd994446faec80ac000fbc3f", size = 36036, upload-time = "2023-07-25T13:55:58.655Z" },
+]
+
+[[package]]
+name = "xlwt"
+version = "1.3.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/06/97/56a6f56ce44578a69343449aa5a0d98eefe04085d69da539f3034e2cd5c1/xlwt-1.3.0.tar.gz", hash = "sha256:c59912717a9b28f1a3c2a98fd60741014b06b043936dcecbc113eaaada156c88", size = 153929, upload-time = "2017-08-22T06:47:16.498Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/44/48/def306413b25c3d01753603b1a222a011b8621aed27cd7f89cbc27e6b0f4/xlwt-1.3.0-py2.py3-none-any.whl", hash = "sha256:a082260524678ba48a297d922cc385f58278b8aa68741596a87de01a9c628b2e", size = 99981, upload-time = "2017-08-22T06:47:15.281Z" },
 ]
 
 [[package]]
