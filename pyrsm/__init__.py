@@ -1,6 +1,6 @@
 from importlib import import_module
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 
 _LAZY_MODULES = {
     "basics": "pyrsm.basics",

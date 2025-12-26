@@ -29,4 +29,3 @@ class TestExcelLoading:
         assert df.columns == ["id", "name", "value"]
         assert df["id"].to_list() == [1, 2, 3]
         assert df["name"].to_list() == ["Alice", "Bob", "Charlie"]
-
