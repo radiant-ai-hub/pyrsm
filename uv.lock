@@ -1869,6 +1869,7 @@ tables = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "pyrsm" },
     { name = "xlwt" },
 ]
 
@@ -1892,8 +1893,8 @@ requires-dist = [
     { name = "plotnine", specifier = ">=0.15.1" },
     { name = "polars", specifier = "==1.36.1" },
     { name = "pyarrow", specifier = ">=17.0.0" },
-    { name = "pyrsm", extras = ["all", "dev"], marker = "extra == 'full'" },
-    { name = "pyrsm", extras = ["ml", "plot", "tables"], marker = "extra == 'all'" },
+    { name = "pyrsm", extras = ["all", "dev"], marker = "extra == 'full'", editable = "." },
+    { name = "pyrsm", extras = ["ml", "plot", "tables"], marker = "extra == 'all'", editable = "." },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4.2" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },
     { name = "ruff", marker = "extra == 'dev'" },
@@ -1909,7 +1910,10 @@ requires-dist = [
 provides-extras = ["ml", "plot", "tables", "dev", "notebooks", "all", "full"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "xlwt", specifier = ">=1.3.0" }]
+dev = [
+    { name = "pyrsm", editable = "." },
+    { name = "xlwt", specifier = ">=1.3.0" },
+]
 
 [[package]]
 name = "pytest"
