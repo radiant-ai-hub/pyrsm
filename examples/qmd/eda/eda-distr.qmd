@@ -1,0 +1,121 @@
+---
+title: EDA > Distribution
+jupyter: python3
+---
+
+
+<div class="alert alert-info">Analyze and visualize data distributions</div>
+
+The `distr` function provides summary statistics and distribution plots for numeric, categorical, and other variable types in your data.
+
+
+```{python}
+import polars as pl
+import pyrsm as rsm
+
+## setup pyrsm for autoreload
+%reload_ext autoreload
+%autoreload 2
+%aimport pyrsm
+```
+
+# Diamonds Dataset
+
+The diamonds dataset contains prices and attributes of 3,000 diamonds. It includes numeric, categorical, and date columns.
+
+```{python}
+diamonds = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/data/diamonds.parquet")
+diamonds.head()
+```
+
+```{python}
+rsm.md("https://raw.githubusercontent.com/radiant-ai-hub/pyrsm/refs/heads/main/examples/data/data/diamonds_description.md")
+```
+
+## Basic Usage
+
+By default, `distr` analyzes all columns and categorizes them as numeric, categorical, or other (date, datetime, etc.).
+
+```{python}
+rsm.eda.distr(diamonds).summary()
+```
+
+## Distribution Plots
+
+Use `plot()` to create histograms for numeric variables and bar charts for categorical variables.
+
+```{python}
+rsm.eda.distr(diamonds).plot()
+```
+
+## Select Specific Columns
+
+Use `cols` to focus on specific variables.
+
+```{python}
+rsm.eda.distr(diamonds, cols=["price", "carat", "cut"]).summary()
+```
+
+```{python}
+rsm.eda.distr(diamonds, cols=["price", "cut"]).plot()
+```
+
+## Grouped Statistics
+
+Use `by` to compute distribution statistics within groups.
+
+```{python}
+rsm.eda.distr(diamonds, by="cut").summary()
+```
+
+## Customize Plots
+
+Adjust `bins` for histograms and `ncol` for the grid layout.
+
+```{python}
+rsm.eda.distr(diamonds, cols=["price", "carat", "depth", "table"]).plot(bins=50, ncol=2)
+```
+
+# Titanic Dataset
+
+The Titanic dataset contains passenger information from the 1912 disaster.
+
+```{python}
+titanic = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/data/titanic.parquet")
+titanic.head()
+```
+
+```{python}
+rsm.md("https://raw.githubusercontent.com/radiant-ai-hub/pyrsm/refs/heads/main/examples/data/data/titanic_description.md")
+```
+
+```{python}
+rsm.eda.distr(titanic).summary()
+```
+
+```{python}
+rsm.eda.distr(titanic, cols=["age", "fare", "pclass", "survived"]).plot()
+```
+
+## Handling String and Date Columns
+
+The `distr` function automatically classifies columns by type:
+
+- **Numeric**: Continuous variables get histograms and standard statistics (mean, std, min, max)
+- **Categorical**: String, Categorical, and Enum columns get value counts and proportions
+- **Other**: Date and datetime columns are summarized with min/max range
+
+String columns like `name` and `cabin` in the Titanic dataset are treated as categorical:
+
+```{python}
+rsm.eda.distr(titanic, cols=["name", "cabin"]).summary()
+```
+
+The diamonds dataset includes a `date` column, which appears in the "Other Variables" section:
+
+```{python}
+rsm.eda.distr(diamonds, cols=["date"]).summary()
+```
+
+© Vincent Nijs (2026)
+

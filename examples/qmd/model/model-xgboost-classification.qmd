@@ -1,0 +1,262 @@
+---
+title: Models > XGBoost
+jupyter: python3
+---
+
+
+<div class="alert alert-info">Estimate and tune an XGBoost model for binary classification</div>
+
+
+```{python}
+import os
+
+import polars as pl
+from sklearn.model_selection import GridSearchCV, StratifiedKFold
+import pyrsm as rsm
+```
+
+```{python}
+## setup pyrsm for autoreload
+%reload_ext autoreload
+%autoreload 2
+%aimport pyrsm
+```
+
+### Example
+
+As an example we will use a dataset that describes the survival status of individual passengers on the Titanic. The principal source for data about Titanic passengers is the Encyclopedia Titanic. One of the original sources is Eaton & Haas (1994) Titanic: Triumph and Tragedy, Patrick Stephens Ltd, which includes a passenger list created by many researchers and edited by Michael A. Findlay. Suppose we want to investigate which factors are most strongly associated with the chance of surviving the sinking of the Titanic. Lets focus on four variables in the database:
+
+- survived = a factor with levels `Yes` and `No`
+- pclass = Passenger Class (1st, 2nd, 3rd). This is a proxy for socio-economic status (SES) 1st ~ Upper; 2nd ~ Middle; 3rd ~ Lower
+- sex = Sex (female, male)
+- age = Age in years
+
+Select `survived` as the response variable and `Yes` in **Choose level**. Select `pclass`, `sex` and `age` as the explanatory variables. In contrast to Logistic Regression, a Machine Learning model like a XGBoost does not provide coefficients or odds-ratios that we can interpret. Instead, the model provides predictions that we need to evaluate for accuracy. We will also use different plots to better understand what the XGBoost model is telling us about the connection between the explanatory variables (i.e., features) and the response variable (i.e., target).
+
+```{python}
+titanic = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/data/titanic.parquet")
+titanic.head()
+```
+
+```{python}
+rsm.md("https://raw.githubusercontent.com/radiant-ai-hub/pyrsm/refs/heads/main/examples/data/data/titanic_description.md")
+```
+
+```{python}
+evar = ["pclass", "sex", "age", "sibsp", "parch", "fare"]
+```
+
+```{python}
+clf_xgb = rsm.model.xgboost(
+    {"titanic": titanic},
+    rvar="survived",
+    lev="Yes",
+    evar=evar,
+    n_estimators=100,
+    max_depth=6,
+    min_child_weight=1,
+    learning_rate=0.3,
+    random_state=1234,
+)
+clf_xgb.summary()
+```
+
+```{python}
+clf_xgb.plot("pred")
+```
+
+```{python}
+titanic.shape
+```
+
+```{python}
+clf_xgb.plot("pdp")
+```
+
+```{python}
+clf_xgb.plot("pdp", ice=True)
+```
+
+```{python}
+clf_xgb.plot("pdp_sklearn")
+```
+
+```{python}
+clf_xgb.plot("pip")
+```
+
+```{python}
+# sklearn calculates permutation importance for each categorical level
+# separately which is problematic
+clf_xgb.plot("pip_sklearn")
+```
+
+```{python}
+clf_xgb.predict()
+```
+
+In addition to the numerical output provided in the _Summary_ tab we can also evaluate the link between `survival`, `class`, `sex`, and `age` visually (see _Plot_ tab). 
+
+## Tuning an XGBoost classification model
+
+## Tuning an XGBoost model
+
+When building an XGBoost model, there are several hyperparameters that can be tuned to improve model performance. The key parameters we'll focus on are:
+
+- `n_estimators`: Number of boosting rounds/trees (50, 100, 150)
+- `max_depth`: Maximum depth of trees (0-6)
+- `min_child_weight`: Minimum sum of instance weight needed in a child (1, 5, 10)
+- `learning_rate`: Step size to prevent overfitting (0.1, 0.2, 0.3)
+
+To find the optimal combination of these parameters, we:
+
+1. Split our data into training (70%) and test (30%) sets
+2. Use grid search with 5-fold cross validation to evaluate different parameter combinations
+3. Compare model performance with default vs tuned parameters
+
+First, let's create our train/test split:
+
+```{python}
+titanic = titanic.with_columns(
+    training=rsm.model.make_train(titanic, strat_var="survived", test_size=0.3, random_state=1234)
+)
+```
+
+```{python}
+clf_xgb = rsm.model.xgboost(
+    {"titanic (train)": titanic.filter(pl.col("training") == 1)},
+    rvar="survived",
+    lev="Yes",
+    evar=evar,
+    n_estimators=100,
+    max_depth=6,
+    min_child_weight=1,
+    learning_rate=0.3,
+    random_state=1234,
+)
+clf_xgb.summary()
+```
+
+```{python}
+titanic = titanic.with_columns(pred_xgb=clf_xgb.predict(titanic).get_column("prediction"))
+titanic
+```
+
+```{python}
+dct = {
+    "train": titanic.filter(pl.col("training") == 1),
+    "test": titanic.filter(pl.col("training") == 0),
+}
+rsm.model.gains_plot(dct, rvar="survived", lev="Yes", pred="pred_xgb")
+```
+
+The initial model used default parameters. Let's evaluate different combinations of parameters using grid search cross validation. We'll try:
+- n_estimators: 50 to 150 trees (in steps of 50)
+- max_depth: 0 to 6 levels
+- min_child_weight: 1, 5, or 10
+- learning_rate: 0.1, 0.2, or 0.3
+
+We'll use the AUC (Area Under the ROC Curve) metric to evaluate performance:
+
+```{python}
+param_grid = {
+    "n_estimators": [50, 100, 150],
+    "max_depth": list(range(7)),
+    "min_child_weight": [1, 5, 10],
+    "learning_rate": [0.1, 0.2, 0.3],
+}
+scoring = {"AUC": "roc_auc"}
+param_grid
+```
+
+```{python}
+cv_file = "cv-objects/clf-xgb-cross-validation-object.pkl"
+if os.path.exists(cv_file):
+    cv = rsm.notebook.load_state(cv_file)["cv"]
+else:
+    stratified_k_fold = StratifiedKFold(n_splits=5, shuffle=True, random_state=1234)
+    cv = GridSearchCV(
+        clf_xgb.fitted,
+        param_grid,
+        scoring=scoring,
+        cv=stratified_k_fold,
+        n_jobs=4,
+        refit=list(scoring.keys())[0],
+        verbose=5,
+    ).fit(clf_xgb.data_onehot.to_pandas(), clf_xgb.data.get_column("survived"))
+    if not os.path.exists("cv-objects"):
+        os.mkdir("cv-objects")
+    rsm.notebook.save_state({"cv": cv}, cv_file)
+```
+
+```{python}
+# same functionality as the cell above but with less typing
+cv = rsm.model.cross_validation(clf_xgb, "clf-xgb", param_grid, scoring)
+```
+
+```{python}
+cv.best_params_
+```
+
+```{python}
+cv.best_score_
+```
+
+```{python}
+pl.DataFrame(cv.cv_results_).sort("rank_test_AUC")
+```
+
+```{python}
+clf_xgbcv = rsm.model.xgboost(
+    data={"titanic (train)": titanic.filter(pl.col("training") == 1)},
+    rvar="survived",
+    lev="Yes",
+    evar=evar,
+    random_state=1234,
+    **cv.best_params_,
+)
+clf_xgbcv.summary()
+```
+
+```{python}
+titanic = titanic.with_columns(
+    pred_xgb=clf_xgb.predict(titanic).get_column("prediction"),
+    pred_xgbcv=clf_xgbcv.predict(titanic).get_column("prediction"),
+)
+titanic
+```
+
+```{python}
+dct = {
+    "train": titanic.filter(pl.col("training") == 1),
+    "test": titanic.filter(pl.col("training") == 0),
+}
+rsm.model.gains_plot(dct, rvar="survived", lev="Yes", pred="pred_xgb")
+```
+
+```{python}
+dct = {
+    "train": titanic.filter(pl.col("training") == 1),
+    "test": titanic.filter(pl.col("training") == 0),
+}
+rsm.model.gains_plot(dct, rvar="survived", lev="Yes", pred="pred_xgbcv")
+```
+
+```{python}
+rsm.model.gains_plot(
+    {"train": titanic.filter(pl.col("training") == 1)},
+    rvar="survived",
+    lev="Yes",
+    pred=["pred_xgb", "pred_xgbcv"],
+)
+```
+
+```{python}
+rsm.model.gains_plot(
+    {"test": titanic.filter(pl.col("training") == 0)},
+    rvar="survived",
+    lev="Yes",
+    pred=["pred_xgb", "pred_xgbcv"],
+)
+```
+

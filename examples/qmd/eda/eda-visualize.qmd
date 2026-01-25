@@ -1,0 +1,173 @@
+---
+title: EDA > Visualize
+jupyter: python3
+---
+
+
+<div class="alert alert-info">Create plots using plotnine (ggplot2 for Python)</div>
+
+The `visualize` function provides a simplified interface to plotnine for common plot types: histograms, density plots, scatter plots, line plots, box plots, and violin plots.
+
+
+```{python}
+import polars as pl
+import pyrsm as rsm
+```
+
+```{python}
+## setup pyrsm for autoreload
+%reload_ext autoreload
+%autoreload 2
+%aimport pyrsm
+```
+
+# Diamonds Dataset
+
+```{python}
+diamonds = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/data/diamonds.parquet")
+diamonds
+```
+
+```{python}
+rsm.md("https://raw.githubusercontent.com/radiant-ai-hub/pyrsm/refs/heads/main/examples/data/data/diamonds_description.md")
+```
+
+## Histogram (Numeric Variable)
+
+For numeric variables, `geom="dist"` creates a histogram.
+
+```{python}
+rsm.eda.visualize(diamonds, x="price")
+```
+
+```{python}
+rsm.eda.visualize(diamonds, x="carat", bins=50)
+```
+
+## Bar Chart (Categorical Variable)
+
+For categorical variables, `geom="dist"` automatically creates a bar chart.
+
+```{python}
+rsm.eda.visualize(diamonds, x="cut")
+```
+
+```{python}
+rsm.eda.visualize(diamonds, x="color")
+```
+
+## Density Plot
+
+```{python}
+rsm.eda.visualize(diamonds, x="price", geom="density")
+```
+
+```{python}
+rsm.eda.visualize(diamonds, x="carat", geom="density", fill="steelblue")
+```
+
+## Scatter Plot
+
+```{python}
+rsm.eda.visualize(diamonds, x="carat", y="price")
+```
+
+## Scatter Plot with Color
+
+```{python}
+rsm.eda.visualize(diamonds, x="carat", y="price", color="cut")
+```
+
+## Scatter Plot with Regression Line
+
+```{python}
+rsm.eda.visualize(diamonds, x="carat", y="price", smooth="lm")
+```
+
+```{python}
+rsm.eda.visualize(diamonds, x="carat", y="price", smooth="loess")
+```
+
+## Box Plot
+
+```{python}
+rsm.eda.visualize(diamonds, x="cut", y="price", geom="box")
+```
+
+```{python}
+rsm.eda.visualize(diamonds, x="color", y="carat", geom="box")
+```
+
+## Violin Plot
+
+```{python}
+rsm.eda.visualize(diamonds, x="cut", y="price", geom="violin")
+```
+
+## Faceted Plots
+
+```{python}
+rsm.eda.visualize(diamonds, x="price", facet="cut")
+```
+
+```{python}
+rsm.eda.visualize(diamonds, x="carat", y="price", facet="cut", alpha=0.5)
+```
+
+# Titanic Dataset
+
+```{python}
+titanic = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/data/titanic.parquet")
+titanic
+```
+
+```{python}
+rsm.md("https://raw.githubusercontent.com/radiant-ai-hub/pyrsm/refs/heads/main/examples/data/data/titanic_description.md")
+```
+
+## Passenger Distribution by Class
+
+```{python}
+rsm.eda.visualize(titanic, x="pclass")
+```
+
+## Age Distribution
+
+```{python}
+rsm.eda.visualize(titanic, x="age", bins=30)
+```
+
+## Fare Distribution by Class
+
+```{python}
+rsm.eda.visualize(titanic, x="pclass", y="fare", geom="box")
+```
+
+## Age by Survival Status
+
+```{python}
+rsm.eda.visualize(titanic, x="survived", y="age", geom="violin")
+```
+
+## Age vs Fare
+
+```{python}
+rsm.eda.visualize(titanic, x="age", y="fare", color="pclass", alpha=0.6)
+```
+
+## Age Distribution Faceted by Class and Survival
+
+```{python}
+rsm.eda.visualize(titanic, x="age", facet="pclass", bins=20)
+```
+
+## Scatter with Jitter
+
+Useful when x or y has discrete values to avoid overplotting.
+
+```{python}
+rsm.eda.visualize(titanic, x="pclass", y="age", jitter=True, alpha=0.5)
+```
+
+© Vincent Nijs (2026)
+

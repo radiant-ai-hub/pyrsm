@@ -1,0 +1,38 @@
+---
+title: Loading example data sets from the pyrsm package
+jupyter: python3
+---
+
+```{python}
+import polars as pl
+import pyrsm as rsm
+```
+
+The pyrsm package contains all example packages included with the family of Radiant-for-R packages. If you see an example dataset mentioned in any of the help files listed under the `data`, `design`, `basics`, `model`, or `multivariate` dropdown menus shown at https://radiant-rstats.github.io/docs/ then you will be able to load that same dataset as a polars dataframe using commands like those shown below.
+
+For example, to load the `catalog` data set from example 1 (https://radiant-rstats.github.io/docs/model/regress.html) you would use the command below to load the dataset and the provided data description.
+
+```{python}
+catalog = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/model/catalog.parquet")
+catalog
+```
+
+```{python}
+rsm.md("https://raw.githubusercontent.com/radiant-ai-hub/pyrsm/refs/heads/main/examples/data/model/catalog_description.md")
+```
+
+```{python}
+rndnames = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/design/rndnames.parquet")
+rndnames
+```
+
+```{python}
+rsm.md("https://raw.githubusercontent.com/radiant-ai-hub/pyrsm/refs/heads/main/examples/data/design/rndnames_description.md")
+```
+
+List all polars dataframes in the global python environment:
+
+```{python}
+[key for key, value in globals().items() if key[0] != "_" and isinstance(value, pl.DataFrame)]
+```
+

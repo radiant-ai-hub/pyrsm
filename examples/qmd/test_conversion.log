@@ -1,0 +1,128 @@
+[1mpandoc [22m
+  to: ipynb
+  output-file: basics-compare-means.ipynb
+  standalone: true
+  default-image-extension: png
+  variables: {}
+  
+[1mmetadata[22m
+  ipynb-title-block: /nix/store/5fz6dhc4515iaj8l8ic187a0fdigyrgy-quarto-1.8.26/share/formats/ipynb/templates/title-block.md
+  title: Basics > Compare Means
+  jupyter: python3
+  
+Output created: basics-compare-means.ipynb
+
+[NbConvertApp] Converting notebook ./basics/basics-compare-means.ipynb to notebook
+[NbConvertApp] Writing 438803 bytes to basics/basics-compare-means.ipynb
+[1mpandoc [22m
+  to: ipynb
+  output-file: basics-compare-props.ipynb
+  standalone: true
+  default-image-extension: png
+  variables: {}
+  
+[1mmetadata[22m
+  ipynb-title-block: /nix/store/5fz6dhc4515iaj8l8ic187a0fdigyrgy-quarto-1.8.26/share/formats/ipynb/templates/title-block.md
+  title: Basics > Compare Proportions
+  jupyter: pyrsm-venv
+  
+Output created: basics-compare-props.ipynb
+
+[NbConvertApp] Converting notebook ./basics/basics-compare-props.ipynb to notebook
+[NbConvertApp] Writing 186826 bytes to basics/basics-compare-props.ipynb
+[1mpandoc [22m
+  to: ipynb
+  output-file: basics-correlation.ipynb
+  standalone: true
+  default-image-extension: png
+  variables: {}
+  
+[1mmetadata[22m
+  ipynb-title-block: /nix/store/5fz6dhc4515iaj8l8ic187a0fdigyrgy-quarto-1.8.26/share/formats/ipynb/templates/title-block.md
+  title: Basics > Correlation
+  jupyter: pyrsm-venv
+  
+Output created: basics-correlation.ipynb
+
+[NbConvertApp] Converting notebook ./basics/basics-correlation.ipynb to notebook
+[NbConvertApp] Writing 135749 bytes to basics/basics-correlation.ipynb
+[1mpandoc [22m
+  to: ipynb
+  output-file: basics-cross-tabs.ipynb
+  standalone: true
+  default-image-extension: png
+  variables: {}
+  
+[1mmetadata[22m
+  ipynb-title-block: /nix/store/5fz6dhc4515iaj8l8ic187a0fdigyrgy-quarto-1.8.26/share/formats/ipynb/templates/title-block.md
+  title: Basics > Cross-tabs
+  jupyter: pyrsm-venv
+  
+Output created: basics-cross-tabs.ipynb
+
+[NbConvertApp] Converting notebook ./basics/basics-cross-tabs.ipynb to notebook
+[NbConvertApp] Writing 263475 bytes to basics/basics-cross-tabs.ipynb
+[1mpandoc [22m
+  to: ipynb
+  output-file: basics-goodness.ipynb
+  standalone: true
+  default-image-extension: png
+  variables: {}
+  
+[1mmetadata[22m
+  ipynb-title-block: /nix/store/5fz6dhc4515iaj8l8ic187a0fdigyrgy-quarto-1.8.26/share/formats/ipynb/templates/title-block.md
+  title: Basics > Goodness of fit
+  jupyter: pyrsm-venv
+  
+Output created: basics-goodness.ipynb
+
+[NbConvertApp] Converting notebook ./basics/basics-goodness.ipynb to notebook
+[NbConvertApp] Writing 262277 bytes to basics/basics-goodness.ipynb
+[1mpandoc [22m
+  to: ipynb
+  output-file: basics-probability-calculator.ipynb
+  standalone: true
+  default-image-extension: png
+  variables: {}
+  
+[1mmetadata[22m
+  ipynb-title-block: /nix/store/5fz6dhc4515iaj8l8ic187a0fdigyrgy-quarto-1.8.26/share/formats/ipynb/templates/title-block.md
+  title: Basics > Probability Calculator
+  jupyter: pyrsm-venv
+  
+Output created: basics-probability-calculator.ipynb
+
+[NbConvertApp] Converting notebook ./basics/basics-probability-calculator.ipynb to notebook
+[NbConvertApp] Writing 183103 bytes to basics/basics-probability-calculator.ipynb
+[1mpandoc [22m
+  to: ipynb
+  output-file: basics-single-mean.ipynb
+  standalone: true
+  default-image-extension: png
+  variables: {}
+  
+[1mmetadata[22m
+  ipynb-title-block: /nix/store/5fz6dhc4515iaj8l8ic187a0fdigyrgy-quarto-1.8.26/share/formats/ipynb/templates/title-block.md
+  title: Basics > Single Mean
+  jupyter: pyrsm-venv
+  
+Output created: basics-single-mean.ipynb
+
+[NbConvertApp] Converting notebook ./basics/basics-single-mean.ipynb to notebook
+[NbConvertApp] Writing 133775 bytes to basics/basics-single-mean.ipynb
+[1mpandoc [22m
+  to: ipynb
+  output-file: basics-single-proportion.ipynb
+  standalone: true
+  default-image-extension: png
+  variables: {}
+  
+[1mmetadata[22m
+  ipynb-title-block: /nix/store/5fz6dhc4515iaj8l8ic187a0fdigyrgy-quarto-1.8.26/share/formats/ipynb/templates/title-block.md
+  title: Basics > Single Proportion
+  jupyter: pyrsm-venv
+  
+Output created: basics-single-proportion.ipynb
+
+[NbConvertApp] Converting notebook ./basics/basics-single-proportion.ipynb to notebook
+[NbConvertApp] Writing 154317 bytes to basics/basics-single-proportion.ipynb

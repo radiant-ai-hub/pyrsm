@@ -1,0 +1,38 @@
+---
+title: Multivariate > Factor Analysis
+jupyter: python3
+---
+
+
+<div class="alert alert-info">...</div>
+
+
+```{python}
+# install latest version of pyrsm
+# make sure to use --user
+# %pip install --user pyrsm --upgrade
+```
+
+```{python}
+#| tags: []
+import matplotlib as mpl
+
+import pyrsm as rsm
+
+# increase plot resolution
+mpl.rcParams["figure.dpi"] = 100
+```
+
+```{python}
+## setup pyrsm for autoreload
+%reload_ext autoreload
+%autoreload 2
+%aimport pyrsm
+```
+
+```{python}
+import pyrsm as rsm
+
+rsm.__version__
+```
+

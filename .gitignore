@@ -42,3 +42,6 @@ plans/
 examples/model/cv-objects/
 Makefile
 TESTING.md
+
+# RSM VS Code generated files
+.devcontainer/

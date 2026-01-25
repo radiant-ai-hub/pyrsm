@@ -1,0 +1,121 @@
+---
+title: Basics > Cross-tabs
+jupyter: pyrsm-venv
+---
+
+
+
+<div class="alert alert-info">Evaluate associations between two categorical variables</div>
+
+Cross-tab analysis is used to evaluate if categorical variables are associated. This tool is also known as chi-square or contingency table analysis
+
+```{python}
+import polars as pl
+import pyrsm as rsm
+```
+
+```{python}
+## setup pyrsm for autoreload
+%reload_ext autoreload
+%autoreload 2
+%aimport pyrsm
+```
+
+### Example
+
+The data are from a sample of 580 newspaper readers that indicated (1) which newspaper they read most frequently (USA today or Wall Street Journal) and (2) their level of income (Low income vs. High income). The data has three variables: A respondent identifier (id), respondent income (High or Low), and the primary newspaper the respondent reads (USA today or Wall Street Journal).
+
+We will examine if there is a relationship between income level and choice of newspaper. In particular, we test the following null and alternative hypotheses:
+
+* H0: There is no relationship between income level and newspaper choice
+* Ha: There is a relationship between income level and newspaper choice
+
+If the null-hypothesis is rejected we can investigate which cell(s) contribute to the hypothesized association. To run this test we will choose Income as the first categorical variable and Newspaper as the second. This test amounts to evaluating the size of the difference between the observed and expected frequencies. The expected frequencies are calculated using H0 (i.e., no association) as (Row total x Column Total) /  Overall Total.
+
+```{python}
+# newspaper = pl.read_parquet("./examples/data/basics/newspaper.parquet")
+# ct = rsm.basics.cross_tabs({"newspaper": newspaper}, var1="Income", var2="Newspaper")
+```
+
+```{python}
+# load example data from the pyrsm library
+newspaper = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/basics/newspaper.parquet")
+newspaper.head()
+```
+
+```{python}
+rsm.md("https://raw.githubusercontent.com/radiant-ai-hub/pyrsm/refs/heads/main/examples/data/basics/newspaper_description.md")
+```
+
+To create a cross_tabs object use `rsm.basics.cross_tabs`. The created object has attributes and methods that you can use to get the information you need. For example. the `.expected` attribute shows the expected values under the null-hypothesis as a Polars DataFrame.
+
+```{python}
+ct = rsm.basics.cross_tabs({"newspaper": newspaper}, var1="Income", var2="Newspaper")
+```
+
+```{python}
+ct.observed
+```
+
+```{python}
+ct.expected.with_columns((pl.col(pl.Float32, pl.Float64)).round(2))
+```
+
+`cross_tabs` objects have two methods: `summary()` and `plot()`. 
+
+```{python}
+ct.summary(output=["observed", "expected", "chisq"])
+```
+
+The (Pearson) chi-squared test evaluates if we can reject the null-hypothesis that the two variables are independent. It does so by comparing the observed frequencies (i.e., what we actually see in the data) to the expected frequencies (i.e., what we would expect to see if the two variables were independent). If there are big differences between the table of expected and observed frequencies, the chi-square value will be _large_. The chi-square value for each cell is calculated as $(o - e)^2 / e$, where $o$ is the observed frequency in a cell and $e$ is the expected frequency in that cell if the null hypothesis holds. These chi-square values can be shown by adding `output="chisq"` as an argument to the `.summary()` method of a `cross_tab` object. The overall chi-square value is obtained by summing the chi-square values across all cells, i.e., it is the sum of the values shown in the _Contribution to chi-squared_ table.
+
+In order to determine if the overall chi-square statistics can be considered _large_ we first determine the degrees of freedom (df). In particular: $df = (\# rows - 1) \times (\# columns - 1)$. In a 2x2 table, we have $(2-1) \times (2-1) = 1$ df. The output from `ct.summary()` shows the value of the chi-square statistic, the associated df, and the p.value associated with the test.
+
+Remember to check the expected values: All expected frequencies are larger than 5 therefore the p.value for the chi-square statistic is unlikely to be biased. As usual we reject the null-hypothesis when the p.value is smaller 0.05. Since our p.value is very small (< .001) we can reject the null-hypothesis (i.e., the data suggest there is an association between newspaper readership and income).
+
+We can use the provided p.value associated with the Chi-squared value of 187.783 to evaluate the null hypothesis. However, we can also calculate the critical Chi-squared value using the probability calculator in the Radiant R package. As we can see from the output below, that value is 3.841 if we choose a 95% confidence level. Because the calculated Chi-square value is larger than the critical value (187.783 > 3.841) we reject null hypothesis that `Income` and `Newspaper` are independent.
+
+```{python}
+pc = rsm.basics.prob_calc("chisq", df=1, pub=0.95)
+pc.summary()
+pc.plot()
+```
+
+We can also use the probability calculator to determine the p.value associated with the calculated Chi-square value. Consistent with the output from the `.summary()` method shown above this `p.value` is `< .001`.
+
+```{python}
+pc = rsm.basics.prob_calc("chisq", df=1, ub=187.83)
+pc.summary()
+pc.plot()
+```
+
+In addition to the numerical output provided by the `.summary()` method we can evaluate the hypothesis visually using the `.plot()` method of the `cross_tab` object. In addition to the distribution of observed and expected frequencies, we will also plot the standardized deviations (i.e., standardized differences between the observed and expected table). This measure is calculated as $(o-e)/sqrt(e)$, i.e., a score of how different the observed and expected frequencies in one cell in our table are. When a cell's standardized deviation is greater than 1.96 (in absolute value) the cell has a significant deviation from the model of independence (or no association).
+
+```{python}
+ct.plot(plots=["observed", "expected", "dev_std"])
+```
+
+In the last plot above we see that all cells contribute to the association between income and readership as all standardized deviations are larger than 1.96 in absolute value (i.e., the bars extend beyond the outer dotted line in the plot).
+
+In other words, there seem to be fewer low income respondents that read WSJ and more high income respondents that read WSJ than would be expected if the null hypothesis of no-association were true. Furthermore, there are more low income respondents that read USA today and fewer high income respondents that read USA Today than would be expected if the null hypothesis of no-association were true.
+
+### Technical note
+
+When one or more expected values are small (e.g., 5 or less) the p.value for the Chi-squared test is biased and it may be necessary to _collapse_ rows and/or columns and recalculate the test statistics.
+
+## Video Tutorials
+
+To review the same analysis in Radiant for R, copy-and-paste the full command below into the RStudio console (i.e., the bottom-left window) and press return to gain access to all materials used in the hypothesis testing module of the <a href="https://www.youtube.com/playlist?list=PLNhtaetb48EdKRIY7MewCyvb_1x7dV3xw">Radiant Tutorial Series</a>:
+
+`usethis::use_course("https://www.dropbox.com/sh/0xvhyolgcvox685/AADSppNSIocrJS-BqZXhD1Kna?dl=1")`
+
+[Cross-tabs Hypothesis Test](https://youtu.be/MEt8vO5FNYQ){target="_blank"}
+
+* This video demonstrates how to investigate associations between two categorical variables by a cross-tabs hypothesis test
+* Topics List:
+    - Setup a hypothesis test for cross-tabs in Radiant
+    - Explain how observed, expected and contribution to chi-squared tables are constructed
+    - Use the p.value and critical value to evaluate the hypothesis test
+
+© Vincent Nijs (2026)
+

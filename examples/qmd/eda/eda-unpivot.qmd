@@ -1,0 +1,101 @@
+---
+title: Unpivot (Melt) Examples
+jupyter: python3
+---
+
+
+This notebook demonstrates the `/unpivot` verb for converting wide-format data to long-format.
+
+**Make sure to select the 'PYRSM DSL' kernel** (not Python).
+
+
+## Create Sample Wide-Format Data
+
+First, let's create some sample data in wide format - quarterly sales by region.
+
+```{python}
+import polars as pl
+import pyrsm as rsm
+
+# Create wide-format sales data
+sales_wide = pl.DataFrame({
+    "region": ["North", "South", "East", "West"],
+    "Q1": [100, 200, 150, 175],
+    "Q2": [120, 220, 160, 180],
+    "Q3": [140, 240, 170, 190],
+    "Q4": [160, 260, 180, 200],
+})
+print("Wide format:")
+print(sales_wide)
+```
+
+## Basic Unpivot
+
+Unpivot specific columns (Q1-Q4) while keeping `region` as an ID column.
+
+```{python}
+rsm.eda.unpivot(sales_wide, on=['Q1', 'Q2', 'Q3', 'Q4'], id_vars='region')
+```
+
+## Custom Column Names
+
+Use `variable_name` and `value_name` to give meaningful names to the output columns.
+
+```{python}
+sales_long = rsm.eda.unpivot(sales_wide, on=['Q1', 'Q2', 'Q3', 'Q4'], id_vars='region', variable_name="quarter", value_name="sales")
+sales_long
+```
+
+## Pivot and Unpivot Roundtrip
+
+Pivot and unpivot are inverse operations. Let's demonstrate the roundtrip.
+
+```{python}
+rsm.eda.pivot(sales_long, rows='region', cols='quarter', values=['sales'], agg='sum')
+```
+
+## Real-World Example: Diamonds Dataset
+
+Let's create a pivot table from the diamonds dataset and then unpivot it.
+
+```{python}
+diamonds = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/data/diamonds.parquet")
+```
+
+```{python}
+price_pivot = rsm.eda.pivot(diamonds, rows="cut", cols="color", values="price", agg="mean")
+price_pivot
+```
+
+```{python}
+rsm.eda.unpivot(price_pivot, on=['D', 'E', 'F', 'G', 'H', 'I', 'J'], id_vars='cut', variable_name='color', value_name='avg_price')
+```
+
+## Unpivot Without Specifying `on`
+
+If you don't specify `on`, all non-ID columns are unpivoted.
+
+```{python}
+# All columns except region will be unpivoted
+rsm.eda.unpivot(sales_wide, id_vars='region')
+```
+
+## Unpivot Specific Columns Only
+
+You can unpivot just a subset of columns.
+
+```{python}
+# Only unpivot Q1 and Q2, leaving Q3 and Q4 as separate columns
+rsm.eda.unpivot(sales_wide, on=['Q1', 'Q2'], id_vars='region')
+```
+
+## Using Unpivot with Visualization
+
+Long-format data is often better for visualization.
+
+```{python}
+data = rsm.eda.unpivot(sales_wide, on=['Q1', 'Q2', 'Q3', 'Q4'], id_vars='region', variable_name='quarter', value_name='sales')
+
+rsm.eda.visualize(data, x='quarter', y='sales', geom='bar', nobs=1000, agg='mean')
+```
+

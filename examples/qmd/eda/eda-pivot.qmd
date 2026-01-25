@@ -1,0 +1,147 @@
+---
+title: EDA > Pivot
+jupyter: python3
+---
+
+
+<div class="alert alert-info">Create pivot tables, frequency tables, and crosstabs</div>
+
+The `pivot` function creates frequency tables for a single variable or crosstabs for two variables. It supports various aggregation functions, normalization, and totals.
+
+
+```{python}
+import polars as pl
+import pyrsm as rsm
+
+## setup pyrsm for autoreload
+%reload_ext autoreload
+%autoreload 2
+%aimport pyrsm
+```
+
+# Diamonds Dataset
+
+```{python}
+diamonds = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/data/diamonds.parquet")
+diamonds
+```
+
+```{python}
+rsm.md("https://raw.githubusercontent.com/radiant-ai-hub/pyrsm/refs/heads/main/examples/data/data/diamonds_description.md")
+```
+
+## Frequency Table (Single Variable)
+
+Count occurrences of each value in a categorical column.
+
+```{python}
+rsm.eda.pivot(diamonds, rows="cut")
+```
+
+```{python}
+rsm.eda.pivot(diamonds, rows="color")
+```
+
+```{python}
+rsm.eda.pivot(diamonds, rows="cut", values="price")
+```
+
+## Frequency Table with Percentages
+
+```{python}
+rsm.eda.pivot(diamonds, rows="cut", normalize="total")
+```
+
+## Frequency Table with Totals
+
+```{python}
+rsm.eda.pivot(diamonds, rows="cut", totals=True)
+```
+
+## Crosstab (Two Variables)
+
+Cross-tabulate two categorical variables to see their joint distribution.
+
+```{python}
+rsm.eda.pivot(diamonds, rows="cut", cols="color")
+```
+
+## Crosstab with Totals
+
+```{python}
+rsm.eda.pivot(diamonds, rows="cut", cols="color", totals=True)
+```
+
+## Row Normalization
+
+Show percentages within each row (rows sum to 100%).
+
+```{python}
+rsm.eda.pivot(diamonds, rows="cut", cols="color", normalize="row", totals=True)
+```
+
+## Column Normalization
+
+Show percentages within each column (columns sum to 100%).
+
+```{python}
+rsm.eda.pivot(diamonds, rows="cut", cols="color", normalize="column")
+```
+
+## Aggregation with Values
+
+Instead of counting, aggregate a numeric variable by groups.
+
+```{python}
+# Mean price by cut and color
+rsm.eda.pivot(diamonds, rows="cut", cols="color", values="price", agg="mean")
+```
+
+```{python}
+# Median carat by cut and color
+rsm.eda.pivot(diamonds, rows="cut", cols="color", values="carat", agg="median")
+```
+
+# Titanic Dataset
+
+```{python}
+titanic = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/data/titanic.parquet")
+titanic.head()
+```
+
+```{python}
+rsm.md("https://raw.githubusercontent.com/radiant-ai-hub/pyrsm/refs/heads/main/examples/data/data/titanic_description.md")
+```
+
+## Survival by Passenger Class
+
+```{python}
+rsm.eda.pivot(titanic, rows="pclass", cols="survived", totals=True)
+```
+
+## Survival Rate by Class (Row Percentages)
+
+```{python}
+rsm.eda.pivot(titanic, rows="pclass", cols="survived", normalize="row", totals=True)
+```
+
+## Survival by Sex
+
+```{python}
+rsm.eda.pivot(titanic, rows="sex", cols="survived", normalize="row", totals=True)
+```
+
+## Embarkation Port Distribution
+
+```{python}
+rsm.eda.pivot(titanic, rows="embarked", normalize="total", totals=True)
+```
+
+## Mean Fare by Class and Survival
+
+```{python}
+rsm.eda.pivot(titanic, rows="pclass", cols="survived", values="fare", agg="mean")
+```
+
+© Vincent Nijs (2026)
+

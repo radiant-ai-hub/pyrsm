@@ -1,0 +1,93 @@
+---
+title: Basics > Correlation
+jupyter: pyrsm-venv
+---
+
+
+
+
+<div class="alert alert-info">How correlated are the variables in the data?</div>
+
+
+Create a correlation matrix of selected numeric variables (`int` or `float`). Correlations and p.values are provided for each variable pair. 
+
+```{python}
+import polars as pl
+import pyrsm as rsm
+```
+
+```{python}
+## setup pyrsm for autoreload
+%reload_ext autoreload
+%autoreload 2
+%aimport pyrsm
+```
+
+Loading the "salary" dataset from pyrsm and adding it to the global environment.
+
+```{python}
+salary = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/basics/salary.parquet")
+salary.head()
+```
+
+```{python}
+rsm.md("https://raw.githubusercontent.com/radiant-ai-hub/pyrsm/refs/heads/main/examples/data/basics/salary_description.md")
+```
+
+To create a correlation object use `rsm.basics.correlation`. The created object has attributes and methods that you can use to get the information you need. For example. the `.cr` attribute shows the correlation matrix as a two dimension numpy array.
+
+```{python}
+cr = rsm.basics.correlation({"salary": salary})
+cr.cr
+```
+
+```{python}
+cr = rsm.basics.correlation({"salary": salary[["salary", "yrs_since_phd", "yrs_service"]]})
+cr.cr
+```
+
+Documentation about how to create a correlation object and how to acces its attrubutes is shown below.
+
+Correlation objects have two methods: `summary` and `plot`. 
+
+```{python}
+cr.summary()
+```
+
+We can use the `plot` method to get a visual representation of the correlation matrix. Note that scatter plots in the graph at most 1,000 data points by default. To generate scatter plots that use all observations use `plot(n = -1)`.
+
+Stars shown in the plot are interpreted as:
+
+- p.value between 0 and 0.001:  ***
+- p.value between 0.001 and 0.01: **
+- p.value between 0.01 and 0.05: *
+- p.value between 0.05 and 0.1: .
+
+In the graph below all observations all observations are use to calculate the correlations but only 50 randomly sampled observations are used to generate the scatter plots. The `salary` dataset has only 397 observations so this option isn't really needed. However, for datasets with many thousands of rows, scatter plots are very slow to generate. The default value for `nobs` is set to 1,000.
+
+```{python}
+cr.plot(nobs=50)
+```
+
+```{python}
+cr.summary(cov=True)
+```
+
+When the number of observations in a dataset is more than 1,000 and you want to use all observations to calculate the correlations and generate the scatter plots use `nobs = -1`.
+
+```{python}
+cr.plot(nobs=-1)
+```
+
+The font-size used in the plot is proportional to the size and significance of the correlation between two variables.
+
+### Correlation cutoff
+
+To show only correlations above a certain value choose a non-zero value in the numeric input between 0 and 1 (e.g., 0.15).
+
+```{python}
+cr.summary(cutoff=0.5)
+```
+
+© Vincent Nijs (2026)
+

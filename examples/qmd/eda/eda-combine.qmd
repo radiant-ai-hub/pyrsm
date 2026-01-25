@@ -1,0 +1,197 @@
+---
+title: EDA > Combine
+jupyter: python3
+---
+
+
+<div class="alert alert-info">Combine datasets using joins and set operations</div>
+
+This notebook demonstrates how to combine datasets using various join operations and set operations. We use the `superheroes`, `publishers`, and `avengers` datasets to illustrate these concepts.
+
+
+```{python}
+import polars as pl
+import pyrsm as rsm
+
+## setup pyrsm for autoreload
+%reload_ext autoreload
+%autoreload 2
+%aimport pyrsm
+```
+
+# Load the Datasets
+
+We'll use three small datasets to demonstrate combining data:
+- **superheroes**: Contains superhero names, alignment, gender, and publisher
+- **publishers**: Contains publisher names and founding years
+- **avengers**: Contains Avengers team members (similar structure to superheroes)
+
+```{python}
+superheroes = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/data/superheroes.parquet")
+superheroes
+```
+
+```{python}
+rsm.md("https://raw.githubusercontent.com/radiant-ai-hub/pyrsm/refs/heads/main/examples/data/data/superheroes_description.md")
+```
+
+```{python}
+publishers = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/data/publishers.parquet")
+publishers
+```
+
+```{python}
+rsm.md("https://raw.githubusercontent.com/radiant-ai-hub/pyrsm/refs/heads/main/examples/data/data/publishers_description.md")
+```
+
+```{python}
+avengers = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/data/avengers.parquet")
+avengers
+```
+
+```{python}
+rsm.md("https://raw.githubusercontent.com/radiant-ai-hub/pyrsm/refs/heads/main/examples/data/data/avengers_description.md")
+```
+
+# Join Operations
+
+Join operations combine two datasets based on matching values in one or more columns. The `publisher` column is the key that links superheroes to publishers.
+
+Note that:
+- **Hellboy** is published by "Dark Horse Comics", which is not in the publishers table
+- **Image** is a publisher with no superheroes in our superheroes table
+
+## Inner Join
+
+Returns all rows from the left table (`superheroes`) that have matching values in the right table (`publishers`), along with all columns from both tables.
+
+Only rows with matches in **both** datasets are retained. Notice that Hellboy is excluded because "Dark Horse Comics" is not in the publishers table.
+
+```{python}
+superheroes.join(publishers, on="publisher", how="inner")
+```
+
+## Left Join
+
+Returns all rows from the left table (`superheroes`), and all columns from both tables. Rows in the left table without a match in the right table will have `null` values for the right table's columns.
+
+All superheroes are kept. Hellboy remains in the result but has `null` for `yr_founded` because his publisher (Dark Horse Comics) is not in the publishers table.
+
+```{python}
+superheroes.join(publishers, on="publisher", how="left")
+```
+
+## Right Join
+
+Returns all rows from the right table (`publishers`), and all columns from both tables. Rows in the right table without a match in the left table will have `null` values for the left table's columns.
+
+All publishers are preserved. The Image publisher appears even though no superhero in our data represents it (with `null` values for superhero columns).
+
+In Polars, we achieve this by swapping the tables and using a left join, then reordering columns:
+
+```{python}
+# Right join: keep all publishers
+publishers.join(superheroes, on="publisher", how="left").select(
+    ["name", "alignment", "gender", "publisher", "yr_founded"]
+)
+```
+
+## Full (Outer) Join
+
+Returns all rows from both tables, keeping rows and columns that appear in either. Unmatched rows from either table will have `null` values for the other table's columns.
+
+Both Hellboy (no matching publisher) and Image (no matching superhero) are retained with `null` values where matches don't exist.
+
+```{python}
+superheroes.join(publishers, on="publisher", how="full", coalesce=True)
+```
+
+## Semi Join
+
+Returns all rows from the left table that have a match in the right table, but **only keeps columns from the left table**. This is useful for filtering one table based on the presence of matching keys in another.
+
+Returns superheroes that have a matching publisher, but no publisher data columns are included. Hellboy is excluded.
+
+```{python}
+superheroes.join(publishers, on="publisher", how="semi")
+```
+
+## Anti Join
+
+Returns all rows from the left table that do **not** have a match in the right table. Only columns from the left table are kept.
+
+Returns only unmatched records from the superheroes table. In this case, only Hellboy is returned because his publisher (Dark Horse Comics) is not in the publishers table.
+
+```{python}
+superheroes.join(publishers, on="publisher", how="anti")
+```
+
+# Set Operations
+
+For datasets with identical (or similar) structure, we can use set operations to combine them. We'll use `superheroes` and `avengers` which have the same columns.
+
+## Vertical Concatenation (Bind Rows)
+
+Stacks datasets vertically, combining all rows from both tables. This is equivalent to `rbind` in R or `UNION ALL` in SQL.
+
+Note: Magneto appears in both datasets, so he appears twice in the result.
+
+```{python}
+pl.concat([superheroes, avengers], how="vertical")
+```
+
+## Horizontal Concatenation (Bind Columns)
+
+Places datasets side-by-side, combining columns. The datasets must have the same number of rows and column names must be unique.
+
+Here we combine the first 3 superheroes (excluding the publisher column) with the publishers table:
+
+```{python}
+pl.concat([superheroes.head(3).select(["name", "alignment", "gender"]), publishers], how="horizontal")
+```
+
+## Union (Distinct Rows)
+
+Combines datasets while removing duplicate rows. This is equivalent to `UNION` in SQL.
+
+Magneto appears in both datasets but only once in the result.
+
+```{python}
+pl.concat([superheroes, avengers], how="vertical").unique()
+```
+
+## Intersect
+
+Returns rows that appear in **both** datasets. This identifies duplicate/overlapping records.
+
+Only Magneto appears in both superheroes and avengers.
+
+```{python}
+# Rows that appear in both datasets
+superheroes.join(avengers, on=superheroes.columns, how="semi")
+```
+
+## Set Difference
+
+Returns rows from the first dataset that are **not** in the second dataset.
+
+All superheroes except Magneto (who also appears in avengers).
+
+```{python}
+# Rows in superheroes but not in avengers
+superheroes.join(avengers, on=superheroes.columns, how="anti")
+```
+
+# Summary of Join Types
+
+| Join Type | Keeps from Left | Keeps from Right | Use Case |
+|-----------|-----------------|------------------|----------|
+| Inner | Matched rows only | Matched rows only | Get only complete matches |
+| Left | All rows | Matched rows only | Keep all from primary table |
+| Right | Matched rows only | All rows | Keep all from secondary table |
+| Full | All rows | All rows | Keep everything from both |
+| Semi | Matched rows only | None (filter only) | Filter left by right |
+| Anti | Unmatched rows only | None (filter only) | Find records without matches |
+
+© Vincent Nijs (2026)
+

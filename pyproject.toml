@@ -24,12 +24,17 @@ dependencies = [
     "matplotlib>=3.1.1",
     "plotnine>=0.15.1",
     "statsmodels>=0.14.4",
-    "scipy<=1.15.3",
-    "scikit-learn>=1.5.2,!=1.6.*",
+    "scipy>=1.16.3",
+    "scikit-learn>=1.6.1",
     "IPython>=7.34.0",
     "pyarrow>=17.0.0",
     "scikit-misc>=0.5.2",
     "fastexcel>=0.18.0",
+    "pyyaml>=6.0.3",
+    "nbformat>=5.10.4",
+    "nbclient>=0.10.2",
+    "ipykernel>=6.29.5",
+    "pip>=25.3",
 ]
 
 [project.optional-dependencies]
@@ -108,6 +113,9 @@ ignore = [
 
 [tool.uv.workspace]
 members = [
+    ".",
+    ".",
+    ".",
     ".",
     ".",
 ]

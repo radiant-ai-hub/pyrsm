@@ -1,0 +1,70 @@
+---
+jupyter: python3
+---
+
+```{python}
+#| tags: []
+x = 2
+y = 3
+z = x - y
+```
+
+```{python}
+#| tags: []
+import pyrsm as rsm
+```
+
+```{python}
+rsm.notebook.save_state(globals(), "save-load.state.pkl")
+```
+
+```{python}
+del x, y, z
+```
+
+```{python}
+try:
+    print(x)
+except Exception as err:
+    print(err)
+```
+
+Use `rsm.notebook.load_state` to either return a dictionary of the objects you stored, or add them to `globals()` for easy access
+
+```{python}
+rsm.notebook.load_state("save-load.state.pkl", globals())
+```
+
+```{python}
+x
+```
+
+If your notebook contains objects that cannot be pickled, you can save just the objects you want to keep as follows
+
+```{python}
+rsm.notebook.save_state({"x": x, "y": y, "z": z}, "objects-to-keep.state.pkl")
+```
+
+```{python}
+del x, y, z
+```
+
+```{python}
+try:
+    print(x)
+except Exception as err:
+    print(err)
+```
+
+```{python}
+rsm.notebook.load_state("objects-to-keep.state.pkl")
+```
+
+```{python}
+# cleaning up ...
+import os
+
+os.remove("save-load.state.pkl")
+os.remove("objects-to-keep.state.pkl")
+```
+

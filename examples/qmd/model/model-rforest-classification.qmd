@@ -1,0 +1,259 @@
+---
+title: Models > Random Forest
+jupyter: python3
+---
+
+
+<div class="alert alert-info">Estimate and tune a Random Forest model for binary classification</div>
+
+
+```{python}
+import os
+
+import polars as pl
+from sklearn.model_selection import GridSearchCV, StratifiedKFold
+import pyrsm as rsm
+```
+
+```{python}
+## setup pyrsm for autoreload
+%reload_ext autoreload
+%autoreload 2
+%aimport pyrsm
+```
+
+### Example
+
+As an example we will use a dataset that describes the survival status of individual passengers on the Titanic. The principal source for data about Titanic passengers is the Encyclopedia Titanic. One of the original sources is Eaton & Haas (1994) Titanic: Triumph and Tragedy, Patrick Stephens Ltd, which includes a passenger list created by many researchers and edited by Michael A. Findlay. Suppose we want to investigate which factors are most strongly associated with the chance of surviving the sinking of the Titanic. Lets focus on four variables in the database:
+
+- survived = a factor with levels `Yes` and `No`
+- pclass = Passenger Class (1st, 2nd, 3rd). This is a proxy for socio-economic status (SES) 1st ~ Upper; 2nd ~ Middle; 3rd ~ Lower
+- sex = Sex (female, male)
+- age = Age in years
+
+Select `survived` as the response variable and `Yes` in **Choose level**. Select `pclass`, `sex` and `age` as the explanatory variables. In contrast to Logistic Regression, a Machine Learning model like a Random Forest does not provide coefficients or odds-ratios that we can interpret. Instead, the model provides predictions that we need to evaluate for accuracy. We will also use different plots to better understand what the Random Forest model is telling us about the connection between the explanatory variables (i.e., features) and the response variable (i.e., target).
+
+```{python}
+titanic = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/data/titanic.parquet")
+titanic
+```
+
+```{python}
+clf_rf = rsm.model.rforest(
+    {"titanic": titanic}, rvar="survived", lev="Yes", evar=["pclass", "sex", "age"]
+)
+clf_rf.plot("pred")
+```
+
+```{python}
+rsm.md("https://raw.githubusercontent.com/radiant-ai-hub/pyrsm/refs/heads/main/examples/data/data/titanic_description.md")
+```
+
+```{python}
+clf_rf.plot("pred")
+```
+
+```{python}
+clf_rf.plot("pdp")
+```
+
+```{python}
+clf_rf.plot("pdp", ice=True)
+```
+
+```{python}
+clf_rf.plot("pdp_sklearn")
+```
+
+```{python}
+clf_rf.plot("pip")
+```
+
+```{python}
+clf_rf.plot("pip_sklearn")
+```
+
+```{python}
+clf_rf.predict()
+```
+
+In addition to the numerical output provided in the _Summary_ tab we can also evaluate the link between `survival`, `class`, `sex`, and `age` visually (see _Plot_ tab). 
+
+## Tuning a Random Forest model
+
+When building a Random Forest model, there are several hyperparameters that can be tuned to improve model performance. Two key parameters we'll focus on are:
+
+- `max_features`: The number of features to consider for each split
+- `n_estimators`: The number of trees in the forest
+
+To find the optimal combination of these parameters, we'll:
+
+1. Split our data into training (70%) and test (30%) sets
+2. Use grid search with 5-fold cross validation to evaluate different parameter combinations
+3. Compare model performance with default vs tuned parameters
+
+First, let's create our train/test split:
+
+```{python}
+titanic = titanic.with_columns(
+    training=rsm.model.make_train(titanic, strat_var="survived", test_size=0.3, random_state=1234)
+)
+```
+
+```{python}
+clf_rf = rsm.model.rforest(
+    data={"titanic (train)": titanic.filter(pl.col("training") == 1)},
+    rvar="survived",
+    lev="Yes",
+    evar=["pclass", "sex", "age"],
+    max_features=2,
+    n_estimators=100,
+)
+clf_rf.summary()
+```
+
+```{python}
+titanic = titanic.with_columns(pref_rd=clf_rf.predict(titanic).get_column("prediction"))
+titanic
+```
+
+```{python}
+titanic = titanic.with_columns(pred_rf=clf_rf.predict(titanic).get_column("prediction"))
+```
+
+There is something interesting happening in the graph below. Compare this graph with the next one which seems to have no overfitting. The issue is connected to OOB. Use Advanced Voice Mode in ChatGPT to have a discussion about OOB and overfitting in Random Forest models.
+
+```{python}
+dct = {
+    "train": titanic.filter(pl.col("training") == 1),
+    "test": titanic.filter(pl.col("training") == 0),
+}
+rsm.model.gains_plot(dct, rvar="survived", lev="Yes", pred="pred_rf")
+```
+
+```{python}
+# replace the predictions on the training data with the OOB predictions
+train_indices = titanic.with_row_index().filter(pl.col("training") == 1).get_column("index")
+titanic[train_indices, "pred_rf"] = clf_rf.predict().get_column("prediction")
+```
+
+```{python}
+dct = {
+    "train": titanic.filter(pl.col("training") == 1),
+    "test": titanic.filter(pl.col("training") == 0),
+}
+rsm.model.gains_plot(dct, rvar="survived", lev="Yes", pred="pred_rf")
+```
+
+The initial model used default parameters. Let's evaluate different combinations of parameters using grid search cross validation. We'll try:
+
+- max_features: 1 to 5 features
+- n_estimators: 100 to 500 trees (in steps of 100)
+
+We'll use the AUC (Area Under the ROC Curve) metric to evaluate performance:
+
+```{python}
+param_grid = {"max_features": list(range(1, 6)), "n_estimators": pl.arange(100, 600, 100, eager=True).to_list()}
+scoring = {"AUC": "roc_auc"}
+param_grid
+```
+
+```{python}
+# store cross validation object in a file to avoid re-computing it every time
+cv_file = "cv-objects/clf-rf-cross-validation-object.pkl"
+if os.path.exists(cv_file):
+    cv = rsm.notebook.load_state(cv_file)["cv"]
+else:
+    stratified_k_fold = StratifiedKFold(n_splits=5, shuffle=True, random_state=1234)
+    cv = GridSearchCV(
+        clf_rf.fitted,
+        param_grid,
+        scoring=scoring,
+        cv=stratified_k_fold,
+        n_jobs=4,
+        refit=list(scoring.keys())[0],
+        verbose=5,
+    ).fit(clf_rf.data_onehot, clf_rf.data.get_column("survived"))
+    if not os.path.exists("cv-objects"):
+        os.mkdir("cv-objects")
+    rsm.notebook.save_state({"cv": cv}, cv_file)
+```
+
+```{python}
+# same functionality as the cell above but with less typing
+cv = rsm.model.cross_validation(clf_rf, "clf-rf", param_grid, scoring)
+```
+
+```{python}
+cv.best_params_
+```
+
+```{python}
+cv.best_score_
+```
+
+```{python}
+pl.DataFrame(cv.cv_results_).sort("rank_test_AUC").head()
+```
+
+After finding the optimal parameters, we can build a new model with these tuned parameters and compare its performance to our original model. Looking at the gains charts for both the training and test sets helps us evaluate overfitting while maintaining good predictive performance.
+
+The cross validation results show that slightly different parameter values perform best with this particular dataset compared to the defaults. This demonstrates the value of parameter tuning, though the magnitude of improvement will vary by application.
+
+```{python}
+clf_rfcv = rsm.model.rforest(
+    data={"titanic (train)": titanic.filter(pl.col("training") == 1)},
+    rvar="survived",
+    lev="Yes",
+    evar=["pclass", "sex", "age"],
+    random_state=1234,
+    **cv.best_params_,
+)
+clf_rfcv.summary()
+```
+
+```{python}
+titanic = titanic.with_columns(pred_rfcv=clf_rfcv.predict(titanic).get_column("prediction"))
+titanic
+```
+
+```{python}
+dct = {
+    "train": titanic.filter(pl.col("training") == 1),
+    "test": titanic.filter(pl.col("training") == 0),
+}
+rsm.model.gains_plot(dct, rvar="survived", lev="Yes", pred="pred_rfcv")
+```
+
+```{python}
+# replace the predictions on the training data with the OOB predictions
+train_indices = titanic.with_row_index().filter(pl.col("training") == 1).get_column("index")
+titanic[train_indices, "pred_rfcv"] = clf_rfcv.predict().get_column("prediction")
+```
+
+```{python}
+dct = {
+    "train": titanic.filter(pl.col("training") == 1),
+    "test": titanic.filter(pl.col("training") == 0),
+}
+rsm.model.gains_plot(dct, rvar="survived", lev="Yes", pred="pred_rfcv")
+```
+
+```{python}
+rsm.model.gains_plot(
+    {"train": titanic.filter(pl.col("training") == 1)},
+    rvar="survived",
+    lev="Yes",
+    pred=["pred_rf", "pred_rfcv"],
+)
+```
+
+```{python}
+rsm.model.gains_plot(
+    {"test": titanic.filter(pl.col("training") == 0)},
+    rvar="survived",
+    lev="Yes",
+    pred=["pred_rf", "pred_rfcv"],
+)
+```
+

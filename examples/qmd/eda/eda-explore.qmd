@@ -1,0 +1,108 @@
+---
+title: EDA > Explore
+jupyter: python3
+---
+
+
+<div class="alert alert-info">Compute summary statistics for numeric columns</div>
+
+The `explore` function provides a quick way to calculate summary statistics for numeric columns in your data. It supports grouping and custom aggregation functions.
+
+
+```{python}
+import polars as pl
+import pyrsm as rsm
+
+## setup pyrsm for autoreload
+%reload_ext autoreload
+%autoreload 2
+%aimport pyrsm
+```
+
+# Diamonds Dataset
+
+The diamonds dataset contains prices and attributes of 3,000 diamonds. We'll use it to explore summary statistics.
+
+```{python}
+diamonds = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/data/diamonds.parquet")
+diamonds
+```
+
+```{python}
+rsm.md("https://raw.githubusercontent.com/radiant-ai-hub/pyrsm/refs/heads/main/examples/data/data/diamonds_description.md")
+```
+
+## Basic Usage
+
+By default, `explore` calculates mean, std, min, max, and count for all numeric columns.
+
+```{python}
+rsm.eda.explore(diamonds)
+```
+
+## Select Specific Columns
+
+Use `cols` to focus on specific variables.
+
+```{python}
+rsm.eda.explore(diamonds, cols=["price", "carat"])
+```
+
+## Custom Summary Functions
+
+Use `funs` to specify which statistics to compute. Available functions: mean, median, sum, std, var, min, max, count, n_unique, null_count.
+
+```{python}
+rsm.eda.explore(diamonds, cols=["price", "carat"], agg=["mean", "median", "std", "min", "max"])
+```
+
+## Grouped Statistics
+
+Use `by` to compute statistics within groups.
+
+```{python}
+rsm.eda.explore(diamonds, cols=["price"], by="cut")
+```
+
+```{python}
+rsm.eda.explore(diamonds, cols=["price", "carat"], by="color", agg=["mean", "median", "count"])
+```
+
+# Titanic Dataset
+
+The Titanic dataset contains passenger information from the 1912 disaster.
+
+```{python}
+titanic = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/data/titanic.parquet")
+```
+
+```{python}
+rsm.md("https://raw.githubusercontent.com/radiant-ai-hub/pyrsm/refs/heads/main/examples/data/data/titanic_description.md")
+```
+
+## Explore All Numeric Columns
+
+```{python}
+rsm.eda.explore(titanic)
+```
+
+## Statistics by Passenger Class
+
+```{python}
+rsm.eda.explore(titanic, cols=["age", "fare"], by="pclass", agg=["mean", "median", "std", "count"])
+```
+
+## Statistics by Survival Status
+
+```{python}
+rsm.eda.explore(titanic, cols=["age", "fare"], by="survived", agg=["mean", "median", "count"])
+```
+
+## Check for Missing Values
+
+```{python}
+rsm.eda.explore(titanic, agg=["count", "null_count", "n_unique"])
+```
+
+© Vincent Nijs (2026)
+
