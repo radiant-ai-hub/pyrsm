@@ -55,7 +55,7 @@ reg_xgb.summary()
 ```
 
 ```{python}
-reg_xgb.plot("pred")
+reg_xgb.plot("pdp")
 ```
 
 ### Example 2: Ideal data for regression
@@ -82,7 +82,7 @@ reg_xgb.summary()
 ```
 
 ```{python}
-reg_xgb.plot("pred")
+reg_xgb.plot("pdp")
 ```
 
 ```{python}
@@ -307,4 +307,3 @@ reg_xgbcv = rsm.model.xgboost(
 )
 reg_xgbcv.summary()
 ```
-

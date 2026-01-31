@@ -140,7 +140,7 @@ In the plot of correlations there are clear associations among the response and 
 reg.plot(plots="corr")
 ```
 
-The scatter plots of `y` (the response variable) against each of the explanatory variables confirm the insight from the correlation plot. 
+The scatter plots of `y` (the response variable) against each of the explanatory variables confirm the insight from the correlation plot.
 
 ```{python}
 reg.summary()
@@ -199,7 +199,7 @@ reg.plot("dist")
 reg.plot("corr")
 ```
 
-The scatter plots of price (the response variable) against the explanatory variables are not as clean as for the ideal data in Example 2. In fact the points seem to fan-out for higher prices and number of carats. 
+The scatter plots of price (the response variable) against the explanatory variables are not as clean as for the ideal data in Example 2. In fact the points seem to fan-out for higher prices and number of carats.
 
 ```{python}
 reg.plot("scatter")
@@ -313,7 +313,7 @@ reg.plot("coef")
 ```
 
 ```{python}
-reg.plot("pred")
+reg.plot("pdp")
 ```
 
 ```{python}
@@ -329,4 +329,3 @@ reg.plot("pip")
 ```
 
 © Vincent Nijs (2026)
-

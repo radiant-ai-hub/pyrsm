@@ -102,7 +102,7 @@ clf.plot(plots="corr")
 ```
 
 ```{python}
-clf.plot("pred")
+clf.plot("pdp")
 ```
 
 ```{python}
@@ -123,4 +123,3 @@ pip_values
 ```
 
 © Vincent Nijs (2026)
-

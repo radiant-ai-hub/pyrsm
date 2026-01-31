@@ -55,7 +55,7 @@ reg_rf.summary()
 ```
 
 ```{python}
-reg_rf.plot("pred")
+reg_rf.plot("pdp")
 ```
 
 ```{python}
@@ -104,7 +104,7 @@ reg_rf.summary()
 The dashboard of six residual plots looks excellent, as we might expect for these data. True values and predicted values from the regression form a straight line with random scatter, i.e., as the actual values of the response variable go up, so do the predicted values from the model. The residuals (i.e., the differences between the values of the response variable data and the values predicted by the regression) show no pattern and are randomly scattered around a horizontal line. Any pattern would suggest that the model is better (or worse) at predicting some parts of the data compared to others. If a pattern were visible in the Residual vs Row order plot we might be concerned about auto-correlation. Again, the residuals are nicely scattered about a horizontal axis. Note that auto-correlation is a problem we are really only concerned about when we have time-series data. The Q-Q plot shows a nice straight and diagonal line, evidence that the residuals are normally distributed. This conclusion is confirmed by the histogram of the residuals and the density plot of the residuals (green) versus the theoretical density of a normally distributed variable (blue line).
 
 ```{python}
-reg_rf.plot("pred")
+reg_rf.plot("pdp")
 ```
 
 ```{python}
@@ -299,4 +299,3 @@ reg_rfcv = rsm.model.rforest(
 )
 reg_rfcv.summary()
 ```
-

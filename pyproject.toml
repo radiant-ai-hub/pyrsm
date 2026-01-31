@@ -35,6 +35,7 @@ dependencies = [
     "nbclient>=0.10.2",
     "ipykernel>=6.29.5",
     "pip>=25.3",
+    "xgboost>=3.0.0",
 ]
 
 [project.optional-dependencies]

@@ -62,7 +62,7 @@ clf_xgb.summary()
 ```
 
 ```{python}
-clf_xgb.plot("pred")
+clf_xgb.plot("pdp")
 ```
 
 ```{python}
@@ -95,7 +95,7 @@ clf_xgb.plot("pip_sklearn")
 clf_xgb.predict()
 ```
 
-In addition to the numerical output provided in the _Summary_ tab we can also evaluate the link between `survival`, `class`, `sex`, and `age` visually (see _Plot_ tab). 
+In addition to the numerical output provided in the _Summary_ tab we can also evaluate the link between `survival`, `class`, `sex`, and `age` visually (see _Plot_ tab).
 
 ## Tuning an XGBoost classification model
 
@@ -259,4 +259,3 @@ rsm.model.gains_plot(
     pred=["pred_xgb", "pred_xgbcv"],
 )
 ```
-

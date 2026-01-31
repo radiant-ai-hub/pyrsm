@@ -42,7 +42,7 @@ titanic
 clf_rf = rsm.model.rforest(
     {"titanic": titanic}, rvar="survived", lev="Yes", evar=["pclass", "sex", "age"]
 )
-clf_rf.plot("pred")
+clf_rf.plot("pdp")
 ```
 
 ```{python}
@@ -50,7 +50,7 @@ rsm.md("https://raw.githubusercontent.com/radiant-ai-hub/pyrsm/refs/heads/main/e
 ```
 
 ```{python}
-clf_rf.plot("pred")
+clf_rf.plot("pdp")
 ```
 
 ```{python}
@@ -77,7 +77,7 @@ clf_rf.plot("pip_sklearn")
 clf_rf.predict()
 ```
 
-In addition to the numerical output provided in the _Summary_ tab we can also evaluate the link between `survival`, `class`, `sex`, and `age` visually (see _Plot_ tab). 
+In addition to the numerical output provided in the _Summary_ tab we can also evaluate the link between `survival`, `class`, `sex`, and `age` visually (see _Plot_ tab).
 
 ## Tuning a Random Forest model
 
@@ -256,4 +256,3 @@ rsm.model.gains_plot(
     pred=["pred_rf", "pred_rfcv"],
 )
 ```
-

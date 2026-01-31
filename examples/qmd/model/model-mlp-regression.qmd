@@ -55,7 +55,7 @@ reg_mlp.summary()
 ```
 
 ```{python}
-reg_mlp.plot("pred")
+reg_mlp.plot("pdp")
 ```
 
 ```{python}
@@ -480,4 +480,3 @@ reg_mlpcv = rsm.model.mlp(
 )
 reg_mlpcv.summary()
 ```
-

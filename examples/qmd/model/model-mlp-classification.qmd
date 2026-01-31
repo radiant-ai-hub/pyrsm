@@ -84,7 +84,7 @@ clv_mlp.summary()
 ```
 
 ```{python}
-clv_mlp.plot("pred")
+clv_mlp.plot("pdp")
 ```
 
 ```{python}
@@ -129,7 +129,7 @@ rsm.model.gains_tab(titanic, rvar="survived", lev="Yes", pred="pred")
 rsm.model.gains_plot(titanic, rvar="survived", lev="Yes", pred="pred")
 ```
 
-In addition to the numerical output provided in the _Summary_ tab we can also evaluate the link between `survival`, `class`, `sex`, and `age` visually (see _Plot_ tab). 
+In addition to the numerical output provided in the _Summary_ tab we can also evaluate the link between `survival`, `class`, `sex`, and `age` visually (see _Plot_ tab).
 
 ## Tuning an MLP (NN) classification model
 
@@ -277,4 +277,3 @@ rsm.model.gains_plot(
     pred=["pred_nn", "pred_nncv"],
 )
 ```
-
