@@ -214,8 +214,7 @@ def make_train(
 
     if strat_var:
         training_var = np.zeros(data.height)
-        # StratifiedShuffleSplit needs pandas/numpy
-        strat_values = data.select(strat_var).to_numpy().ravel()
+        strat_values = data.select(pl.concat_str(strat_var, separator="_")).to_series()
         splits = StratifiedShuffleSplit(
             n_splits=1, test_size=test_size, random_state=random_state
         )

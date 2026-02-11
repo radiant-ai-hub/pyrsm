@@ -122,7 +122,7 @@ members = [
 ]
 
 [tool.uv.sources]
-pyrsm = { workspace = true, editable = true }
+pyrsm = { workspace = true }
 
 [dependency-groups]
 dev = [
