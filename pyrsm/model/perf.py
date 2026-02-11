@@ -263,8 +263,8 @@ def uplift_tab(df, rvar, lev, pred, tvar, tlev, scale=1, qnt=10):
         if len(np.unique(breaks)) == len(breaks):
             # Use polars cut
             s = pl.Series("x", x)
-            cut_result = s.cut(breaks[1:-1], labels=[str(i) for i in range(1, n + 1)])
-            bins = cut_result.cast(pl.Int64).to_numpy()
+            cut_result = s.cut(breaks[1:-1], labels=[str(i) for i in range(n)])
+            bins = cut_result.cast(pl.String).cast(pl.Int64).to_numpy() + 1
         else:
             bins = bincode(x, breaks)
 
@@ -316,7 +316,7 @@ def uplift_tab(df, rvar, lev, pred, tvar, tlev, scale=1, qnt=10):
     # Calculate cumulative values and proportions
     tab = tab.with_columns(
         [
-            (pl.lit(1).cum_sum() / qnt).alias("cum_prop"),
+            (pl.col("bins").cum_count() / qnt).alias("cum_prop"),
             (pl.col("T_resp").cum_sum() * scale).alias("T_resp"),
             (pl.col("T_n").cum_sum() * scale).alias("T_n"),
             (pl.col("C_resp").cum_sum() * scale).alias("C_resp"),
