@@ -186,17 +186,14 @@ class mlp:
         cat_cols = [
             c
             for c in self.evar
-            if self.data_std.get_column(c).dtype
-            in (pl.Utf8, pl.String, pl.Categorical, pl.Enum)
+            if self.data_std.get_column(c).dtype in (pl.Utf8, pl.String, pl.Categorical, pl.Enum)
         ]
 
         self.categories = {}
         for col in cat_cols:
             prefix = f"{col}_"
             self.categories[col] = [
-                c.replace(prefix, "")
-                for c in self.data_onehot.columns
-                if c.startswith(prefix)
+                c.replace(prefix, "") for c in self.data_onehot.columns if c.startswith(prefix)
             ]
 
         # Store feature order for prediction
@@ -207,9 +204,9 @@ class mlp:
             self.data_onehot.to_pandas(),  # ),
             self.data_std.get_column(self.rvar).to_pandas(),  # )
         )
-        self.n_weights = sum(
-            weight_matrix.size for weight_matrix in self.fitted.coefs_
-        ) + sum([len(i) for i in self.fitted.intercepts_])
+        self.n_weights = sum(weight_matrix.size for weight_matrix in self.fitted.coefs_) + sum(
+            [len(i) for i in self.fitted.intercepts_]
+        )
 
     def summary(self, dec=3) -> None:
         """
@@ -323,9 +320,7 @@ class mlp:
             pred_data = check_dataframe(data).select(self.evar)
 
         if data_cmd is not None and data_cmd != "":
-            pred_data = pred_data.with_columns(
-                [pl.lit(v).alias(k) for k, v in data_cmd.items()]
-            )
+            pred_data = pred_data.with_columns([pl.lit(v).alias(k) for k, v in data_cmd.items()])
         elif cmd is not None and cmd != "":
             cmd = {k: ifelse(isinstance(v, str), [v], v) for k, v in cmd.items()}
             pred_data = sim_prediction(data=pred_data, vary=cmd)
@@ -338,13 +333,9 @@ class mlp:
                 data_std = scale_df(pred_data, sf=1, means=self.means, stds=self.stds)
 
             # Use categories to preserve all levels
-            data_onehot = get_dummies(
-                data_std, drop_nonvarying=False, categories=self.categories
-            )
+            data_onehot = get_dummies(data_std, drop_nonvarying=False, categories=self.categories)
         else:
-            data_onehot = get_dummies(
-                pred_data, drop_nonvarying=False, categories=self.categories
-            )
+            data_onehot = get_dummies(pred_data, drop_nonvarying=False, categories=self.categories)
 
         # Reorder columns to match training feature order
         data_onehot = data_onehot.select(self.feature_names)
@@ -430,9 +421,7 @@ class mlp:
         >>> model.plot(plots='pred', data=new_data)
         """
 
-        plots = convert_to_list(
-            plots
-        )  # control for the case where a single string is passed
+        plots = convert_to_list(plots)  # control for the case where a single string is passed
         excl = convert_to_list(excl)
         incl = ifelse(incl is None, None, convert_to_list(incl))
         incl_int = convert_to_list(incl_int)
@@ -522,7 +511,7 @@ class mlp:
             ax.set_title("Partial Dependence Plots")
             pdp.from_estimator(
                 self.fitted,
-                self.data_onehot.to_pandas(),
+                self.data_onehot.cast({pl.UInt8: pl.Float64, pl.Int64: pl.Float64}).to_pandas(),
                 self.data_onehot.columns,
                 ax=ax,
                 n_cols=2,
@@ -546,7 +535,7 @@ class mlp:
             _, _, _, pip_plot_sklearn = _get_visualize_plots()
             (p, return_pip) = pip_plot_sklearn(
                 self.fitted,
-                self.data_onehot.to_pandas(),
+                self.data_onehot.cast({pl.UInt8: pl.Float64, pl.Int64: pl.Float64}).to_pandas(),
                 self.data[self.rvar],
                 rep=5,
                 ret=ret,

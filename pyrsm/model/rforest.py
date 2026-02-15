@@ -137,16 +137,13 @@ class rforest:
         cat_cols = [
             c
             for c in self.evar
-            if self.data.get_column(c).dtype
-            in (pl.Utf8, pl.String, pl.Categorical, pl.Enum)
+            if self.data.get_column(c).dtype in (pl.Utf8, pl.String, pl.Categorical, pl.Enum)
         ]
         self.categories = {}
         for col in cat_cols:
             prefix = f"{col}_"
             self.categories[col] = [
-                c.replace(prefix, "")
-                for c in self.data_onehot.columns
-                if c.startswith(prefix)
+                c.replace(prefix, "") for c in self.data_onehot.columns if c.startswith(prefix)
             ]
         # Store feature order for prediction
         self.feature_names = self.data_onehot.columns
@@ -193,9 +190,7 @@ class rforest:
         print(f"random_state         : {self.random_state}")
         if self.mod_type == "classification":
             cpred = self.fitted.oob_decision_function_[:, 1]
-            print(
-                f"AUC                  : {round(auc(self.data[self.rvar], cpred), dec)}"
-            )
+            print(f"AUC                  : {round(auc(self.data[self.rvar], cpred), dec)}")
         else:
             print("Model fit            :")
             evalreg(
@@ -345,9 +340,7 @@ class rforest:
             Whether to return the variable (permutation) importance scores for a "pip" plot.
 
         """
-        plots = convert_to_list(
-            plots
-        )  # control for the case where a single string is passed
+        plots = convert_to_list(plots)  # control for the case where a single string is passed
         excl = convert_to_list(excl)
         incl = ifelse(incl is None, None, convert_to_list(incl))
         incl_int = convert_to_list(incl_int)
@@ -407,7 +400,7 @@ class rforest:
             ax.set_title("Partial Dependence Plots")
             pdp.from_estimator(
                 self.fitted,
-                self.data_onehot.to_pandas(),
+                self.data_onehot.cast({pl.UInt8: pl.Float64, pl.Int64: pl.Float64}).to_pandas(),
                 self.data_onehot.columns,
                 ax=ax,
                 n_cols=2,
@@ -431,7 +424,7 @@ class rforest:
             _, _, _, pip_plot_sklearn = _get_visualize_plots()
             (p, return_pip) = pip_plot_sklearn(
                 self.fitted,
-                self.data_onehot.to_pandas(),
+                self.data_onehot.cast({pl.UInt8: pl.Float64, pl.Int64: pl.Float64}).to_pandas(),
                 self.data.get_column(self.rvar),
                 rep=5,
                 ret=ret,
