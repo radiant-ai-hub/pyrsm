@@ -1822,7 +1822,6 @@ dependencies = [
     { name = "scikit-misc" },
     { name = "scipy" },
     { name = "statsmodels" },
-    { name = "xgboost" },
 ]
 
 [package.optional-dependencies]
@@ -1920,7 +1919,6 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.16.3" },
     { name = "statsmodels", specifier = ">=0.14.4" },
     { name = "twine", marker = "extra == 'dev'", specifier = ">=5.0.0" },
-    { name = "xgboost", specifier = ">=3.0.0" },
     { name = "xgboost", marker = "extra == 'ml'", specifier = ">=2.1.1" },
     { name = "xlogit", marker = "extra == 'ml'" },
 ]
