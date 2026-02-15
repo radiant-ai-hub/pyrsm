@@ -67,6 +67,124 @@ class TestMakeTrain:
         )
         assert np.array_equal(train1_strat, train2_strat)
 
+    def test_make_train_multi_strat_vars(self, titanic_data):
+        """Test stratified split with multiple stratification variables."""
+        df = titanic_data.copy()
+        train_var = make_train(
+            df, strat_var=["sex", "pclass"], test_size=0.2, random_state=42
+        )
+        assert len(train_var) == len(df)
+        # Check correct number of train/test
+        train_pct = train_var.mean()
+        assert 0.75 < train_pct < 0.85
+
+    def test_make_train_multi_strat_preserves_proportions(self, titanic_data):
+        """Test that multi-var stratification preserves group proportions."""
+        df = titanic_data.copy()
+        df_pl = pl.from_pandas(df)
+        train_var = make_train(
+            df, strat_var=["sex", "pclass"], test_size=0.2, random_state=42
+        )
+        df_pl = df_pl.with_columns(pl.Series("train", train_var))
+
+        # For each combination, the train proportion should be close to 0.8
+        for sex_val in df_pl["sex"].unique().to_list():
+            for pclass_val in df_pl["pclass"].unique().to_list():
+                mask = (df_pl["sex"] == sex_val) & (df_pl["pclass"] == pclass_val)
+                group = df_pl.filter(mask)
+                if len(group) >= 5:  # Only check groups with enough obs
+                    group_train_pct = group["train"].mean()
+                    assert 0.7 < group_train_pct < 0.9, (
+                        f"Group sex={sex_val}, pclass={pclass_val} has "
+                        f"train%={group_train_pct:.2f}, expected ~0.8"
+                    )
+
+    def test_make_train_multi_strat_reproducible(self, titanic_data):
+        """Test reproducibility with multiple stratification variables."""
+        df = titanic_data.copy()
+        train1 = make_train(
+            df, strat_var=["sex", "pclass"], test_size=0.2, random_state=99
+        )
+        train2 = make_train(
+            df, strat_var=["sex", "pclass"], test_size=0.2, random_state=99
+        )
+        assert np.array_equal(train1, train2)
+
+    def test_make_train_multi_strat_different_seeds(self, titanic_data):
+        """Test that different random states produce different splits."""
+        df = titanic_data.copy()
+        train1 = make_train(
+            df, strat_var=["sex", "pclass"], test_size=0.2, random_state=1
+        )
+        train2 = make_train(
+            df, strat_var=["sex", "pclass"], test_size=0.2, random_state=2
+        )
+        assert not np.array_equal(train1, train2)
+
+    def test_make_train_multi_strat_returns_int_series(self, titanic_data):
+        """Test that result is a polars int Series with only 0/1 values."""
+        df = titanic_data.copy()
+        train_var = make_train(
+            df, strat_var=["sex", "pclass"], test_size=0.3, random_state=42
+        )
+        assert isinstance(train_var, pl.Series)
+        assert train_var.dtype in (pl.Int8, pl.Int16, pl.Int32, pl.Int64)
+        unique_vals = set(train_var.to_list())
+        assert unique_vals == {0, 1}
+
+    def test_make_train_multi_strat_polars_input(self, titanic_data):
+        """Test multi-var stratification with polars DataFrame input."""
+        df_pl = pl.from_pandas(titanic_data)
+        train_var = make_train(
+            df_pl, strat_var=["sex", "pclass"], test_size=0.2, random_state=42
+        )
+        assert len(train_var) == len(df_pl)
+        train_pct = train_var.mean()
+        assert 0.75 < train_pct < 0.85
+
+    def test_make_train_multi_strat_test_size(self, titanic_data):
+        """Test that different test_size values are respected."""
+        df = titanic_data.copy()
+        for test_size in [0.1, 0.3, 0.5]:
+            train_var = make_train(
+                df, strat_var=["sex", "pclass"], test_size=test_size, random_state=42
+            )
+            train_pct = train_var.mean()
+            expected = 1.0 - test_size
+            assert abs(train_pct - expected) < 0.05, (
+                f"test_size={test_size}: train%={train_pct:.3f}, "
+                f"expected ~{expected:.1f}"
+            )
+
+    def test_make_train_three_strat_vars(self):
+        """Test stratified split with three stratification variables."""
+        np.random.seed(42)
+        n = 500
+        df = pl.DataFrame(
+            {
+                "a": np.random.choice(["x", "y"], n),
+                "b": np.random.choice(["m", "f"], n),
+                "c": np.random.choice(["low", "high"], n),
+                "val": np.random.randn(n),
+            }
+        )
+        train_var = make_train(
+            df, strat_var=["a", "b", "c"], test_size=0.2, random_state=42
+        )
+        assert len(train_var) == n
+        train_pct = train_var.mean()
+        assert 0.75 < train_pct < 0.85
+
+    def test_make_train_list_with_single_var(self, salary_data):
+        """Test that passing a single var as a list works the same as a string."""
+        train_list = make_train(
+            salary_data, strat_var=["sex"], test_size=0.2, random_state=42
+        )
+        train_str = make_train(
+            salary_data, strat_var="sex", test_size=0.2, random_state=42
+        )
+        assert np.array_equal(train_list, train_str)
+
 
 class TestConvertToList:
     """Tests for convert_to_list function."""

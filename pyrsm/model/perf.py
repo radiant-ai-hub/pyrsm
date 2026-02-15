@@ -497,7 +497,10 @@ def inc_profit_tab(
                 ),
                 uplift_tab(dct[k], rvar, lev, p, tvar, tlev, scale=scale, qnt=qnt)
                 .with_columns(
-                    pl.lit(p + ifelse(k == "", k, f" ({k})")).alias("predictor")
+                    [
+                        pl.lit(p + ifelse(k == "", k, f" ({k})")).alias("predictor"),
+                        pl.col("T_n").cast(pl.Float64),
+                    ]
                 )
                 .select(["cum_prop", "incremental_resp", "T_n", "pred"]),
             ]
