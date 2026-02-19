@@ -261,13 +261,10 @@ class xgboost:
             cmd = {k: ifelse(isinstance(v, str), [v], v) for k, v in cmd.items()}
             pred_data = sim_prediction(data=pred_data, vary=cmd)
 
-        # Convert to pandas for sklearn
-        pred_data_pd = pred_data.to_pandas()
-
         # Use categories to preserve all levels
         data_onehot = conditional_get_dummies(
-            pred_data_pd, drop_nonvarying=False, categories=self.categories
-        )
+            pred_data, drop_nonvarying=False, categories=self.categories
+        ).select(self.data_onehot.columns)  # ensure same column order as training data
 
         # .to_pandas() at sklearn call site
         if self.mod_type == "classification":
