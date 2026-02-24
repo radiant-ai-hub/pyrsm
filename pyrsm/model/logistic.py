@@ -116,7 +116,7 @@ class logistic:
         # Handle weights
         if weights is not None and weights != "None":
             self.weights_name = weights
-            self.weights = self.data.select("weights")
+            self.weights = self.data.get_column(weights)
         else:
             self.weights_name = self.weights = None
 
@@ -394,6 +394,10 @@ class logistic:
             data = data.select([self.rvar] + self.evar)
         else:
             data = data.select(self.evar)
+
+        # Apply stored Enum types to ensure consistent categorical levels
+        if self._enum_types:
+            data = apply_enum_types(data, self._enum_types)
 
         if "dist" in plots:
             (

@@ -448,6 +448,10 @@ class regress:
         else:
             data = data.select(self.evar)
 
+        # Apply stored Enum types to ensure consistent categorical levels
+        if self._enum_types:
+            data = model_utils.apply_enum_types(data, self._enum_types)
+
         if "dist" in plots:
             distr_plot, _, _, _ = _get_visualize_plots()
             return distr_plot(data).plot()

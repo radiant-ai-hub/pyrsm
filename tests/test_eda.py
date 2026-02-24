@@ -44,33 +44,43 @@ class TestExplore:
     """Tests for explore function."""
 
     def test_explore_default(self, sample_data):
-        """Test explore with default settings."""
+        """Test explore with default settings (variables as rows, to_dummies=True)."""
         result = explore(sample_data)
         assert isinstance(result, pl.DataFrame)
-        # Without by: stats as rows, variables as columns
-        assert "statistic" in result.columns
-        assert "price" in result.columns
-        assert "quantity" in result.columns
-        assert "mean" in result["statistic"].to_list()
+        # Default: variables as rows, functions as columns
+        assert "variable" in result.columns
+        assert "mean" in result.columns
+        variables = result["variable"].to_list()
+        assert "price" in variables
+        assert "quantity" in variables
+        # to_dummies=True by default, so dummy columns should appear
+        assert any("category" in v for v in variables)
 
     def test_explore_specific_columns(self, sample_data):
         """Test explore with specific columns."""
         result = explore(sample_data, cols=["price"])
-        assert "price" in result.columns
-        assert "quantity" not in result.columns
+        assert "variable" in result.columns
+        variables = result["variable"].to_list()
+        assert "price" in variables
+        assert "quantity" not in variables
 
     def test_explore_custom_functions(self, sample_data):
         """Test explore with custom functions."""
         result = explore(
             sample_data, cols=["price"], agg=["mean", "median", "min", "max"]
         )
+        assert "variable" in result.columns
+        assert "mean" in result.columns
+        assert "median" in result.columns
+        assert "min" in result.columns
+        assert "max" in result.columns
+        assert "std" not in result.columns
+
+    def test_explore_header_variable(self, sample_data):
+        """Test explore with header='variable' (statistics as rows)."""
+        result = explore(sample_data, cols=["price"], header="variable")
+        assert "statistic" in result.columns
         assert "price" in result.columns
-        stats = result["statistic"].to_list()
-        assert "mean" in stats
-        assert "median" in stats
-        assert "min" in stats
-        assert "max" in stats
-        assert "std" not in stats
 
     def test_explore_grouped(self, sample_data):
         """Test explore with grouping."""
@@ -103,9 +113,163 @@ class TestExplore:
             "null_count",
         ]
         result = explore(sample_data, cols=["price"], agg=agg)
-        stats = result["statistic"].to_list()
+        # Default header="function": functions are columns
         for func in agg:
-            assert func in stats
+            assert func in result.columns
+
+    def test_explore_to_dummies_false(self, sample_data):
+        """Test explore with to_dummies=False skips categoricals."""
+        result = explore(sample_data, to_dummies=False)
+        variables = result["variable"].to_list()
+        assert "price" in variables
+        assert "quantity" in variables
+        assert not any("category" in v for v in variables)
+        assert not any("region" in v for v in variables)
+
+    # --- Dummy-related tests ---
+
+    def test_to_dummies_default_creates_dummy_columns(self, sample_data):
+        """Dummies use {col}_{level} naming, drop_first removes one level, values are Float64."""
+        result = explore(sample_data)
+        variables = result["variable"].to_list()
+        # category has 3 levels (A, B, C) → drop_first removes one → 2 dummies
+        cat_dummies = [v for v in variables if v.startswith("category_")]
+        assert len(cat_dummies) == 2
+        # region has 2 levels (North, South) → drop_first removes one → 1 dummy
+        region_dummies = [v for v in variables if v.startswith("region_")]
+        assert len(region_dummies) == 1
+        # Dummy columns should be Float64 (cast from UInt8)
+        for col_name in cat_dummies + region_dummies:
+            row = result.filter(pl.col("variable") == col_name)
+            # mean of a dummy is a float between 0 and 1
+            mean_val = row["mean"][0]
+            assert 0.0 <= mean_val <= 1.0
+
+    def test_to_dummies_with_cols_only_dummifies_listed_categoricals(self, sample_data):
+        """When cols lists a categorical, only that one is dummified; others are excluded."""
+        # cols=["price"] with to_dummies=True: no categoricals in cols → no dummies
+        result = explore(sample_data, cols=["price"])
+        variables = result["variable"].to_list()
+        assert variables == ["price"]
+        assert not any("category" in v for v in variables)
+        assert not any("region" in v for v in variables)
+
+    def test_to_dummies_with_by_excludes_grouping_column(self, sample_data):
+        """The by column is NOT dummy-encoded; other categoricals still are."""
+        result = explore(sample_data, by="category")
+        cols = result.columns
+        # category is the grouping column, not dummified
+        assert "category" in cols
+        assert not any(c.startswith("category_") for c in cols)
+        # region dummies should appear in the grouped output
+        assert any("region_" in c for c in cols)
+
+    def test_to_dummies_false_with_by(self, sample_data):
+        """Grouped + to_dummies=False: only numeric columns aggregated, no dummies."""
+        result = explore(sample_data, by="category", to_dummies=False)
+        cols = result.columns
+        assert "category" in cols
+        assert any("price_" in c for c in cols)
+        assert any("quantity_" in c for c in cols)
+        assert not any("region" in c for c in cols if c != "category")
+
+    def test_to_dummies_with_multiple_categoricals(self, sample_data):
+        """Both categoricals produce dummies with correct count after drop_first."""
+        result = explore(sample_data)
+        variables = result["variable"].to_list()
+        cat_dummies = [v for v in variables if v.startswith("category_")]
+        region_dummies = [v for v in variables if v.startswith("region_")]
+        # 3 levels - 1 = 2 for category, 2 levels - 1 = 1 for region
+        assert len(cat_dummies) == 2
+        assert len(region_dummies) == 1
+        # Total variables = 2 numeric + 2 cat dummies + 1 region dummy = 5
+        assert len(variables) == 5
+
+    # --- Header ("function" vs "variable") tests ---
+
+    def test_header_function_shape_and_layout(self, sample_data):
+        """header='function': one row per variable, one column per agg + 'variable' column."""
+        result = explore(sample_data, cols=["price", "quantity"], to_dummies=False)
+        assert result.columns[0] == "variable"
+        # Default agg has 5 functions
+        assert result.shape == (2, 6)  # 2 variables, 5 agg + 1 'variable' col
+        assert set(result.columns) == {"variable", "mean", "median", "min", "max", "sd"}
+
+    def test_header_variable_shape_and_layout(self, sample_data):
+        """header='variable': one row per statistic, one column per variable + 'statistic' column."""
+        result = explore(
+            sample_data, cols=["price", "quantity"], header="variable", to_dummies=False
+        )
+        assert result.columns[0] == "statistic"
+        # Default agg has 5 functions
+        assert result.shape == (5, 3)  # 5 stats, 2 variables + 1 'statistic' col
+        assert set(result.columns) == {"statistic", "price", "quantity"}
+        assert result["statistic"].to_list() == ["mean", "median", "min", "max", "sd"]
+
+    def test_header_function_values_match_variable_values(self, sample_data):
+        """Both header layouts produce identical numeric values."""
+        r_func = explore(
+            sample_data, cols=["price", "quantity"], to_dummies=False, header="function"
+        )
+        r_var = explore(
+            sample_data, cols=["price", "quantity"], to_dummies=False, header="variable"
+        )
+        # Compare price mean from both layouts
+        price_mean_func = r_func.filter(pl.col("variable") == "price")["mean"][0]
+        price_mean_var = r_var.filter(pl.col("statistic") == "mean")["price"][0]
+        assert price_mean_func == price_mean_var
+        # Compare quantity median from both layouts
+        qty_median_func = r_func.filter(pl.col("variable") == "quantity")["median"][0]
+        qty_median_var = r_var.filter(pl.col("statistic") == "median")["quantity"][0]
+        assert qty_median_func == qty_median_var
+
+    def test_header_ignored_when_grouped(self, sample_data):
+        """When by is set, header has no effect on the output."""
+        r1 = explore(
+            sample_data, cols=["price"], by="category", header="function"
+        ).sort("category")
+        r2 = explore(
+            sample_data, cols=["price"], by="category", header="variable"
+        ).sort("category")
+        assert r1.columns == r2.columns
+        assert r1.equals(r2)
+
+    # --- Combined / edge-case tests ---
+
+    def test_to_dummies_true_header_variable(self, sample_data):
+        """Dummy columns appear as column headers when header='variable'."""
+        result = explore(sample_data, header="variable")
+        cols = result.columns
+        assert "statistic" in cols
+        assert "price" in cols
+        assert "quantity" in cols
+        # Dummy columns should appear as column headers
+        assert any(c.startswith("category_") for c in cols)
+        assert any(c.startswith("region_") for c in cols)
+
+    def test_to_dummies_false_header_variable(self, sample_data):
+        """No dummies with to_dummies=False and header='variable'."""
+        result = explore(sample_data, header="variable", to_dummies=False)
+        cols = result.columns
+        assert set(cols) == {"statistic", "price", "quantity"}
+
+    def test_sd_alias_matches_std(self, sample_data):
+        """agg=['sd'] and agg=['std'] produce identical values."""
+        r_sd = explore(sample_data, cols=["price"], agg=["sd"])
+        r_std = explore(sample_data, cols=["price"], agg=["std"])
+        assert r_sd["sd"][0] == r_std["std"][0]
+
+    def test_n_alias_matches_count(self, sample_data):
+        """agg=['n'] and agg=['count'] produce identical values."""
+        r_n = explore(sample_data, cols=["price"], agg=["n"])
+        r_count = explore(sample_data, cols=["price"], agg=["count"])
+        assert r_n["n"][0] == r_count["count"][0]
+
+    def test_n_missing_alias_matches_null_count(self, sample_data):
+        """agg=['n_missing'] and agg=['null_count'] produce identical values."""
+        r_nm = explore(sample_data, cols=["price"], agg=["n_missing"])
+        r_nc = explore(sample_data, cols=["price"], agg=["null_count"])
+        assert r_nm["n_missing"][0] == r_nc["null_count"][0]
 
 
 class TestPivot:
