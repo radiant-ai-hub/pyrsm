@@ -1,25 +1,4 @@
-"""
-combine() - Combine datasets using joins, binds, or set operations.
-
-Uses Polars-native parameter names (on, how) for familiarity.
-
-Examples:
-    import pyrsm as rsm
-
-    # Join datasets (Polars-style)
-    rsm.eda.combine(orders, customers, on='customer_id')  # inner join (default)
-    rsm.eda.combine(orders, customers, on='customer_id', how='left')
-
-    # Different key names
-    rsm.eda.combine(orders, customers, left_on='cust_id', right_on='customer_id')
-
-    # Bind operations
-    rsm.eda.combine(df1, df2, how='bind_rows')
-    rsm.eda.combine(df1, df2, how='bind_cols')
-
-    # Set operations
-    rsm.eda.combine(df1, df2, how='intersect')
-"""
+"""Combine datasets using joins, binds, or set operations."""
 
 import polars as pl
 
@@ -131,34 +110,68 @@ def combine(
     """
     Combine two datasets using joins, binds, or set operations.
 
-    Uses Polars-native parameter names for familiarity.
+    Parameters
+    ----------
+    x : pl.DataFrame | pl.LazyFrame
+        Left/first dataset.
+    y : pl.DataFrame | pl.LazyFrame
+        Right/second dataset to combine with ``x``.
+    on : str | list[str] | None
+        Join key(s) when same column name on both sides.
+    how : str
+        Combine type. Default: ``"inner"``. Joins: inner, left, right, full,
+        semi, anti. Binds: bind_rows, bind_cols. Sets: intersect, union, setdiff.
+    left_on : str | list[str] | None
+        Join key(s) from ``x`` when names differ from ``y``.
+    right_on : str | list[str] | None
+        Join key(s) from ``y`` when names differ from ``x``.
+    add : list[str] | None
+        Columns to select from ``y`` (optional, for joins). If None, uses all.
+    suffix : str
+        Suffix for overlapping column names. Default: ``"_right"``.
 
-    Args:
-        x: Left/first dataset (Polars DataFrame or LazyFrame)
-        y: Right/second dataset to combine with x
-        on: Join key(s) when same column name on both sides.
-            Can be string ("id") or list (["id", "date"]).
-        how: Combine type. Default: 'inner'
-             Joins: inner, left, right, full, semi, anti
-             Binds: bind_rows, bind_cols
-             Sets: intersect, union, setdiff
-        left_on: Join key(s) from x when names differ from y.
-        right_on: Join key(s) from y when names differ from x.
-        add: Columns to select from y (optional, for joins). If None, uses all.
-        suffix: Suffix for overlapping column names. Default: '_right'
+    Returns
+    -------
+    pl.DataFrame
+        Combined dataset.
 
-    Returns:
-        pl.DataFrame: Combined dataset
+    Raises
+    ------
+    ValueError
+        If ``how`` is unknown or join keys are missing for join operations.
 
-    Notes:
-        - Join key dtypes are automatically aligned (e.g., Cat cast to Str)
+    Notes
+    -----
+    Join key dtypes are automatically aligned (e.g., categorical cast to string).
 
-    Examples:
-        >>> rsm.eda.combine(orders, customers, on='customer_id')  # Inner join
-        >>> rsm.eda.combine(orders, customers, on='customer_id', how='left')
-        >>> rsm.eda.combine(orders, customers, left_on='cust_id', right_on='customer_id')
-        >>> rsm.eda.combine(df1, df2, how='bind_rows')  # Stack vertically
-        >>> rsm.eda.combine(df1, df2, how='intersect')  # Common rows
+    Examples
+    --------
+    >>> import polars as pl
+    >>> import pyrsm as rsm
+    >>> x = pl.DataFrame({"id": [1, 2], "a": ["x", "y"]})
+    >>> y = pl.DataFrame({"id": [1, 2], "b": [10, 20]})
+    >>> print(rsm.eda.combine(x, y, on="id"))
+    shape: (2, 3)
+    ┌─────┬─────┬─────┐
+    │ id  ┆ a   ┆ b   │
+    │ --- ┆ --- ┆ --- │
+    │ i64 ┆ str ┆ i64 │
+    ╞═════╪═════╪═════╡
+    │ 1   ┆ x   ┆ 10  │
+    │ 2   ┆ y   ┆ 20  │
+    └─────┴─────┴─────┘
+    >>> print(rsm.eda.combine(x, x, how="bind_rows"))
+    shape: (4, 2)
+    ┌─────┬─────┐
+    │ id  ┆ a   │
+    │ --- ┆ --- │
+    │ i64 ┆ str │
+    ╞═════╪═════╡
+    │ 1   ┆ x   │
+    │ 2   ┆ y   │
+    │ 1   ┆ x   │
+    │ 2   ┆ y   │
+    └─────┴─────┘
     """
     # Validate how
     if how not in ALL_TYPES:

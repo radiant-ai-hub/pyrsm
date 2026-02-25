@@ -1,27 +1,4 @@
-"""
-distr - Distribution analysis for DataFrames.
-
-Provides summary statistics and plots for numeric, categorical, and other variable types.
-
-Examples:
-    import pyrsm as rsm
-
-    diamonds = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/data/diamonds.parquet")
-
-    # Basic usage
-    d = rsm.eda.distr(diamonds)
-    d.summary()
-    d.plot()
-
-    # With grouping
-    d = rsm.eda.distr(diamonds, by="cut")
-    d.summary()
-
-    # Specific columns
-    d = rsm.eda.distr(diamonds, cols=["price", "cut", "color"])
-    d.summary()
-    d.plot()
-"""
+"""Distribution analysis for DataFrames."""
 
 from math import ceil
 
@@ -130,11 +107,14 @@ class distr:
 
     Examples
     --------
-    import pyrsm as rsm
-    diamonds = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/data/diamonds.parquet")
-    d = rsm.distr(diamonds)
-    d.summary()
-    d.plot()
+    >>> import polars as pl
+    >>> import pyrsm as rsm
+    >>> df = pl.DataFrame({"x": [1.0, 2.0, 3.0], "grp": ["a", "b", "a"]})
+    >>> d = rsm.eda.distr(df)
+    >>> d.numeric_cols
+    ['x']
+    >>> d.categorical_cols
+    ['grp']
     """
 
     def __init__(
@@ -191,6 +171,20 @@ class distr:
         plain : bool
             If True (default), print plain text output. If False and running
             in a Jupyter notebook, use styled table output.
+
+        Examples
+        --------
+        >>> import contextlib
+        >>> import io
+        >>> import polars as pl
+        >>> import pyrsm as rsm
+        >>> df = pl.DataFrame({"x": [1.0, 2.0, 3.0], "grp": ["a", "b", "a"]})
+        >>> d = rsm.eda.distr(df)
+        >>> buf = io.StringIO()
+        >>> with contextlib.redirect_stdout(buf):
+        ...     d.summary(dec=2, plain=True)
+        >>> "Distribution Analysis" in buf.getvalue()
+        True
         """
         self._summary_header()
 

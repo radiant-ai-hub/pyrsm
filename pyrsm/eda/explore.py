@@ -1,24 +1,4 @@
-"""
-explore() - Summary statistics for numeric columns.
-
-Examples:
-    import pyrsm as rsm
-
-    # All numeric columns, default stats (variables as rows, functions as columns)
-    rsm.eda.explore(df)
-
-    # Specific columns
-    rsm.eda.explore(df, cols=['price', 'carat'])
-
-    # Custom aggregation functions
-    rsm.eda.explore(df, cols=['price'], agg=['mean', 'median', 'sd'])
-
-    # Grouped
-    rsm.eda.explore(df, cols=['price'], by='cut')
-
-    # Variables as columns instead of rows
-    rsm.eda.explore(df, header='variable')
-"""
+"""Summary statistics for numeric columns."""
 
 from typing import Literal
 
@@ -72,29 +52,74 @@ def explore(
     """
     Compute summary statistics for numeric columns.
 
-    Args:
-        df: Polars DataFrame or LazyFrame
-        cols: Column names to summarize. If None, uses all numeric columns
-             (and dummy-encoded categorical columns when to_dummies=True).
-        agg: Aggregation functions to compute. Default: ['mean', 'median', 'min', 'max', 'sd']
-             Supported: mean, median, sum, std, sd, var, min, max, count, n, n_unique, n_missing, null_count
-        by: Optional column to group by
-        to_dummies: If True, convert categorical/Enum/String columns to dummy
-             variables (drop_first=True) and include them in the summary.
-        header: Layout of the result table. "function" (default) puts statistic
-             names across the top (variables as rows). "variable" puts variable
-             names across the top (statistics as rows).
+    Parameters
+    ----------
+    df : pl.DataFrame | pl.LazyFrame
+        Polars DataFrame or LazyFrame.
+    cols : list[str] | None
+        Column names to summarize. If None, uses all numeric columns (and
+        dummy-encoded categorical columns when ``to_dummies=True``).
+    agg : list[str] | None
+        Aggregation functions to compute. Default: ``["mean", "median", "min",
+        "max", "sd"]``. Supported: mean, median, sum, std, sd, var, min, max,
+        count, n, n_unique, n_missing, null_count.
+    by : str | None
+        Optional column to group by.
+    to_dummies : bool
+        If True, convert categorical/Enum/String columns to dummy variables
+        (drop_first=True) and include them in the summary.
+    header : Literal["function", "variable"]
+        Layout of the result table. ``"function"`` (default) puts statistic
+        names across the top (variables as rows). ``"variable"`` puts variable
+        names across the top (statistics as rows).
 
-    Returns:
-        DataFrame with summary statistics
+    Returns
+    -------
+    pl.DataFrame
+        DataFrame with summary statistics.
 
-    Examples:
-        >>> rsm.eda.explore(diamonds)  # All numeric, default agg
-        >>> rsm.eda.explore(diamonds, cols=['price', 'carat'])
-        >>> rsm.eda.explore(diamonds, cols=['price'], agg=['mean', 'median'])
-        >>> rsm.eda.explore(diamonds, cols=['price'], by='cut')
-        >>> rsm.eda.explore(diamonds, header='variable')  # Variables as columns
-        >>> rsm.eda.explore(diamonds, to_dummies=False)  # Skip categorical dummies
+    Raises
+    ------
+    ValueError
+        If an aggregation function is unknown or if no numeric columns are
+        detected.
+
+    Examples
+    --------
+    >>> import polars as pl
+    >>> import pyrsm as rsm
+    >>> df = pl.DataFrame({"price": [10, 20, 30], "carat": [1.0, 2.0, 3.0]})
+    >>> print(rsm.eda.explore(df, cols=["price", "carat"], agg=["mean", "min"]))
+    shape: (2, 3)
+    ┌──────────┬──────┬──────┐
+    │ variable ┆ mean ┆ min  │
+    │ ---      ┆ ---  ┆ ---  │
+    │ str      ┆ f64  ┆ f64  │
+    ╞══════════╪══════╪══════╡
+    │ price    ┆ 20.0 ┆ 10.0 │
+    │ carat    ┆ 2.0  ┆ 1.0  │
+    └──────────┴──────┴──────┘
+    >>> print(rsm.eda.explore(df, cols=["price"], agg=["mean", "max"], header="variable"))
+    shape: (2, 2)
+    ┌───────────┬───────┐
+    │ statistic ┆ price │
+    │ ---       ┆ ---   │
+    │ str       ┆ f64   │
+    ╞═══════════╪═══════╡
+    │ mean      ┆ 20.0  │
+    │ max       ┆ 30.0  │
+    └───────────┴───────┘
+    >>> df2 = pl.DataFrame({"g": ["a", "a", "b"], "x": [1.0, 2.0, 3.0]})
+    >>> print(rsm.eda.explore(df2, cols=["x"], by="g", agg=["mean"]).sort("g"))
+    shape: (2, 2)
+    ┌─────┬────────┐
+    │ g   ┆ x_mean │
+    │ --- ┆ ---    │
+    │ str ┆ f64    │
+    ╞═════╪════════╡
+    │ a   ┆ 1.5    │
+    │ b   ┆ 3.0    │
+    └─────┴────────┘
     """
     # Materialize if LazyFrame
     if isinstance(df, pl.LazyFrame):

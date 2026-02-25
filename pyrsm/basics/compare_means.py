@@ -41,12 +41,22 @@ class compare_means:
     Quick start
     -----------
     >>> import pyrsm as rsm
-    >>> salary = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/basics/salary.parquet")
-    >>> cm = rsm.basics.compare_means({"salary": salary}, var1="rank", var2="salary")
-    >>> cm.summary()
-    >>> cm.plot()  # returns (Figure, Axes)
-
-    >>> rsm.basics.compare_means(salary, var1="sex", var2="salary", test_type="wilcox")
+    >>> import polars as pl
+    >>> df = pl.DataFrame({"group": ["a", "a", "b", "b"], "score": [1.0, 2.0, 3.0, 4.0]})
+    >>> cm = rsm.basics.compare_means(df, var1="group", var2="score")
+    >>> print(cm.descriptive_stats.select(["group", "mean"]))
+    shape: (2, 2)
+    ┌───────┬──────┐
+    │ group ┆ mean │
+    │ ---   ┆ ---  │
+    │ enum  ┆ f64  │
+    ╞═══════╪══════╡
+    │ a     ┆ 1.5  │
+    │ b     ┆ 3.5  │
+    └───────┴──────┘
+    >>> cm2 = rsm.basics.compare_means(df, var1="group", var2="score", test_type="wilcox")
+    >>> cm2.test_type
+    'wilcox'
 
     See the worked notebook (UI + code) in examples/basics/basics-compare-means.ipynb.
 

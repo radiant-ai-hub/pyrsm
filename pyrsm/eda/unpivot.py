@@ -1,18 +1,4 @@
-"""
-unpivot() - Convert wide format to long format (reverse of pivot).
-
-Examples:
-    import pyrsm as rsm
-
-    # Basic unpivot - specify columns to unpivot
-    rsm.eda.unpivot(df, on=['Q1', 'Q2', 'Q3'])
-
-    # With ID columns to keep
-    rsm.eda.unpivot(df, on=['Q1', 'Q2', 'Q3'], id_vars='name')
-
-    # Custom column names
-    rsm.eda.unpivot(df, on=['Q1', 'Q2'], id_vars='name', variable_name='quarter', value_name='sales')
-"""
+"""Convert wide format to long format (reverse of pivot)."""
 
 import polars as pl
 
@@ -27,23 +13,42 @@ def unpivot(
     """
     Convert wide format data to long format (reverse of pivot).
 
-    Args:
-        df: Polars DataFrame or LazyFrame
-        on: Column(s) to unpivot. If None, uses all columns not in id_vars
-        id_vars: Column(s) to keep as identifier variables
-        variable_name: Name for the new variable column. Default: 'variable'
-        value_name: Name for the new value column. Default: 'value'
+    Parameters
+    ----------
+    df : pl.DataFrame | pl.LazyFrame
+        Polars DataFrame or LazyFrame.
+    on : str | list[str] | None
+        Column(s) to unpivot. If None, uses all columns not in ``id_vars``.
+    id_vars : str | list[str] | None
+        Column(s) to keep as identifier variables.
+    variable_name : str
+        Name for the new variable column. Default: ``"variable"``.
+    value_name : str
+        Name for the new value column. Default: ``"value"``.
 
-    Returns:
-        DataFrame in long format
+    Returns
+    -------
+    pl.DataFrame
+        DataFrame in long format.
 
-    Examples:
-        >>> # Wide format: name, Q1, Q2, Q3, Q4
-        >>> rsm.eda.unpivot(df, on=['Q1', 'Q2', 'Q3', 'Q4'], id_vars='name')
-        >>> # Long format: name, variable, value
-
-        >>> rsm.eda.unpivot(df, on=['Q1', 'Q2'], id_vars='name')
-        >>> rsm.eda.unpivot(df, on=['Q1', 'Q2'], id_vars='name', variable_name='quarter', value_name='sales')
+    Examples
+    --------
+    >>> import polars as pl
+    >>> import pyrsm as rsm
+    >>> df = pl.DataFrame({"name": ["A", "B"], "Q1": [10, 20], "Q2": [30, 40]})
+    >>> out = rsm.eda.unpivot(df, on=["Q1", "Q2"], id_vars="name")
+    >>> print(out.sort(["name", "variable"]))
+    shape: (4, 3)
+    ┌──────┬──────────┬───────┐
+    │ name ┆ variable ┆ value │
+    │ ---  ┆ ---      ┆ ---   │
+    │ str  ┆ str      ┆ i64   │
+    ╞══════╪══════════╪═══════╡
+    │ A    ┆ Q1       ┆ 10    │
+    │ A    ┆ Q2       ┆ 30    │
+    │ B    ┆ Q1       ┆ 20    │
+    │ B    ┆ Q2       ┆ 40    │
+    └──────┴──────────┴───────┘
     """
     # Convert to DataFrame if LazyFrame
     if isinstance(df, pl.LazyFrame):

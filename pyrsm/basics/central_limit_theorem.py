@@ -14,6 +14,36 @@ import pyrsm.basics.plotting_utils as pu
 
 
 class central_limit_theorem:
+    """
+    Simulate the Central Limit Theorem for common distributions.
+
+    Parameters
+    ----------
+    dist : str
+        Distribution name: ``"normal"``, ``"binomial"``, ``"uniform"``, or
+        ``"exponential"``.
+    sample_size : int
+        Number of observations per sample.
+    num_samples : int
+        Number of samples to draw.
+    num_bins : int
+        Number of bins for histograms (clipped to 1..50).
+    figsize : tuple[float, float] | None
+        Figure size for plots.
+    **params : float
+        Distribution parameters: normal (mean, sd), binomial (size, prob),
+        uniform (min, max), exponential (rate).
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from plotnine import ggplot
+    >>> from pyrsm.basics.central_limit_theorem import central_limit_theorem
+    >>> clt = central_limit_theorem("normal", sample_size=5, num_samples=2, num_bins=5, mean=0, sd=1)
+    >>> plots = clt.plot_distribution([np.array([1, 2, 3]), np.array([2, 3, 4])])
+    >>> isinstance(plots["means_hist"], ggplot)
+    True
+    """
     def __init__(
         self,
         dist: str,
@@ -31,6 +61,7 @@ class central_limit_theorem:
         self.params = params
 
     def simulate(self) -> None:
+        """Dispatch to the selected distribution simulation."""
         if self.dist == "normal":
             self.simulate_normal()
         elif self.dist == "binomial":

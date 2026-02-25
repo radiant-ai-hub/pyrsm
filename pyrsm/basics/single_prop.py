@@ -26,6 +26,51 @@ def _get_plotting_utils():
 
 
 class single_prop:
+    """
+    Single proportion hypothesis test for a categorical level.
+
+    Parameters
+    ----------
+    data : pl.DataFrame | dict[str, pl.DataFrame]
+        Input data as a Polars DataFrame or a dict with a single named DataFrame.
+    var : str
+        Column name containing the categorical responses.
+    lev : str | None
+        Level of ``var`` treated as "success".
+    alt_hyp : str
+        Alternative hypothesis: ``"two-sided"``, ``"greater"``, or ``"less"``.
+    conf : float
+        Confidence level for the interval.
+    comp_value : float
+        Comparison proportion used in the null hypothesis.
+    test_type : str
+        ``"binomial"`` for exact binomial test or ``"z"`` for z-test.
+
+    Attributes
+    ----------
+    p : float
+        Observed proportion of ``lev`` in ``var``.
+    ns : int
+        Number of successes.
+    n : int
+        Number of non-missing observations.
+    p_val : float
+        P-value for the hypothesis test.
+    ci : tuple[float, float]
+        Confidence interval for the proportion.
+
+    Examples
+    --------
+    >>> import polars as pl
+    >>> import pyrsm as rsm
+    >>> df = pl.DataFrame({"choice": ["yes", "no", "yes", "yes"]})
+    >>> sp = rsm.basics.single_prop(df, var="choice", lev="yes")
+    >>> sp.p
+    0.75
+    >>> sp = rsm.basics.single_prop(df, var="choice", lev="yes", test_type="z", comp_value=0.5)
+    >>> sp.diff
+    0.25
+    """
     def __init__(
         self,
         data: pl.DataFrame | dict[str, pl.DataFrame],

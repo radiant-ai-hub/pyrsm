@@ -17,25 +17,38 @@ def _get_scipy_stats():
 
 class correlation:
     """
-    Calculate correlations between numeric variables in a Polars dataframe
+    Calculate correlations between numeric variables in a Polars DataFrame.
 
     Parameters
     ----------
-    data : Polars dataframe with numeric variables
+    data : pl.DataFrame | dict[str, pl.DataFrame]
+        Input data with numeric columns.
+    vars : list[str] | None
+        Column names to include. If empty, all numeric columns are used.
+    method : str
+        Correlation method: ``"pearson"``, ``"spearman"``, or ``"kendall"``.
 
-    Returns
-    -------
-    Correlation object with two key attributes
-    cr: Correlation matrix
-    cp: p.value matrix
-    cv: Covariance matrix
+    Attributes
+    ----------
+    cr : np.ndarray
+        Correlation matrix.
+    cp : np.ndarray
+        P-value matrix.
+    cv : np.ndarray
+        Covariance matrix.
 
     Examples
     --------
-    import pyrsm as rsm
-    salary = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/basics/salary.parquet")
-    cr = rsm.correlation(salary.select(["salary", "yrs.since.phd", "yrs.service"]))
-    cr.cr
+    >>> import polars as pl
+    >>> import pyrsm as rsm
+    >>> df = pl.DataFrame({"x": [1, 2, 3], "y": [2, 4, 6]})
+    >>> cr = rsm.basics.correlation(df, vars=["x", "y"])
+    >>> print(cr.cr)
+    [[0. 1.]
+     [1. 0.]]
+    >>> cr = rsm.basics.correlation(df, vars=["x", "y"], method="spearman")
+    >>> cr.method
+    'spearman'
     """
 
     def __init__(

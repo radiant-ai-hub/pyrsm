@@ -1,24 +1,4 @@
-"""
-pivot() - Pivot tables and crosstabs.
-
-Examples:
-    import pyrsm as rsm
-
-    # Frequency table (1 variable)
-    rsm.eda.pivot(df, rows='cut')
-
-    # Multiple row variables
-    rsm.eda.pivot(df, rows=['cut', 'color'])
-
-    # Crosstab (rows + cols)
-    rsm.eda.pivot(df, rows='cut', cols='color')
-
-    # Aggregation
-    rsm.eda.pivot(df, rows='cut', cols='color', values='price', agg='mean')
-
-    # With normalization and totals
-    rsm.eda.pivot(df, rows='cut', cols='color', normalize='row', totals=True)
-"""
+"""Pivot tables and crosstabs."""
 
 import polars as pl
 
@@ -50,27 +30,64 @@ def pivot(
     """
     Create pivot tables and crosstabs.
 
-    Args:
-        df: Polars DataFrame or LazyFrame
-        rows: Row variable(s) - string or list of strings
-        cols: Column variable for crosstab (optional)
-        values: Value column for aggregation (optional, uses count if None)
-        agg: Aggregation function. Default: 'count' (or 'mean' if values specified)
-             Supported: count, sum, mean, median, min, max, std, var
-        normalize: Normalization type: 'row', 'column', 'total', or None
-        totals: Whether to include row/column totals
-        fill: Fill value for missing cells (only when no values variable). Default: None
+    Parameters
+    ----------
+    df : pl.DataFrame | pl.LazyFrame
+        Polars DataFrame or LazyFrame.
+    rows : str | list[str]
+        Row variable(s).
+    cols : str | None
+        Column variable for crosstab (optional).
+    values : str | None
+        Value column for aggregation (optional, uses count if None).
+    agg : str
+        Aggregation function. Default: ``"count"`` (or ``"mean"`` if values
+        specified). Supported: count, sum, mean, median, min, max, std, var.
+    normalize : str | None
+        Normalization type: ``"row"``, ``"column"``, ``"total"``, or ``None``.
+    totals : bool
+        Whether to include row/column totals.
+    fill : float | None
+        Fill value for missing cells (only when no values variable). Default: None.
 
-    Returns:
-        DataFrame with pivot table
+    Returns
+    -------
+    pl.DataFrame
+        Pivot table or crosstab.
 
-    Examples:
-        >>> rsm.eda.pivot(diamonds, rows='cut')  # Frequency table
-        >>> rsm.eda.pivot(diamonds, rows=['cut', 'color'])  # Multiple rows
-        >>> rsm.eda.pivot(diamonds, rows='cut', cols='color')  # Crosstab
-        >>> rsm.eda.pivot(diamonds, rows='cut', cols='color', values='price', agg='mean')
-        >>> rsm.eda.pivot(diamonds, rows='cut', cols='color', normalize='row', totals=True)
-        >>> rsm.eda.pivot(diamonds, rows='cut', cols='color', fill=0)  # Fill nulls with 0
+    Raises
+    ------
+    ValueError
+        If ``agg`` or ``normalize`` is unknown.
+
+    Examples
+    --------
+    >>> import polars as pl
+    >>> import pyrsm as rsm
+    >>> df = pl.DataFrame(
+    ...     {"cut": ["A", "A", "B", "B"], "color": ["X", "Y", "X", "Y"], "price": [10, 20, 30, 40]}
+    ... )
+    >>> print(rsm.eda.pivot(df, rows="cut").sort("cut"))
+    shape: (2, 2)
+    ┌─────┬───────┐
+    │ cut ┆ count │
+    │ --- ┆ ---   │
+    │ str ┆ u32   │
+    ╞═════╪═══════╡
+    │ A   ┆ 2     │
+    │ B   ┆ 2     │
+    └─────┴───────┘
+    >>> out = rsm.eda.pivot(df, rows="cut", cols="color").sort("cut")
+    >>> print(out.select(["cut", "X", "Y"]))
+    shape: (2, 3)
+    ┌─────┬─────┬─────┐
+    │ cut ┆ X   ┆ Y   │
+    │ --- ┆ --- ┆ --- │
+    │ str ┆ f64 ┆ f64 │
+    ╞═════╪═════╪═════╡
+    │ A   ┆ 1.0 ┆ 1.0 │
+    │ B   ┆ 1.0 ┆ 1.0 │
+    └─────┴─────┴─────┘
     """
     # Convert to LazyFrame for consistency
     if isinstance(df, pl.DataFrame):

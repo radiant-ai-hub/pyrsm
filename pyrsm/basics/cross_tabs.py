@@ -26,39 +26,53 @@ def _get_plotting_utils():
 
 class cross_tabs:
     """
-    Calculate a Chi-square test between two categorical variables contained
-    in a Polars dataframe
+    Chi-square test and crosstab summaries for two categorical variables.
 
     Parameters
     ----------
-    data : Polars dataframe with categorical variables or a
-        dictionary with a single dataframe as the value and the
-        name of the dataframe as the key
-    var1: String; Name of the first categorical variable
-    var2: String; Name of the second categorical variable
+    data : pl.DataFrame | dict[str, pl.DataFrame]
+        Input data with categorical columns.
+    var1 : str
+        Name of the first categorical variable.
+    var2 : str
+        Name of the second categorical variable.
 
-    Returns
-    -------
-    Cross object with several attributes
-    data: Original dataframe
-    var1: Name of the first categorical variable
-    var2: Name of the second categorical variable
-    observed: Dataframe of observed frequencies
-    expected: Dataframe of expected frequencies
-    expected_low: List with number of cells with expected values < 5
-        and the total number of cells
-    chisq: Dataframe of chi-square values for each cell
-    dev_std: Dataframe of standardized deviations from the expected table
-    perc_row: Dataframe of observation percentages conditioned by row
-    perc_col: Dataframe of observation percentages conditioned by column
-    perc: Dataframe of observation percentages by the total number of observations
+    Attributes
+    ----------
+    observed : pl.DataFrame
+        Observed frequency table with totals.
+    expected : pl.DataFrame
+        Expected frequencies under independence with totals.
+    expected_low : list[int]
+        Count of cells with expected values < 5 and total cell count.
+    chisq : pl.DataFrame
+        Chi-square contribution table with totals.
+    dev_std : pl.DataFrame
+        Standardized deviations (without totals).
+    perc_row : pl.DataFrame
+        Row-conditioned proportions.
+    perc_col : pl.DataFrame
+        Column-conditioned proportions.
+    perc : pl.DataFrame
+        Overall proportions.
 
     Examples
     --------
-    import polars as pl
-    newspaper = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/basics/newspaper.parquet")
-    ct = rsm.cross_tabs(newspaper, "Income", "Newspaper")
-    ct.expected
+    >>> import polars as pl
+    >>> import pyrsm as rsm
+    >>> df = pl.DataFrame({"a": ["x", "x", "y", "y"], "b": ["m", "n", "m", "n"]})
+    >>> ct = rsm.basics.cross_tabs(df, "a", "b")
+    >>> print(ct.observed)
+    shape: (3, 4)
+    ┌───────┬─────┬─────┬───────┐
+    │ a     ┆ m   ┆ n   ┆ Total │
+    │ ---   ┆ --- ┆ --- ┆ ---   │
+    │ str   ┆ i64 ┆ i64 ┆ i64   │
+    ╞═══════╪═════╪═════╪═══════╡
+    │ x     ┆ 1   ┆ 1   ┆ 2     │
+    │ y     ┆ 1   ┆ 1   ┆ 2     │
+    │ Total ┆ 2   ┆ 2   ┆ 4     │
+    └───────┴─────┴─────┴───────┘
     """
 
     def __init__(

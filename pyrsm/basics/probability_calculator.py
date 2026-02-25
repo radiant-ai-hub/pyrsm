@@ -46,6 +46,31 @@ pc_dist = {
 
 
 class prob_calc:
+    """
+    Probability calculator for common distributions.
+
+    Parameters
+    ----------
+    distribution : str
+        Distribution key (e.g., ``"binom"``, ``"norm"``, ``"pois"``).
+    **kwargs : dict
+        Parameters passed to the selected distribution function.
+
+    Attributes
+    ----------
+    dct : dict
+        Computed distribution summary (values and probabilities).
+
+    Examples
+    --------
+    >>> import pyrsm as rsm
+    >>> pc = rsm.basics.prob_calc("binom", n=10, p=0.5, lb=2, ub=4)
+    >>> pc.dct["lb"], pc.dct["ub"]
+    (2, 4)
+    >>> pc = rsm.basics.prob_calc("norm", mean=0, sd=1, plb=0.95)
+    >>> pc.dct["plb"]
+    0.95
+    """
     def __init__(self, distribution: str, **kwargs) -> None:
         self.distribution = distribution
         self.args = kwargs
@@ -73,6 +98,21 @@ class prob_calc:
             raise ValueError(f"Distribution must be one of {list(pc_dist.keys())}")
 
     def summary(self, dec=3, ret=False):
+        """
+        Print or return a formatted summary of probabilities.
+
+        Parameters
+        ----------
+        dec : int
+            Number of decimals for printed values.
+        ret : bool
+            If True, return the summary dict instead of printing.
+
+        Returns
+        -------
+        dict | None
+            Summary dictionary if ``ret=True``; otherwise None.
+        """
         type = "probs" if ("plb" in self.args) or ("pub" in self.args) else "values"
         if self.distribution == "binom":
             pdict = summary_prob_binom(self.dct, type=type, dec=dec, ret=True)
@@ -101,6 +141,7 @@ class prob_calc:
 
     @staticmethod
     def pretty_print_summary(pdict):
+        """Pretty-print a summary dictionary returned by ``summary``."""
         nonprob = {}
         prob = {}
         for k, v in pdict.items():
@@ -140,6 +181,14 @@ class prob_calc:
                             print(f"{k}{pad} {v}")
 
     def plot(self):
+        """
+        Plot the distribution using plotnine.
+
+        Returns
+        -------
+        plotnine.ggplot
+            Plotnine ggplot object for the selected distribution.
+        """
         type = "probs" if ("plb" in self.args) or ("pub" in self.args) else "values"
         if self.distribution == "binom":
             return plot_prob_binom(self.dct, type=type)

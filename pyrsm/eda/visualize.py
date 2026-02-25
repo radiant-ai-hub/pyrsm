@@ -1,20 +1,4 @@
-"""
-visualize() - Create plots using plotnine.
-
-Supports: dist (histogram/bar), density, scatter, line, bar, box, violin
-Options: color, fill, facet, smooth (lm/loess), jitter, bins, alpha, size
-
-Examples:
-    import pyrsm as rsm
-
-    rsm.eda.visualize(df, x="price")                          # histogram for numeric
-    rsm.eda.visualize(df, x="cut")                            # bar for categorical
-    rsm.eda.visualize(df, x="price", geom="density")          # density plot
-    rsm.eda.visualize(df, x="carat", y="price")               # scatter plot
-    rsm.eda.visualize(df, x="carat", y="price", smooth="lm")  # with regression line
-    rsm.eda.visualize(df, x="cut", y="price", geom="box")     # box plot
-    rsm.eda.visualize(df, x="price", facet="cut")             # faceted histograms
-"""
+"""Create plots using plotnine."""
 
 import polars as pl
 
@@ -93,43 +77,73 @@ def visualize(
     """
     Create a plot using plotnine.
 
-    Args:
-        df: Polars DataFrame or LazyFrame
-        x: Column name for x-axis
-        y: Column name for y-axis (required for scatter, line, box, violin)
-        geom: Plot type: dist, hist, density, scatter, bar, line, box, violin
-              Default: scatter if y provided, dist otherwise
-        color: Column name for color aesthetic or literal color
-        fill: Column name for fill aesthetic or literal color
-        shape: Column name for shape aesthetic
-        group: Column name for grouping
-        linetype: Column name for linetype aesthetic
-        bins: Number of bins for histogram (default: 30)
-        alpha: Transparency (0-1)
-        size: Point/line size
-        position: Bar position: "stack" or "dodge"
-        smooth: Add smooth line to scatter: "lm", "loess", or "true"
-        jitter: Add jitter to scatter plot points
-        facet: Column for facet_wrap
-        facet_row: Row faceting variable (for facet_grid)
-        facet_col: Column faceting variable (for facet_grid)
-        title: Plot title
-        nobs: Max observations for scatter plots (default: 1000, -1 for all)
-        agg: Aggregation function for bar/scatter plots with categorical x:
-             "mean", "median", "sum", "min", "max". For bar plots, aggregates y
-             by x. For scatter plots with categorical x, adds a line showing
-             the aggregated value per category.
+    Parameters
+    ----------
+    df : pl.DataFrame | pl.LazyFrame
+        Polars DataFrame or LazyFrame.
+    x : str
+        Column name for x-axis.
+    y : str | None
+        Column name for y-axis (required for scatter, line, box, violin).
+    geom : str | None
+        Plot type: dist, hist, density, scatter, bar, line, box, violin. Default:
+        scatter if ``y`` provided, dist otherwise.
+    color : str | None
+        Column name for color aesthetic or literal color.
+    fill : str | None
+        Column name for fill aesthetic or literal color.
+    shape : str | None
+        Column name for shape aesthetic.
+    group : str | None
+        Column name for grouping.
+    linetype : str | None
+        Column name for linetype aesthetic.
+    bins : int | None
+        Number of bins for histogram (default: 30).
+    alpha : float | None
+        Transparency (0-1).
+    size : int | float | None
+        Point/line size.
+    position : str | None
+        Bar position: ``"stack"`` or ``"dodge"``.
+    smooth : str | None
+        Add smooth line to scatter: ``"lm"``, ``"loess"``, or ``"true"``.
+    jitter : bool
+        Add jitter to scatter plot points.
+    facet : str | None
+        Column for facet_wrap.
+    facet_row : str | None
+        Row faceting variable (for facet_grid).
+    facet_col : str | None
+        Column faceting variable (for facet_grid).
+    title : str | None
+        Plot title.
+    nobs : int
+        Max observations for scatter plots (default: 1000, -1 for all).
+    agg : str | None
+        Aggregation function for bar/scatter plots with categorical x: mean,
+        median, sum, min, max. For bar plots, aggregates y by x. For scatter
+        plots with categorical x, adds a line showing the aggregated value per
+        category.
 
-    Returns:
-        plotnine ggplot object
+    Returns
+    -------
+    plotnine.ggplot
+        Plotnine ggplot object.
 
-    Examples:
-        >>> rsm.eda.visualize(df, x="price")  # histogram
-        >>> rsm.eda.visualize(df, x="carat", y="price")  # scatter
-        >>> rsm.eda.visualize(df, x="carat", y="price", color="cut")
-        >>> rsm.eda.visualize(df, x="carat", y="price", smooth="lm")
-        >>> rsm.eda.visualize(df, x="cut", y="price", geom="bar", agg="mean")  # mean bar
-        >>> rsm.eda.visualize(df, x="cut", y="price", geom="scatter", agg="mean")  # scatter with mean line
+    Raises
+    ------
+    ValueError
+        If ``geom`` or ``agg`` is unknown, or required aesthetics are missing.
+
+    Examples
+    --------
+    >>> import polars as pl
+    >>> import pyrsm as rsm
+    >>> df = pl.DataFrame({"x": [1, 2, 3], "y": [1, 4, 9]})
+    >>> p = rsm.eda.visualize(df, x="x", y="y")
+    >>> type(p).__name__
+    'ggplot'
     """
     from plotnine import (
         aes,

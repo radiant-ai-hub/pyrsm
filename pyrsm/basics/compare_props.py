@@ -37,11 +37,54 @@ def _get_plotting_utils():
 
 class compare_props:
     """
-    Compare proportions across levels of a categorical variable in a Polars
-    dataframe. See the notebook linked below for a worked example,
-    including the web UI:
+    Compare proportions across levels of a categorical variable.
 
-    https://github.com/radiant-ai-hub/pyrsm/blob/main/examples/basics-compare-means.ipynb
+    Parameters
+    ----------
+    data : pl.DataFrame | dict[str, pl.DataFrame]
+        Input data as a Polars DataFrame or a dict with a single named DataFrame.
+    var1 : str
+        Categorical grouping variable.
+    var2 : str
+        Categorical response variable.
+    lev : str
+        Level of ``var2`` treated as "success".
+    comb : list[str]
+        Optional list of level comparisons (e.g., ``["a:b", "a:c"]``).
+    alt_hyp : str
+        Alternative hypothesis: ``"two-sided"``, ``"greater"``, or ``"less"``.
+    conf : float
+        Confidence level for intervals.
+    adjust : str | None
+        Multiple-testing adjustment method supported by
+        ``statsmodels.stats.multitest`` (e.g., ``"bonferroni"``).
+
+    Attributes
+    ----------
+    descriptive_stats : pl.DataFrame
+        Per-level proportions, counts, and standard errors.
+    comp_stats : pl.DataFrame
+        Pairwise comparison statistics and confidence intervals.
+
+    Examples
+    --------
+    >>> import polars as pl
+    >>> import pyrsm as rsm
+    >>> df = pl.DataFrame({"group": ["a", "a", "b", "b"], "resp": ["yes", "no", "yes", "no"]})
+    >>> cp = rsm.basics.compare_props(df, var1="group", var2="resp", lev="yes")
+    >>> print(cp.descriptive_stats.select(["group", "p", "n"]))
+    shape: (2, 3)
+    ┌───────┬─────┬─────┐
+    │ group ┆ p   ┆ n   │
+    │ ---   ┆ --- ┆ --- │
+    │ str   ┆ f64 ┆ i64 │
+    ╞═══════╪═════╪═════╡
+    │ a     ┆ 0.5 ┆ 2   │
+    │ b     ┆ 0.5 ┆ 2   │
+    └───────┴─────┴─────┘
+    >>> cp = rsm.basics.compare_props(df, var1="group", var2="resp", lev="yes", adjust="bonferroni")
+    >>> cp.adjust
+    'bonferroni'
     """
 
     def __init__(

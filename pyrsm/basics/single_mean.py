@@ -72,6 +72,18 @@ class single_mean:
         Prints a summary of the hypothesis test.
     plot()
         Plots the results of the hypothesis test.
+
+    Examples
+    --------
+    >>> import polars as pl
+    >>> import pyrsm as rsm
+    >>> df = pl.DataFrame({"x": [1.0, 2.0, 3.0]})
+    >>> sm = rsm.basics.single_mean(df, var="x", comp_value=2)
+    >>> float(sm.mean)
+    2.0
+    >>> sm = rsm.basics.single_mean(df, var="x", alt_hyp="greater", comp_value=1)
+    >>> sm.alt_hyp
+    'greater'
     """
 
     def __init__(

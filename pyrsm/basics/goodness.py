@@ -26,6 +26,51 @@ def _get_plotting_utils():
 
 
 class goodness:
+    """
+    Chi-square goodness-of-fit test for a categorical variable.
+
+    Parameters
+    ----------
+    data : pl.DataFrame | dict[str, pl.DataFrame]
+        Input data as a Polars DataFrame or a dict with a single named DataFrame.
+    var : str
+        Categorical variable to test.
+    probs : tuple[float, ...] | None
+        Expected probabilities for each level (in sorted order). If None, uses
+        a uniform distribution across levels.
+    figsize : tuple[float, float] | None
+        Figure size for plots.
+
+    Attributes
+    ----------
+    observed : pl.DataFrame
+        Observed counts with total.
+    expected : pl.DataFrame
+        Expected counts with total.
+    chisq : pl.DataFrame
+        Chi-square contributions with total.
+    stdev : pl.DataFrame
+        Standardized deviations without totals.
+
+    Examples
+    --------
+    >>> import polars as pl
+    >>> import pyrsm as rsm
+    >>> df = pl.DataFrame({"resp": ["a", "a", "b", "b", "b"]})
+    >>> gf = rsm.basics.goodness(df, var="resp")
+    >>> print(gf.observed)
+    shape: (1, 3)
+    ┌─────┬─────┬───────┐
+    │ a   ┆ b   ┆ Total │
+    │ --- ┆ --- ┆ ---   │
+    │ i64 ┆ i64 ┆ i32   │
+    ╞═════╪═════╪═══════╡
+    │ 2   ┆ 3   ┆ 5     │
+    └─────┴─────┴───────┘
+    >>> gf = rsm.basics.goodness(df, var="resp", probs=(0.4, 0.6))
+    >>> gf.probs
+    (0.4, 0.6)
+    """
     def __init__(
         self,
         data: pl.DataFrame | dict[str, pl.DataFrame],
