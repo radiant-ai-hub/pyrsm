@@ -1,6 +1,14 @@
 from importlib import import_module
 
+import polars as pl
+
 __version__ = "2.3.2"
+
+# Global Polars config: always print full tables (no row/column truncation)
+pl.Config.set_tbl_rows(-1)
+pl.Config.set_tbl_cols(-1)
+pl.Config.set_fmt_str_lengths(100)
+pl.Config.set_tbl_width_chars(200)
 
 _LAZY_MODULES = {
     "basics": "pyrsm.basics",
@@ -11,6 +19,7 @@ _LAZY_MODULES = {
     "notebook": "pyrsm.notebook",
     "props": "pyrsm.props",
     "stats": "pyrsm.stats",
+    "design": "pyrsm.design",
     "utils": "pyrsm.utils",
 }
 

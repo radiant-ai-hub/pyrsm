@@ -1,0 +1,5 @@
+{
+  "free_ship": ["$300", "$200"],
+  "discount": ["15%", "20%"],
+  "coup_entry": ["manual", "automatic"]
+}

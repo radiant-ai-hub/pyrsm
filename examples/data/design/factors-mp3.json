@@ -1,0 +1,7 @@
+{
+  "Memory": ["4GB", "6GB", "8GB"],
+  "FM_radio": ["Yes", "No"],
+  "Size": ["Small", "Medium", "Large"],
+  "Price": ["$50", "$100", "$150"],
+  "Shape": ["Square", "Circular", "Rectangular"]
+}

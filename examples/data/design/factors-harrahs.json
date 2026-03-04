@@ -1,0 +1,8 @@
+{
+  "free_nights": ["1", "2", "3"],
+  "free_chips": ["$100", "$50", "0"],
+  "free_shows": ["yes", "no"],
+  "exp_date": ["12 months", "3 months", "6 months"],
+  "phone_follow": ["no", "yes"],
+  "email_follow": ["no", "yes"]
+}

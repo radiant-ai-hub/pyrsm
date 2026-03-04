@@ -548,3 +548,87 @@ def sig_stars(pval) -> pl.Series:
         .otherwise(pl.lit(" "))
         .alias("sig")
     )["sig"]
+
+
+def polychoric_corr(x, y, inf=10):
+    """Compute polychoric correlation between two ordinal variables.
+
+    Estimates the correlation between two latent normal variables from
+    their observed ordinal (discretized) versions using maximum likelihood.
+    Equivalent to R's polycor::polychor().
+
+    Parameters
+    ----------
+    x, y : array-like
+        Ordinal variables (integer-coded).
+    inf : float
+        Value used for +/- infinity thresholds.
+
+    Returns
+    -------
+    float
+        Estimated polychoric correlation.
+    """
+    from scipy.optimize import minimize_scalar
+    from scipy.stats import multivariate_normal, norm
+
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+
+    def _thresholds(v):
+        vals, counts = np.unique(v, return_counts=True)
+        cum = np.cumsum(counts[:-1])
+        return [-inf] + [norm.ppf(c / len(v)) for c in cum] + [inf]
+
+    x_thresh = _thresholds(x)
+    y_thresh = _thresholds(y)
+    p, m = len(x_thresh) - 1, len(y_thresh) - 1
+
+    x_map = {v: i for i, v in enumerate(np.unique(x))}
+    y_map = {v: i for i, v in enumerate(np.unique(y))}
+    n_table = np.zeros((p, m))
+    for xi, yi in zip(x, y):
+        n_table[x_map[xi], y_map[yi]] += 1
+
+    def _neg_ll(rho):
+        cov = np.array([[1.0, rho], [rho, 1.0]])
+        rv = multivariate_normal(mean=[0.0, 0.0], cov=cov, allow_singular=True)
+        ll = 0.0
+        for i in range(p):
+            for j in range(m):
+                if n_table[i, j] > 0:
+                    prob = max(
+                        rv.cdf([x_thresh[i + 1], y_thresh[j + 1]])
+                        - rv.cdf([x_thresh[i], y_thresh[j + 1]])
+                        - rv.cdf([x_thresh[i + 1], y_thresh[j]])
+                        + rv.cdf([x_thresh[i], y_thresh[j]]),
+                        1e-20,
+                    )
+                    ll += np.log(prob) * n_table[i, j]
+        return -ll
+
+    result = minimize_scalar(_neg_ll, bounds=(-0.999, 0.999), method="bounded")
+    return result.x
+
+
+def polychoric_matrix(data_matrix):
+    """Compute polychoric correlation matrix for multiple ordinal variables.
+
+    Parameters
+    ----------
+    data_matrix : np.ndarray
+        n x k matrix where each column is an ordinal variable.
+
+    Returns
+    -------
+    np.ndarray
+        k x k polychoric correlation matrix.
+    """
+    k = data_matrix.shape[1]
+    corr = np.eye(k)
+    for i in range(k):
+        for j in range(i + 1, k):
+            r = polychoric_corr(data_matrix[:, i], data_matrix[:, j])
+            corr[i, j] = r
+            corr[j, i] = r
+    return corr

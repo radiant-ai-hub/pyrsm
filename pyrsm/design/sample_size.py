@@ -2,92 +2,116 @@ import math
 
 from scipy.stats import norm
 
+from pyrsm.utils import format_nr
+
 
 class sample_size:
     """
-    Sample size calculation
+    Sample size calculation for means or proportions.
 
     Parameters
     ----------
-    type: Choose "mean" or "proportion"
-    err_mean Acceptable Error for Mean
-    sd_mean Standard deviation for Mean
-    err_prop Acceptable Error for Proportion
-    p_prop Initial proportion estimate for Proportion
-    conf Confidence level
-    pop_size Population size
-    incidence Incidence rate (i.e., fraction of valid respondents)
-    response Response rate
+    type : str
+        Choose "mean" or "proportion"
+    err_mean : float
+        Acceptable error for mean
+    sd_mean : float
+        Standard deviation for mean
+    err_prop : float
+        Acceptable error for proportion
+    p_prop : float
+        Initial proportion estimate for proportion
+    conf : float
+        Confidence level
+    incidence : float
+        Incidence rate (fraction of valid respondents)
+    response : float
+        Response rate
+    pop_correction : bool
+        Apply correction for population size
+    pop_size : int
+        Population size
 
-    @return A list of variables defined in sample_size as an object of class sample_size
+    Attributes
+    ----------
+    n : int
+        Required sample size (ceiling)
+    contact_attempts : int
+        Required contact attempts adjusted for incidence and response rates
 
-    sample_size(type = "mean", err_mean = 2, sd_mean = 10)
+    Examples
+    --------
+    >>> ss = sample_size("mean", err_mean=2, sd_mean=10)
+    >>> ss.n
+    97
+    >>> ss = sample_size("proportion", err_prop=0.1, p_prop=0.5)
+    >>> ss.n
+    97
     """
 
-    def sample_size_mean(
-        type,
-        err_mean=2,
-        sd_mean=10,
-        err_prop=0.1,
-        p_prop=0.5,
-        conf=0.95,
-        pop_size=None,
-        incidence=1,
-        response=1,
+    def __init__(
+        self,
+        type: str = "mean",
+        err_mean: float = 2,
+        sd_mean: float = 10,
+        err_prop: float = 0.1,
+        p_prop: float = 0.5,
+        conf: float = 0.95,
+        incidence: float = 1,
+        response: float = 1,
+        pop_correction: bool = False,
+        pop_size: int = 1_000_000,
     ):
+        self.type = type
+        self.err_mean = err_mean
+        self.sd_mean = sd_mean
+        self.err_prop = err_prop
+        self.p_prop = p_prop
+        self.conf = conf
+        self.incidence = incidence
+        self.response = response
+        self.pop_correction = pop_correction
+        self.pop_size = pop_size
+
         if conf is None or conf < 0 or conf > 1:
             conf = 0.95
+            self.conf = conf
 
         zval = -norm.ppf((1 - conf) / 2)
 
         if type == "mean":
-            if err_mean is None:
-                return "Please select an acceptable error greater than 0"
             n = (zval**2 * sd_mean**2) / (err_mean**2)
         else:
-            if err_prop is None:
-                return "Please select an acceptable error greater than 0"
             n = (zval**2 * p_prop * (1 - p_prop)) / (err_prop**2)
 
-        if pop_size is not None:
+        if pop_correction:
             n = n * pop_size / ((n - 1) + pop_size)
 
-        return math.ceil(n)
+        self.n = math.ceil(n)
+        self.contact_attempts = math.ceil(self.n / incidence / response)
 
+    def summary(self, dec: int = 3) -> None:
+        """Print summary of sample size calculation."""
+        print("Sample size calculation")
 
-# Test the function
-sample_size("mean", err_mean=2, sd_mean=10)
+        if self.type == "mean":
+            print("Calculation type     : Mean")
+            print(f"Acceptable Error     : {self.err_mean}")
+            print(f"Standard deviation   : {self.sd_mean}")
+        else:
+            print("Calculation type     : Proportion")
+            print(f"Acceptable Error     : {self.err_prop}")
+            print(f"Proportion           : {self.p_prop}")
 
-# summary.sample_size <- function(object, ...) {
-#   if (is.character(object)) {
-#     return(object)
-#   }
+        print(f"Confidence level     : {self.conf}")
+        print(f"Incidence rate       : {self.incidence}")
+        print(f"Response rate        : {self.response}")
 
-#   cat("Sample size calculation\n")
+        if not self.pop_correction:
+            print("Population correction: None")
+        else:
+            print("Population correction: Yes")
+            print(f"Population size      : {format_nr(self.pop_size, dec=0)}")
 
-#   if (object$type == "mean") {
-#     cat("Calculation type     : Mean\n")
-#     cat("Acceptable Error     :", object$err_mean, "\n")
-#     cat("Standard deviation   :", object$sd_mean, "\n")
-#   } else {
-#     cat("Calculation type     : Proportion\n")
-#     cat("Acceptable Error     :", object$err_prop, "\n")
-#     cat("Proportion           :", object$p_prop, "\n")
-#   }
-
-#   cat("Confidence level     :", object$conf, "\n")
-#   cat("Incidence rate       :", object$incidence, "\n")
-#   cat("Response rate        :", object$response, "\n")
-
-#   if (object$pop_correction == "no") {
-#     cat("Population correction: None\n")
-#   } else {
-#     cat("Population correction: Yes\n")
-#     cat("Population size      :", format_nr(object$pop_size, dec = 0), "\n")
-#   }
-
-#   cat("\nRequired sample size     :", format_nr(object$n, dec = 0))
-#   cat("\nRequired contact attempts:", format_nr(ceiling(object$n / object$incidence / object$response), dec = 0))
-
-#   rm(object)
-# }
+        print(f"\nRequired sample size     : {format_nr(self.n, dec=0)}")
+        print(f"Required contact attempts: {format_nr(self.contact_attempts, dec=0)}")

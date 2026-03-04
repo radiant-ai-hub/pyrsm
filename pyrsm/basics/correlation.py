@@ -4,7 +4,7 @@ import numpy as np
 import polars as pl
 
 import pyrsm.basics.display_utils as du
-from pyrsm.utils import check_dataframe, sig_stars
+from pyrsm.utils import check_dataframe, polychoric_corr, sig_stars
 
 
 @lru_cache(maxsize=1)
@@ -26,16 +26,19 @@ class correlation:
     vars : list[str] | None
         Column names to include. If empty, all numeric columns are used.
     method : str
-        Correlation method: ``"pearson"``, ``"spearman"``, or ``"kendall"``.
+        Correlation method: ``"pearson"``, ``"spearman"``, ``"kendall"``,
+        or ``"polychoric"``. Use ``"polychoric"`` for ordinal variables to
+        estimate correlations between latent normal variables (equivalent
+        to R's ``polycor::polychor``).
 
     Attributes
     ----------
     cr : np.ndarray
         Correlation matrix.
     cp : np.ndarray
-        P-value matrix.
+        P-value matrix (not available for polychoric).
     cv : np.ndarray
-        Covariance matrix.
+        Covariance matrix (not available for polychoric).
 
     Examples
     --------
@@ -78,31 +81,51 @@ class correlation:
         cr = np.zeros([ncol, ncol])
         cp = cr.copy()
         cv = cr.copy()
-        for i in range(ncol - 1):
-            for j in range(i + 1, ncol):
-                x = self.data.select(self.vars[i]).to_series().to_numpy()
-                y = self.data.select(self.vars[j]).to_series().to_numpy()
-                mask = ~(np.isnan(x) | np.isnan(y))
-                x = x[mask]
-                y = y[mask]
-                if x.dtype == bool:
-                    x = x.astype(int)
-                if y.dtype == bool:
-                    y = y.astype(int)
-                stats = _get_scipy_stats()
-                if self.method == "spearman":
-                    c = stats.spearmanr(x, y)
-                elif self.method == "kendall":
-                    c = stats.kendalltau(x, y)
-                else:
-                    c = stats.pearsonr(x, y)
 
-                cr[j, i] = c[0]
-                cp[j, i] = c[1]
-                cv[j, i] = np.cov(x, y, ddof=1)[0, 1]
-                cr[i, j] = cr[j, i]
-                cp[i, j] = cp[j, i]
-                cv[i, j] = cv[j, i]
+        if method == "polychoric":
+            # Convert columns to numeric codes for polychoric correlation
+            cols = []
+            for col_name in self.vars:
+                col = self.data[col_name]
+                if col.dtype == pl.String or isinstance(col.dtype, (pl.Categorical, pl.Enum)):
+                    numeric = col.cast(pl.Categorical).to_physical().cast(pl.Float64)
+                else:
+                    numeric = col.cast(pl.Float64)
+                cols.append(numeric.to_numpy())
+
+            data_matrix = np.column_stack(cols)
+            for i in range(ncol - 1):
+                for j in range(i + 1, ncol):
+                    r = polychoric_corr(data_matrix[:, i], data_matrix[:, j])
+                    cr[i, j] = r
+                    cr[j, i] = r
+            # p-values and covariance are not available for polychoric
+        else:
+            for i in range(ncol - 1):
+                for j in range(i + 1, ncol):
+                    x = self.data.select(self.vars[i]).to_series().to_numpy()
+                    y = self.data.select(self.vars[j]).to_series().to_numpy()
+                    mask = ~(np.isnan(x) | np.isnan(y))
+                    x = x[mask]
+                    y = y[mask]
+                    if x.dtype == bool:
+                        x = x.astype(int)
+                    if y.dtype == bool:
+                        y = y.astype(int)
+                    stats = _get_scipy_stats()
+                    if self.method == "spearman":
+                        c = stats.spearmanr(x, y)
+                    elif self.method == "kendall":
+                        c = stats.kendalltau(x, y)
+                    else:
+                        c = stats.pearsonr(x, y)
+
+                    cr[j, i] = c[0]
+                    cp[j, i] = c[1]
+                    cv[j, i] = np.cov(x, y, ddof=1)[0, 1]
+                    cr[i, j] = cr[j, i]
+                    cp[i, j] = cp[j, i]
+                    cv[i, j] = cv[j, i]
 
         self.cr = cr
         self.cp = cp
@@ -215,18 +238,22 @@ class correlation:
         crs_display, cps_display, cvs_display = self._build_matrix_displays(cutoff, dec)
 
         with pl.Config(
+            tbl_rows=-1,
+            tbl_cols=-1,
             tbl_hide_column_data_types=True,
             tbl_hide_dataframe_shape=True,
             fmt_str_lengths=100,
         ):
             print("Correlation matrix:")
             print(crs_display)
-            print("\np.values:")
-            print(cps_display)
 
-            if cov:
-                print("\nCovariance matrix:")
-                print(cvs_display)
+            if self.method != "polychoric":
+                print("\np.values:")
+                print(cps_display)
+
+                if cov:
+                    print("\nCovariance matrix:")
+                    print(cvs_display)
 
     def _style_tables(self, cov: bool = False, cutoff: float = 0, dec: int = 2) -> None:
         """Display styled tables using great_tables in Jupyter."""
@@ -239,22 +266,23 @@ class correlation:
             title="Correlation Matrix",
             subtitle=f"Method: {self.method}",
         )
-        gt2 = du.style_table(
-            cps_display,
-            title="P-values",
-            subtitle="",
-        )
-
         display(gt1)
-        display(gt2)
 
-        if cov:
-            gt3 = du.style_table(
-                cvs_display,
-                title="Covariance Matrix",
+        if self.method != "polychoric":
+            gt2 = du.style_table(
+                cps_display,
+                title="P-values",
                 subtitle="",
             )
-            display(gt3)
+            display(gt2)
+
+            if cov:
+                gt3 = du.style_table(
+                    cvs_display,
+                    title="Covariance Matrix",
+                    subtitle="",
+                )
+                display(gt3)
 
     def plot(self, nobs: int = 1000, dec: int = 2, figsize: tuple[float, float] = None):
         """
