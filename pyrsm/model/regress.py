@@ -126,9 +126,7 @@ class regress:
         import statsmodels.formula.api as smf
 
         if self.formula:
-            self.fitted = smf.ols(
-                formula=self.formula, data=self.data.to_pandas()
-            ).fit()
+            self.fitted = smf.ols(formula=self.formula, data=self.data.to_pandas()).fit()
             self.evar = model_utils.extract_evars(self.fitted.model, self.data.columns)
             self.rvar = model_utils.extract_rvar(self.fitted.model, self.data.columns)
         else:
@@ -145,9 +143,7 @@ class regress:
         # Build coefficient table as polars DataFrame
         self.coef = pl.DataFrame(
             {
-                "index": self.fitted.params.index.str.replace(
-                    "[T.", "[", regex=False
-                ).tolist(),
+                "index": self.fitted.params.index.str.replace("[T.", "[", regex=False).tolist(),
                 "coefficient": self.fitted.params.values,
                 "std.error": (self.fitted.params / self.fitted.tvalues).values,
                 "t.value": self.fitted.tvalues.values,
@@ -327,9 +323,7 @@ class regress:
 
         if data_cmd is not None:
             # Apply data_cmd values to pred_data
-            pred_data = pred_data.with_columns(
-                [pl.lit(v).alias(k) for k, v in data_cmd.items()]
-            )
+            pred_data = pred_data.with_columns([pl.lit(v).alias(k) for k, v in data_cmd.items()])
             # Re-apply Enum types after modifying columns
             if self._enum_types:
                 pred_data = model_utils.apply_enum_types(pred_data, self._enum_types)
@@ -347,18 +341,12 @@ class regress:
                 )
             else:
                 # predict_ci returns pandas, convert result to polars
-                ci_result = model_utils.predict_ci(
-                    self.fitted, pred_data.to_pandas(), conf=conf
-                )
-                pred = pl.concat(
-                    [pred_data, pl.from_pandas(ci_result)], how="horizontal"
-                )
+                ci_result = model_utils.predict_ci(self.fitted, pred_data.to_pandas(), conf=conf)
+                pred = pl.concat([pred_data, pl.from_pandas(ci_result)], how="horizontal")
         else:
             # Get predictions from statsmodels (needs pandas), add to polars DataFrame
             predictions = self.fitted.predict(pred_data.to_pandas())
-            pred = pred_data.with_columns(
-                pl.lit(predictions.values).alias("prediction")
-            )
+            pred = pred_data.with_columns(pl.lit(predictions.values).alias("prediction"))
 
         if dec is not None:
             pred = pred.with_columns(
@@ -461,15 +449,11 @@ class regress:
             cr = correlation(data)
             return cr.plot(nobs=nobs, figsize=figsize)
         if "scatter" in plots:
-            return model_utils.scatter_plot(
-                self.fitted, data, nobs=nobs, figsize=figsize
-            )
+            return model_utils.scatter_plot(self.fitted, data, nobs=nobs, figsize=figsize)
         if "dashboard" in plots:
             return model_utils.reg_dashboard(self.fitted, nobs=nobs)
         if "residual" in plots:
-            return model_utils.residual_plot(
-                self.fitted, data, nobs=nobs, figsize=figsize
-            )
+            return model_utils.residual_plot(self.fitted, data, nobs=nobs, figsize=figsize)
         if "pred" in plots:
             return viz_utils.pred_plot_sm(
                 self.fitted,
@@ -508,7 +492,7 @@ class regress:
                 ret=ret,
             )
             if ret:
-                return return_pip
+                return (p, return_pip)
             return p
         if "coef" in plots:
             return model_utils.coef_plot(

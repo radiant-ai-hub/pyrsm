@@ -414,7 +414,7 @@ class rforest:
             )
 
             if ret:
-                return return_pip
+                return (p, return_pip)
             return p
 
         if "pip_sklearn" in plots or "vimp_sklearn" in plots:

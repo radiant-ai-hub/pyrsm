@@ -137,9 +137,7 @@ class logistic:
                 cols_to_convert.append(c)
 
         if cols_to_convert:
-            self.data, enum_types = convert_categoricals_to_enum(
-                self.data, cols_to_convert
-            )
+            self.data, enum_types = convert_categoricals_to_enum(self.data, cols_to_convert)
             self._enum_types.update(enum_types)
 
         if self.formula:
@@ -175,9 +173,7 @@ class logistic:
         or_pct = 100 * np.where(or_vals < 1, -(1 - or_vals), or_vals - 1)
         self.coef = pl.DataFrame(
             {
-                "index": self.fitted.params.index.str.replace(
-                    "[T.", "[", regex=False
-                ).tolist(),
+                "index": self.fitted.params.index.str.replace("[T.", "[", regex=False).tolist(),
                 "OR": or_vals,
                 "OR%": or_pct,
                 "coefficient": self.fitted.params.values,
@@ -314,9 +310,7 @@ class logistic:
 
         if data_cmd is not None:
             # Apply data_cmd values to pred_data
-            pred_data = pred_data.with_columns(
-                [pl.lit(v).alias(k) for k, v in data_cmd.items()]
-            )
+            pred_data = pred_data.with_columns([pl.lit(v).alias(k) for k, v in data_cmd.items()])
             # Re-apply Enum types after modifying columns
             if self._enum_types:
                 pred_data = apply_enum_types(pred_data, self._enum_types)
@@ -335,16 +329,12 @@ class logistic:
             else:
                 # predict_ci returns pandas, convert result to polars
                 ci_result = predict_ci(self.fitted, pred_data.to_pandas(), conf=conf)
-                pred = pl.concat(
-                    [pred_data, pl.from_pandas(ci_result)], how="horizontal"
-                )
+                pred = pl.concat([pred_data, pl.from_pandas(ci_result)], how="horizontal")
 
         else:
             # Get predictions from statsmodels (needs pandas), add to polars DataFrame
             predictions = self.fitted.predict(pred_data.to_pandas())
-            pred = pred_data.with_columns(
-                pl.lit(predictions.values).alias("prediction")
-            )
+            pred = pred_data.with_columns(pl.lit(predictions.values).alias("prediction"))
 
         if dec is not None:
             pred = pred.with_columns(
@@ -460,7 +450,7 @@ class logistic:
                 ret=ret,
             )
             if ret:
-                return return_pip
+                return (p, return_pip)
             return p
 
     def chisq_test(self, test=None, dec=3) -> None:
