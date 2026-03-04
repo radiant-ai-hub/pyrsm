@@ -153,45 +153,62 @@ def _extract_model_and_scaling(model, data, rvar=None):
 
 
 def _compose_plots(plot_list: list, ncol: int = 2):
-    """Compose a list of plots into a grid using plotnine's | and / operators."""
+    """
+    Compose a list of plots into a grid.
+
+    Renders each row independently and stitches the resulting images together.
+    This keeps plot spacing consistent regardless of the total number of plots.
+    """
+    import matplotlib.pyplot as plt
+
     if len(plot_list) == 0:
         return None
     if len(plot_list) == 1:
         return plot_list[0]
 
+    cell_w = 4
+    cell_h = 3
     nrow = math.ceil(len(plot_list) / ncol)
 
-    # Build rows (side by side with |)
-    rows = []
-    for i in range(nrow):
-        start_idx = i * ncol
-        end_idx = min(start_idx + ncol, len(plot_list))
-        row_plots = plot_list[start_idx:end_idx]
+    images = []
+    for r in range(nrow):
+        rp = plot_list[r * ncol : (r + 1) * ncol]
 
-        if len(row_plots) == 1:
-            rows.append(row_plots[0])
-        else:
-            row = row_plots[0]
-            for p in row_plots[1:]:
-                row = row | p
-            rows.append(row)
+        # Compose row with |
+        row = rp[0]
+        for p in rp[1:]:
+            row = row | p
+        row = row + theme(figure_size=(cell_w * len(rp), cell_h))
 
-    # Stack rows vertically with /
-    if len(rows) == 1:
-        combined = rows[0]
-    else:
-        combined = rows[0]
-        for row in rows[1:]:
-            combined = combined / row
+        # Render and grab pixels from canvas
+        fig = row.draw()
+        fig.canvas.draw()
+        img = np.frombuffer(fig.canvas.buffer_rgba(), dtype=np.uint8)
+        img = img.reshape(fig.canvas.get_width_height()[::-1] + (4,))
+        plt.close(fig)
+        images.append(img)
 
-    # Auto-adjust figure size
-    height_per_row = 3
-    width_per_col = 4
-    fig_width = width_per_col * min(ncol, len(plot_list))
-    fig_height = height_per_row * nrow
-    combined = combined + theme(figure_size=(fig_width, fig_height))
+    # Normalize widths (pad incomplete last row with white)
+    max_w = max(img.shape[1] for img in images)
+    padded = []
+    for img in images:
+        if img.shape[1] < max_w:
+            pad = np.full(
+                (img.shape[0], max_w - img.shape[1], img.shape[2]), 255, dtype=np.uint8
+            )
+            img = np.hstack([img, pad])
+        padded.append(img)
 
-    return combined
+    combined_img = np.vstack(padded)
+
+    # Return as a matplotlib figure for notebook display
+    fig_out, ax = plt.subplots(
+        figsize=(8, combined_img.shape[0] / combined_img.shape[1] * 8)
+    )
+    ax.imshow(combined_img)
+    ax.axis("off")
+    fig_out.tight_layout(pad=0)
+    return fig_out
 
 
 def _tranformation_info(fn, col_names, transformed):
