@@ -2,7 +2,7 @@ from importlib import import_module
 
 import polars as pl
 
-__version__ = "2.4.0"
+__version__ = "2.4.1"
 
 # Global Polars config: always print full tables (no row/column truncation)
 pl.Config.set_tbl_rows(-1)
