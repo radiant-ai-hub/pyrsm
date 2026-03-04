@@ -71,7 +71,7 @@ class TestSampleSize:
 
 
 class TestSampleSizeComp:
-    def test_proportion_solve_n(self):
+    def test_proportion_solve_n_less(self):
         """R-validated: p1=0.008, p2=0.01, conf=0.95, power=0.9, alt='less' -> n1=n2=38073"""
         ssc = sample_size_comp(
             "proportion",
@@ -79,10 +79,24 @@ class TestSampleSizeComp:
             p2=0.01,
             conf=0.95,
             power=0.9,
-            alternative="less",
+            alt_hyp="less",
         )
         assert math.ceil(ssc.n1) == 38073
         assert math.ceil(ssc.n2) == 38073
+
+    def test_proportion_solve_n_greater(self):
+        """R-validated: p1=0.064, p2=0.035, alt='greater' -> total=1356"""
+        ssc = sample_size_comp(
+            "proportion",
+            p1=0.064,
+            p2=0.035,
+            conf=0.95,
+            power=0.8,
+            alt_hyp="greater",
+        )
+        assert math.ceil(ssc.n1) == 678
+        assert math.ceil(ssc.n2) == 678
+        assert math.ceil(ssc.n1) + math.ceil(ssc.n2) == 1356
 
     def test_proportion_solve_n2(self):
         """R-validated: given n1=38073, solve n2 -> ceil(n2)==38073"""
@@ -93,7 +107,7 @@ class TestSampleSizeComp:
             p2=0.01,
             conf=0.95,
             power=0.9,
-            alternative="less",
+            alt_hyp="less",
         )
         assert math.ceil(ssc.n2) == 38073
 
@@ -106,7 +120,7 @@ class TestSampleSizeComp:
             p1=0.008,
             p2=0.01,
             conf=0.95,
-            alternative="less",
+            alt_hyp="less",
         )
         assert round(ssc.power, 1) == 0.9
 
@@ -119,20 +133,61 @@ class TestSampleSizeComp:
             p1=0.008,
             p2=0.01,
             power=0.9,
-            alternative="less",
+            alt_hyp="less",
         )
         assert round(ssc.conf, 2) == 0.95
 
+    def test_proportion_two_sided(self):
+        """Two-sided needs larger n than one-sided for same effect."""
+        ssc = sample_size_comp(
+            "proportion", p1=0.1, p2=0.15, conf=0.95, power=0.8, alt_hyp="two-sided"
+        )
+        ssc_one = sample_size_comp(
+            "proportion", p1=0.1, p2=0.15, conf=0.95, power=0.8, alt_hyp="less"
+        )
+        assert ssc.n1 is not None
+        assert math.ceil(ssc.n1) > math.ceil(ssc_one.n1)
+
+    def test_proportion_less_and_greater_same_n(self):
+        """One-sided 'less' and 'greater' give same n for same effect magnitude."""
+        ssc_less = sample_size_comp(
+            "proportion", p1=0.035, p2=0.064, conf=0.95, power=0.8, alt_hyp="less"
+        )
+        ssc_greater = sample_size_comp(
+            "proportion", p1=0.064, p2=0.035, conf=0.95, power=0.8, alt_hyp="greater"
+        )
+        assert math.ceil(ssc_less.n1) == math.ceil(ssc_greater.n1)
+
+    def test_error_less_p1_greater_than_p2(self):
+        """alt_hyp='less' requires p1 < p2."""
+        ssc = sample_size_comp(
+            "proportion", p1=0.064, p2=0.035, conf=0.95, power=0.8, alt_hyp="less"
+        )
+        assert ssc.error is not None
+        assert "smaller" in ssc.error
+
+    def test_error_greater_p1_less_than_p2(self):
+        """alt_hyp='greater' requires p1 > p2."""
+        ssc = sample_size_comp(
+            "proportion", p1=0.035, p2=0.064, conf=0.95, power=0.8, alt_hyp="greater"
+        )
+        assert ssc.error is not None
+        assert "larger" in ssc.error
+
+    def test_error_equal_proportions(self):
+        ssc = sample_size_comp("proportion", p1=0.5, p2=0.5, conf=0.95, power=0.8)
+        assert ssc.error is not None
+
     def test_mean_solve_n(self):
         ssc = sample_size_comp(
-            "mean", delta=5, sd=10, conf=0.95, power=0.8, alternative="two-sided"
+            "mean", delta=5, sd=10, conf=0.95, power=0.8, alt_hyp="two-sided"
         )
         assert ssc.n1 is not None
         assert math.ceil(ssc.n1) > 0
 
     def test_mean_solve_delta(self):
         ssc = sample_size_comp(
-            "mean", n1=64, n2=64, sd=10, conf=0.95, power=0.8, alternative="two-sided"
+            "mean", n1=64, n2=64, sd=10, conf=0.95, power=0.8, alt_hyp="two-sided"
         )
         assert ssc.delta is not None
         assert ssc.delta > 0
@@ -145,35 +200,24 @@ class TestSampleSizeComp:
             delta=5,
             conf=0.95,
             power=0.8,
-            alternative="two-sided",
+            alt_hyp="two-sided",
         )
         assert ssc.sd is not None
         assert ssc.sd > 0
 
     def test_mean_solve_power(self):
         ssc = sample_size_comp(
-            "mean", n1=64, n2=64, delta=5, sd=10, conf=0.95, alternative="two-sided"
+            "mean", n1=64, n2=64, delta=5, sd=10, conf=0.95, alt_hyp="two-sided"
         )
         assert ssc.power is not None
         assert 0 < ssc.power < 1
 
     def test_mean_solve_conf(self):
         ssc = sample_size_comp(
-            "mean", n1=64, n2=64, delta=5, sd=10, power=0.8, alternative="two-sided"
+            "mean", n1=64, n2=64, delta=5, sd=10, power=0.8, alt_hyp="two-sided"
         )
         assert ssc.conf is not None
         assert 0 < ssc.conf < 1
-
-    def test_proportion_two_sided(self):
-        ssc = sample_size_comp(
-            "proportion", p1=0.1, p2=0.15, conf=0.95, power=0.8, alternative="two-sided"
-        )
-        assert ssc.n1 is not None
-        assert math.ceil(ssc.n1) > 0
-
-    def test_error_equal_proportions(self):
-        ssc = sample_size_comp("proportion", p1=0.5, p2=0.5, conf=0.95, power=0.8)
-        assert ssc.error is not None
 
     def test_summary_runs(self):
         ssc = sample_size_comp(

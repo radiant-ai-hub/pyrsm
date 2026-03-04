@@ -38,12 +38,12 @@ _ALT_MAP = {
 # ---------------------------------------------------------------------------
 
 
-def _prop_power_equal_n(h, n, sig_level, alternative):
+def _prop_power_equal_n(h, n, sig_level, alt_hyp):
     """Power for equal sample sizes (R's pwr.2p.test power formula)."""
-    if alternative == "less":
+    if alt_hyp == "less":
         return norm.cdf(norm.ppf(sig_level) - h * math.sqrt(n / 2))
-    elif alternative == "greater":
-        return norm.cdf(norm.ppf(sig_level) - h * math.sqrt(n / 2))
+    elif alt_hyp == "greater":
+        return norm.cdf(norm.ppf(sig_level) + h * math.sqrt(n / 2))
     else:  # two-sided
         h = abs(h)
         return (
@@ -52,56 +52,56 @@ def _prop_power_equal_n(h, n, sig_level, alternative):
         )
 
 
-def _prop_power_unequal_n(h, n1, n2, sig_level, alternative):
+def _prop_power_unequal_n(h, n1, n2, sig_level, alt_hyp):
     """Power for unequal sample sizes (R's pwr.2p2n.test power formula)."""
     # Effective n: harmonic-mean-like formula from R's pwr.2p2n.test
     # R uses: h * sqrt(n / 2) where n is the effective sample size
     # For unequal n: effective n = 2 / (1/n1 + 1/n2) = 2*n1*n2/(n1+n2)
     n_eff = 2 * n1 * n2 / (n1 + n2)
-    return _prop_power_equal_n(h, n_eff, sig_level, alternative)
+    return _prop_power_equal_n(h, n_eff, sig_level, alt_hyp)
 
 
-def _prop_solve_n(h, sig_level, power, alternative):
+def _prop_solve_n(h, sig_level, power, alt_hyp):
     """Solve for n (equal sample sizes) matching R's pwr.2p.test."""
 
     def objective(n):
-        return _prop_power_equal_n(h, n, sig_level, alternative) - power
+        return _prop_power_equal_n(h, n, sig_level, alt_hyp) - power
 
     return brentq(objective, 2, 1e10)
 
 
-def _prop_solve_n_unequal(h, n_known, sig_level, power, alternative, known_is_n1=True):
+def _prop_solve_n_unequal(h, n_known, sig_level, power, alt_hyp, known_is_n1=True):
     """Solve for unknown n given one known n, matching R's pwr.2p2n.test."""
 
     def objective(n_unknown):
         if known_is_n1:
-            return _prop_power_unequal_n(h, n_known, n_unknown, sig_level, alternative) - power
+            return _prop_power_unequal_n(h, n_known, n_unknown, sig_level, alt_hyp) - power
         else:
-            return _prop_power_unequal_n(h, n_unknown, n_known, sig_level, alternative) - power
+            return _prop_power_unequal_n(h, n_unknown, n_known, sig_level, alt_hyp) - power
 
     return brentq(objective, 2, 1e10)
 
 
-def _prop_solve_sig_level(h, n1, n2, power, alternative):
+def _prop_solve_sig_level(h, n1, n2, power, alt_hyp):
     """Solve for sig.level given n1, n2, power."""
 
     def objective(sig_level):
         if n1 == n2:
-            return _prop_power_equal_n(h, n1, sig_level, alternative) - power
+            return _prop_power_equal_n(h, n1, sig_level, alt_hyp) - power
         else:
-            return _prop_power_unequal_n(h, n1, n2, sig_level, alternative) - power
+            return _prop_power_unequal_n(h, n1, n2, sig_level, alt_hyp) - power
 
     return brentq(objective, 1e-10, 1 - 1e-10)
 
 
-def _prop_solve_h(n1, n2, sig_level, power, alternative):
+def _prop_solve_h(n1, n2, sig_level, power, alt_hyp):
     """Solve for effect size h given n1, n2, sig_level, power."""
 
     def objective(h):
         if n1 == n2:
-            return _prop_power_equal_n(h, n1, sig_level, alternative) - power
+            return _prop_power_equal_n(h, n1, sig_level, alt_hyp) - power
         else:
-            return _prop_power_unequal_n(h, n1, n2, sig_level, alternative) - power
+            return _prop_power_unequal_n(h, n1, n2, sig_level, alt_hyp) - power
 
     return brentq(objective, 1e-10, 10)
 
@@ -135,8 +135,9 @@ class sample_size_comp:
         Statistical power
     ratio : float
         Sampling ratio (n1 / n2)
-    alternative : str
-        "two-sided", "less", or "greater"
+    alt_hyp : str
+        "two-sided", "less", or "greater". For proportions, "less" means
+        p1 < p2 and "greater" means p1 > p2.
 
     Attributes
     ----------
@@ -170,15 +171,15 @@ class sample_size_comp:
         conf: float | None = None,
         power: float | None = None,
         ratio: float = 1,
-        alternative: str = "two-sided",
+        alt_hyp: str = "two-sided",
     ):
         self.type = type
-        self.alternative = alternative
+        self.alt_hyp = alt_hyp
         self.ratio = ratio
         self.error = None
 
         sig_level = None if conf is None else 1 - conf
-        alt = _ALT_MAP.get(alternative, "two-sided")
+        alt = _ALT_MAP.get(alt_hyp, "two-sided")
 
         if type == "mean":
             if delta is not None:
@@ -279,6 +280,18 @@ class sample_size_comp:
                 if p1 == p2:
                     self.error = "Proportion 1 and 2 should not be equal"
                     return
+                if alt_hyp == "less" and p1 >= p2:
+                    self.error = (
+                        "Proportion 1 must be smaller than proportion 2 if the\n"
+                        "alternative hypothesis is 'p1 less than p2'"
+                    )
+                    return
+                if alt_hyp == "greater" and p1 <= p2:
+                    self.error = (
+                        "Proportion 1 must be larger than proportion 2 if the\n"
+                        "alternative hypothesis is 'p1 greater than p2'"
+                    )
+                    return
 
             # Count None parameters
             n_none = (n1 is None or n2 is None) + (power is None) + (p1 is None)
@@ -290,49 +303,48 @@ class sample_size_comp:
                 )
                 return
 
+            # Compute Cohen's h (sign is correct given validation above)
+            if p1 is not None and p2 is not None:
+                h = _cohen_h(p1, p2)
+
             if power is None:
                 # Solve for power
-                h = _cohen_h(p1, p2)
                 if n1 == n2:
-                    power = _prop_power_equal_n(h, n1, sig_level, alternative)
+                    power = _prop_power_equal_n(h, n1, sig_level, alt_hyp)
                 else:
-                    power = _prop_power_unequal_n(h, n1, n2, sig_level, alternative)
+                    power = _prop_power_unequal_n(h, n1, n2, sig_level, alt_hyp)
             elif sig_level is None:
                 # Solve for confidence level
-                h = _cohen_h(p1, p2)
-                sig_level = _prop_solve_sig_level(h, n1, n2, power, alternative)
+                sig_level = _prop_solve_sig_level(h, n1, n2, power, alt_hyp)
                 conf = 1 - sig_level
             elif n1 is None and n2 is None:
                 # Solve for n (equal sample sizes)
-                h = _cohen_h(p1, p2)
-                n1 = _prop_solve_n(h, sig_level, power, alternative)
+                n1 = _prop_solve_n(h, sig_level, power, alt_hyp)
                 n2 = n1 * ratio
             elif n1 is None:
-                h = _cohen_h(p1, p2)
                 n1 = _prop_solve_n_unequal(
-                    h, n2, sig_level, power, alternative, known_is_n1=False
+                    h, n2, sig_level, power, alt_hyp, known_is_n1=False
                 )
             elif n2 is None:
-                h = _cohen_h(p1, p2)
                 n2 = _prop_solve_n_unequal(
-                    h, n1, sig_level, power, alternative, known_is_n1=True
+                    h, n1, sig_level, power, alt_hyp, known_is_n1=True
                 )
             elif p1 is None:
-                h_val = _prop_solve_h(n1, n2, sig_level, power, alternative)
+                h_val = _prop_solve_h(n1, n2, sig_level, power, alt_hyp)
                 candidates = _backout_es_h(h_val, p2)
-                if alternative == "two-sided":
+                if alt_hyp == "two-sided":
                     p1 = candidates
-                elif alternative == "less":
+                elif alt_hyp == "less":
                     p1 = candidates[1]  # smaller
                 else:
                     p1 = candidates[0]  # larger
             else:
                 # p2 is None
-                h_val = _prop_solve_h(n1, n2, sig_level, power, alternative)
+                h_val = _prop_solve_h(n1, n2, sig_level, power, alt_hyp)
                 candidates = _backout_es_h(h_val, p1)
-                if alternative == "two-sided":
+                if alt_hyp == "two-sided":
                     p2 = candidates
-                elif alternative == "less":
+                elif alt_hyp == "less":
                     p2 = candidates[0]  # larger
                 else:
                     p2 = candidates[1]  # smaller
@@ -375,7 +387,7 @@ class sample_size_comp:
 
         print(f"Confidence level : {round(self.conf, dec)}")
         print(f"Power            : {round(self.power, dec)}")
-        print(f"Alternative      : {self.alternative}")
+        print(f"Alt. hyp.        : {self.alt_hyp}")
 
     def plot(self):
         """Plot power curve (power vs sample size)."""
@@ -391,7 +403,7 @@ class sample_size_comp:
         powers = []
 
         if self.type == "mean":
-            alt = _ALT_MAP.get(self.alternative, "two-sided")
+            alt = _ALT_MAP.get(self.alt_hyp, "two-sided")
             solver = TTestIndPower()
             es = self.delta / self.sd
             for n in n_range:
@@ -404,13 +416,11 @@ class sample_size_comp:
                 )
                 powers.append(p)
         else:
-            es = self.effect_size
-            h = _cohen_h(
-                self.p1[0] if isinstance(self.p1, list) else self.p1,
-                self.p2[0] if isinstance(self.p2, list) else self.p2,
-            )
+            p1_val = self.p1[0] if isinstance(self.p1, list) else self.p1
+            p2_val = self.p2[0] if isinstance(self.p2, list) else self.p2
+            h = _cohen_h(p1_val, p2_val)
             for n in n_range:
-                p = _prop_power_equal_n(h, n, sig_level, self.alternative)
+                p = _prop_power_equal_n(h, n, sig_level, self.alt_hyp)
                 powers.append(p)
 
         import polars as pl
