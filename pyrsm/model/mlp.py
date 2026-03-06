@@ -534,7 +534,7 @@ class mlp:
 
         if "pip" in plots or "vimp" in plots:
             _, _, pip_plot_sk, _ = _get_visualize_plots()
-            (p, return_pip) = pip_plot_sk(
+            p, return_pip = pip_plot_sk(
                 self,
                 rep=5,
                 ret=ret,
@@ -546,7 +546,7 @@ class mlp:
 
         if "pip_sklearn" in plots or "pip_sklearn" in plots:
             _, _, _, pip_plot_sklearn = _get_visualize_plots()
-            (p, return_pip) = pip_plot_sklearn(
+            p, return_pip = pip_plot_sklearn(
                 self.fitted,
                 self.data_onehot.cast(
                     {pl.UInt8: pl.Float64, pl.Int64: pl.Float64}
