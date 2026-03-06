@@ -44,6 +44,7 @@ class central_limit_theorem:
     >>> isinstance(plots["means_hist"], ggplot)
     True
     """
+
     def __init__(
         self,
         dist: str,

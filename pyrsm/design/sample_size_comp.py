@@ -46,9 +46,8 @@ def _prop_power_equal_n(h, n, sig_level, alt_hyp):
         return norm.cdf(norm.ppf(sig_level) + h * math.sqrt(n / 2))
     else:  # two-sided
         h = abs(h)
-        return (
-            norm.sf(norm.isf(sig_level / 2) - h * math.sqrt(n / 2))
-            + norm.cdf(norm.ppf(sig_level / 2) - h * math.sqrt(n / 2))
+        return norm.sf(norm.isf(sig_level / 2) - h * math.sqrt(n / 2)) + norm.cdf(
+            norm.ppf(sig_level / 2) - h * math.sqrt(n / 2)
         )
 
 
@@ -75,9 +74,13 @@ def _prop_solve_n_unequal(h, n_known, sig_level, power, alt_hyp, known_is_n1=Tru
 
     def objective(n_unknown):
         if known_is_n1:
-            return _prop_power_unequal_n(h, n_known, n_unknown, sig_level, alt_hyp) - power
+            return (
+                _prop_power_unequal_n(h, n_known, n_unknown, sig_level, alt_hyp) - power
+            )
         else:
-            return _prop_power_unequal_n(h, n_unknown, n_known, sig_level, alt_hyp) - power
+            return (
+                _prop_power_unequal_n(h, n_unknown, n_known, sig_level, alt_hyp) - power
+            )
 
     return brentq(objective, 2, 1e10)
 
@@ -240,14 +243,17 @@ class sample_size_comp:
                 )
             elif n2 is None:
                 es = delta / sd
-                n2 = solver.solve_power(
-                    effect_size=es,
-                    nobs1=None,
-                    ratio=ratio,
-                    alpha=sig_level,
-                    power=power,
-                    alternative=alt,
-                ) * ratio
+                n2 = (
+                    solver.solve_power(
+                        effect_size=es,
+                        nobs1=None,
+                        ratio=ratio,
+                        alpha=sig_level,
+                        power=power,
+                        alternative=alt,
+                    )
+                    * ratio
+                )
             elif delta is None:
                 es = solver.solve_power(
                     effect_size=None,

@@ -253,7 +253,6 @@ def uplift_test_data():
     calculations against hand-computed expected values.
     """
     np.random.seed(2024)
-    n = 200
 
     # Treatment assignment (50/50 split)
     treatment = np.array(["treatment"] * 100 + ["control"] * 100)

@@ -71,6 +71,7 @@ class goodness:
     >>> gf.probs
     (0.4, 0.6)
     """
+
     def __init__(
         self,
         data: pl.DataFrame | dict[str, pl.DataFrame],

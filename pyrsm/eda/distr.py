@@ -219,9 +219,15 @@ class distr:
                 print("\n--- Numeric Variables ---")
                 numeric_stats = explore(self.data, cols=self.numeric_cols, by=self.by)
                 # Round numeric columns
-                float_cols = [c for c in numeric_stats.columns if numeric_stats[c].dtype.is_float()]
+                float_cols = [
+                    c
+                    for c in numeric_stats.columns
+                    if numeric_stats[c].dtype.is_float()
+                ]
                 if float_cols:
-                    numeric_stats = numeric_stats.with_columns(pl.col(float_cols).round(dec))
+                    numeric_stats = numeric_stats.with_columns(
+                        pl.col(float_cols).round(dec)
+                    )
                 print(numeric_stats)
 
             # Categorical variables
@@ -261,12 +267,16 @@ class distr:
                 .rename({"count": "count"})
             )
             total = stats["count"].sum()
-            stats = stats.with_columns((pl.col("count") / total).round(dec).alias("proportion"))
+            stats = stats.with_columns(
+                (pl.col("count") / total).round(dec).alias("proportion")
+            )
             mode_val = stats[col][0]
             n_unique = len(stats)
             n_missing = self.data[col].null_count()
 
-            print(f"\n{col} (n_unique: {n_unique}, mode: {mode_val}, n_missing: {n_missing}):")
+            print(
+                f"\n{col} (n_unique: {n_unique}, mode: {mode_val}, n_missing: {n_missing}):"
+            )
             print(stats)
 
     def _compute_other_stats(self) -> pl.DataFrame:
@@ -292,9 +302,13 @@ class distr:
         # Numeric variables
         if self.numeric_cols:
             numeric_stats = explore(self.data, cols=self.numeric_cols, by=self.by)
-            float_cols = [c for c in numeric_stats.columns if numeric_stats[c].dtype.is_float()]
+            float_cols = [
+                c for c in numeric_stats.columns if numeric_stats[c].dtype.is_float()
+            ]
             if float_cols:
-                numeric_stats = numeric_stats.with_columns(pl.col(float_cols).round(dec))
+                numeric_stats = numeric_stats.with_columns(
+                    pl.col(float_cols).round(dec)
+                )
             gt = numeric_stats.style.tab_header(
                 title="Numeric Variables",
                 subtitle=f"Grouped by: {self.by}" if self.by else "",
@@ -316,7 +330,9 @@ class distr:
                         .alias("proportion")
                     )
                 else:
-                    stats = self.data.select(pl.col(col).value_counts(sort=True)).unnest(col)
+                    stats = self.data.select(
+                        pl.col(col).value_counts(sort=True)
+                    ).unnest(col)
                     total = stats["count"].sum()
                     stats = stats.with_columns(
                         (pl.col("count") / total).round(dec).alias("proportion")

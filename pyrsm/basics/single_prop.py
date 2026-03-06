@@ -71,6 +71,7 @@ class single_prop:
     >>> sp.diff
     0.25
     """
+
     def __init__(
         self,
         data: pl.DataFrame | dict[str, pl.DataFrame],

@@ -71,6 +71,7 @@ class prob_calc:
     >>> pc.dct["plb"]
     0.95
     """
+
     def __init__(self, distribution: str, **kwargs) -> None:
         self.distribution = distribution
         self.args = kwargs
