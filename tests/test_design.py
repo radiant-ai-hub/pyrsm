@@ -1,6 +1,5 @@
 import math
 
-import numpy as np
 import polars as pl
 import pytest
 
@@ -220,9 +219,7 @@ class TestSampleSizeComp:
         assert 0 < ssc.conf < 1
 
     def test_summary_runs(self):
-        ssc = sample_size_comp(
-            "proportion", p1=0.1, p2=0.15, conf=0.95, power=0.8
-        )
+        ssc = sample_size_comp("proportion", p1=0.1, p2=0.15, conf=0.95, power=0.8)
         ssc.summary()  # Should not raise
 
 
@@ -312,7 +309,9 @@ class TestRandomizer:
             block_data = r.data.filter(pl.col("Gender") == gender)
             counts = block_data[".conditions"].value_counts()
             test_count = counts.filter(pl.col(".conditions") == "test")["count"][0]
-            control_count = counts.filter(pl.col(".conditions") == "control")["count"][0]
+            control_count = counts.filter(pl.col(".conditions") == "control")["count"][
+                0
+            ]
             assert test_count == 25
             assert control_count == 25
 
@@ -353,7 +352,11 @@ class TestRandomizer:
 
 
 _3x3 = {"price": ["$10", "$13", "$16"], "food": ["popcorn", "gourmet", "no food"]}
-_3x2x2 = {"apr": ["14.9", "16.8", "19.8"], "annual_fee": ["20", "0"], "fixed_var": ["Fixed", "Variable"]}
+_3x2x2 = {
+    "apr": ["14.9", "16.8", "19.8"],
+    "annual_fee": ["20", "0"],
+    "fixed_var": ["Fixed", "Variable"],
+}
 
 
 class TestDoe:

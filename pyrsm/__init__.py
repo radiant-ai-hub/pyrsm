@@ -97,4 +97,6 @@ def __dir__():
     return sorted(list(_LAZY_MODULES) + list(_WRAPPER_MAP) + list(_LAZY_FUNCTIONS))
 
 
-__all__ = list(_LAZY_MODULES) + model_functions + basics_functions + list(_LAZY_FUNCTIONS)
+__all__ = (
+    list(_LAZY_MODULES) + model_functions + basics_functions + list(_LAZY_FUNCTIONS)
+)

@@ -370,7 +370,7 @@ class TestPdpPlotSaving:
             n_sample=200,
         )
         if plot is not None:
-            plot.save(f"{PLOT_DIR}/pdp_sk_multi.png", dpi=100, verbose=False)
+            plot.savefig(f"{PLOT_DIR}/pdp_sk_multi.png", dpi=100)
         plt.close("all")
 
     def test_pdp_sk_save_interaction(self, rf_classifier, titanic_data):
@@ -398,7 +398,7 @@ class TestPdpPlotSaving:
             n_sample=200,
         )
         if plot is not None:
-            plot.save(f"{PLOT_DIR}/pdp_sm_ols.png", dpi=100, verbose=False)
+            plot.savefig(f"{PLOT_DIR}/pdp_sm_ols.png", dpi=100)
         plt.close("all")
 
 

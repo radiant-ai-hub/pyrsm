@@ -134,17 +134,22 @@ def explore(
             name
             for name in candidates
             if name in schema
-            and (isinstance(schema[name], CATEGORICAL_DTYPES) or schema[name] in CATEGORICAL_DTYPES)
+            and (
+                isinstance(schema[name], CATEGORICAL_DTYPES)
+                or schema[name] in CATEGORICAL_DTYPES
+            )
             and name != by
         ]
         if cat_cols:
             df = df.to_dummies(columns=cat_cols, drop_first=True)
             # Cast dummy columns (UInt8) to Float64 for consistent stats
-            df = df.cast({
-                col: pl.Float64
-                for col, dtype in df.schema.items()
-                if dtype == pl.UInt8
-            })
+            df = df.cast(
+                {
+                    col: pl.Float64
+                    for col, dtype in df.schema.items()
+                    if dtype == pl.UInt8
+                }
+            )
 
     lf = df.lazy()
 

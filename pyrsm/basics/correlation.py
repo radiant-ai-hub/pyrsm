@@ -87,7 +87,9 @@ class correlation:
             cols = []
             for col_name in self.vars:
                 col = self.data[col_name]
-                if col.dtype == pl.String or isinstance(col.dtype, (pl.Categorical, pl.Enum)):
+                if col.dtype == pl.String or isinstance(
+                    col.dtype, (pl.Categorical, pl.Enum)
+                ):
                     numeric = col.cast(pl.Categorical).to_physical().cast(pl.Float64)
                 else:
                     numeric = col.cast(pl.Float64)

@@ -93,7 +93,9 @@ def _balanced_random_start(n_trials, levels_list, ff_coded, rng):
     return sorted(rng.choice(N, size=n_trials, replace=False).tolist())
 
 
-def _federov_exchange(Xf, selected, N, levels_list, ff_coded, enforce_balance, max_iter=1000):
+def _federov_exchange(
+    Xf, selected, N, levels_list, ff_coded, enforce_balance, max_iter=1000
+):
     """Run Federov exchange algorithm with optional balance constraint.
 
     Uses the variance-exchange criterion:
@@ -200,7 +202,9 @@ def _find_optimal_design(Xf, ff_coded, levels_list, n_trials, n_repeats=50, seed
 
     # Check actual balance of the found design
     actually_balanced = (
-        _is_balanced(best_selected, levels_list, ff_coded) if best_selected is not None else False
+        _is_balanced(best_selected, levels_list, ff_coded)
+        if best_selected is not None
+        else False
     )
 
     return best_selected, Dea, actually_balanced
@@ -362,9 +366,7 @@ class doe:
         )
 
         # Cast factor columns to pl.Enum with level ordering from input dict
-        enum_casts = [
-            pl.col(name).cast(pl.Enum(df_dict[name])) for name in df_names
-        ]
+        enum_casts = [pl.col(name).cast(pl.Enum(df_dict[name])) for name in df_names]
         full_pl = full_pl.with_columns(enum_casts)
 
         # Build full factorial with trial numbers
@@ -438,7 +440,9 @@ class doe:
             levels2 = self.df[name2]
             for j1 in range(1, len(levels1)):
                 for j2 in range(1, len(levels2)):
-                    full_coef_names.append(f"{name1}|{levels1[j1]}:{name2}|{levels2[j2]}")
+                    full_coef_names.append(
+                        f"{name1}|{levels1[j1]}:{name2}|{levels2[j2]}"
+                    )
 
         # Get partial factorial rows
         part_rows = [t - 1 for t in self.part["trial"].to_list()]
