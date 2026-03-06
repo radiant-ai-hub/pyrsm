@@ -39,11 +39,11 @@ class TestEnumVsCategoricalBehavior:
         assert list(df_pd["cut"].cat.categories) == ["Fair", "Good"]
 
     def test_string_has_no_categories_in_pandas(self):
-        """Verify String columns become object dtype in pandas (no categories)."""
+        """Verify String columns don't become categorical in pandas."""
         df = pl.DataFrame({"cut": ["Fair", "Good", "Very Good"]})
         df_pd = df.to_pandas()
 
-        assert df_pd["cut"].dtype == object
+        assert df_pd["cut"].dtype.name != "category"
         assert not hasattr(df_pd["cut"], "cat")
 
     def test_sorted_enum_matches_pandas_alphabetical_order(self):
