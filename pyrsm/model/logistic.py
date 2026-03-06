@@ -453,7 +453,7 @@ class logistic:
             )
         elif "pip" in plots or "vimp" in plots:
             _, _, _, pip_plot_sm = _get_visualize_plots()
-            (return_pip, p) = pip_plot_sm(
+            return_pip, p = pip_plot_sm(
                 self.fitted,
                 data=data,  # Pass polars DataFrame
                 rep=10,

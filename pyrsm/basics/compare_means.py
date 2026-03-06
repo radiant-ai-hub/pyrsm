@@ -287,10 +287,8 @@ class compare_means:
             y = y_series.to_numpy()
 
             if x.size != y.size and self.sample_type == "paired":
-                raise ValueError(
-                    """The two samples must have the same size for a paired
-                    sample test. Choose independent samples instead."""
-                )
+                raise ValueError("""The two samples must have the same size for a paired
+                    sample test. Choose independent samples instead.""")
 
             stats = _get_scipy_stats()
             if self.test_type == "t-test":

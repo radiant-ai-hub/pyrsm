@@ -288,26 +288,22 @@ class cross_tabs:
 
     def _summary_header(self) -> None:
         """Print the summary header."""
-        print(
-            f"""
+        print(f"""
 Cross-tabs
 Data     : {self.name}
 Variables: {self.var1}, {self.var2}
 Null hyp : There is no association between {self.var1} and {self.var2}
-Alt. hyp : There is an association between {self.var1} and {self.var2}"""
-        )
+Alt. hyp : There is an association between {self.var1} and {self.var2}""")
 
     def _summary_footer(self, dec: int = 2) -> None:
         """Print the chi-squared test results."""
         p_val_str = ifelse(
             self.chisq_test[1] < 0.001, "< .001", round(self.chisq_test[1], dec)
         )
-        print(
-            f"""
+        print(f"""
 Chi-squared: {round(self.chisq_test[0], dec)} df({int(self.chisq_test[2])}), p.value {p_val_str}
 {100 * round(self.expected_low[0] / self.expected_low[1], dec)}% of cells have expected values below 5
-"""
-        )
+""")
 
     def _summary_plain(self, output: list[str], dec: int = 2) -> None:
         """Print plain text tables."""

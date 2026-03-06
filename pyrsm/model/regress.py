@@ -501,7 +501,7 @@ class regress:
             )
 
         if "pip" in plots or "vimp" in plots:
-            (return_pip, p) = viz_utils.pip_plot_sm(
+            return_pip, p = viz_utils.pip_plot_sm(
                 self.fitted,
                 data=data,
                 rep=10,
