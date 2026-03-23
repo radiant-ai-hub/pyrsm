@@ -53,22 +53,34 @@ For all features:
 uv add "pyrsm[all]"
 ```
 
+If you cloned pyrsm and was to add it in editable format use:
+
+```bash
+uv add --editable --dev /home/vnijs/gh/pyrsm`
+```
+
+To add to a specific (project) folder use:
+
+```bash
+uv add --project /opt/base-uv pyrsm`
+```
+
 ## Quick Start
 
 ```python
 import polars as pl
-from pyrsm import basics, model
+import pyrsm as rsmi
 
 # Load data
 df = pl.read_parquet("data.parquet")
 
 # Statistical test
-cm = basics.compare_means(df, var="price", byvar="category")
+cm = rsm.basics.compare_means(df, var="price", byvar="category")
 cm.summary()
 cm.plot()
 
 # Regression model
-reg = model.regress(df, rvar="price", evar=["size", "age", "type"])
+reg = rsm.model.regress(df, rvar="price", evar=["size", "age", "type"])
 reg.summary()
 reg.plot()
 ```
