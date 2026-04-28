@@ -193,7 +193,9 @@ def expand_grid(dct, schema=None):
                 target_dtype = schema[col]
                 current_dtype = df[col].dtype
                 # Only cast if types differ and target is a valid polars dtype
-                if current_dtype != target_dtype and isinstance(target_dtype, pl.DataType):
+                if current_dtype != target_dtype and isinstance(
+                    target_dtype, pl.DataType
+                ):
                     cast_exprs.append(pl.col(col).cast(target_dtype))
                 else:
                     cast_exprs.append(pl.col(col))
@@ -381,7 +383,11 @@ def months_abb(start=1, nr=12, year=datetime.today().year):
     """
 
     rng = ceil((nr + (start - 1)) / 12)
-    mnths = [date(year, m, 1).strftime("%B")[0:3] for i in range(1, rng + 1) for m in range(1, 13)]
+    mnths = [
+        date(year, m, 1).strftime("%B")[0:3]
+        for i in range(1, rng + 1)
+        for m in range(1, 13)
+    ]
     start -= 1
     return mnths[start : (nr + start)]
 
