@@ -419,10 +419,14 @@ def md(x: str) -> None:
 
     # Check if x is a URL
     if x.startswith("http://") or x.startswith("https://"):
+        import ssl
         import urllib.request
 
+        import certifi
+
+        ssl_context = ssl.create_default_context(cafile=certifi.where())
         try:
-            with urllib.request.urlopen(x) as response:
+            with urllib.request.urlopen(x, context=ssl_context) as response:
                 content = response.read().decode("utf-8")
         except Exception as e:
             content = f"Error fetching URL: {e}"
