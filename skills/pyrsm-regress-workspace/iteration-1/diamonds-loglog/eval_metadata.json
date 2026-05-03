@@ -1,0 +1,6 @@
+{
+  "eval_id": 2,
+  "eval_name": "diamonds-loglog",
+  "prompt": "can you regress price on carat and clarity for me? data is at /Users/vnijs/gh/pyrsm/examples/data/data/diamonds.parquet . my TA said the residuals will look bad and i should try a log-log version, can you check?",
+  "assertions": []
+}

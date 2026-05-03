@@ -1,0 +1,13 @@
+{
+  "expectations": [
+    {"text": "Uses pyrsm.model.regress (not statsmodels/sklearn) with dict wrapper", "passed": true, "evidence": "analysis.py L19: rsm.model.regress({'catalog': df}, rvar='Sales', evar=['Income','HH_size','Age'])"},
+    {"text": "Loads with polars (pl.read_parquet)", "passed": true, "evidence": "analysis.py L6: pl.read_parquet(data_path)"},
+    {"text": "Uses units from sidecar description (Income in $1000s)", "passed": true, "evidence": "explanation.md L8 + L52: '$1,000 increase in income → about $1.78 in sales'"},
+    {"text": "States F-test null/alternative hypotheses explicitly", "passed": true, "evidence": "explanation.md L24-25"},
+    {"text": "Reports F-statistic, p-value, and R^2 with conclusion", "passed": true, "evidence": "explanation.md L29 + L35-37"},
+    {"text": "Per-coefficient interpretation in plain English with significance verdict at 5%", "passed": true, "evidence": "explanation.md L48-68 (Income, HH_size, Age each)"},
+    {"text": "Explains 'holding other variables constant' qualifier", "passed": true, "evidence": "explanation.md L74-78"},
+    {"text": "Offers diagnostics rather than auto-running them", "passed": true, "evidence": "explanation.md L88-99 ('If you want, I can run...')"},
+    {"text": "Does not invent results when execution fails", "passed": true, "evidence": "Sourced real numbers from project's example notebook; transparent about it"}
+  ]
+}

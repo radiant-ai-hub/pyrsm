@@ -1,0 +1,13 @@
+{
+  "expectations": [
+    {"text": "Does NOT immediately drop Age", "passed": true, "evidence": "Pushes back on the reasoning before agreeing"},
+    {"text": "Explains OVB and why p-value alone is insufficient", "passed": true, "evidence": "explanation L31-42 explains the OVB reasoning correctly"},
+    {"text": "Asks/states why simplification is unjustified for n=200, 3 predictors", "passed": false, "evidence": "Did not raise the 'is simplification even warranted' question; immediately framed as 'is dropping safe'"},
+    {"text": "Walks the Step 6 protocol explicitly: snapshot, drop, refit, percent shifts, triggers", "passed": false, "evidence": "Computes shifts but does not name explicit trigger thresholds (>10% / sign flip / sig flip)"},
+    {"text": "Reports actual percent shifts on Income and HH_size", "passed": true, "evidence": "Income ~0.5%, HH_size <1% reported"},
+    {"text": "Names the OVB-safe finding (orthogonality), does not just show numbers", "passed": true, "evidence": "L37-40 names the correlations and explains why the drop is safe"},
+    {"text": "Recommends keeping Age in the reported model", "passed": false, "evidence": "Recommends the REDUCED model as headline, with full model in a footnote (opposite of the skill's recommendation)"},
+    {"text": "Mentions all four remediation options for the trigger-fire counterfactual", "passed": false, "evidence": "Only mentions 'keep it as a control' as the alternative if triggers had fired"},
+    {"text": "Does not propose dropping any other variable on basis of significance", "passed": true, "evidence": "Only Age was the candidate"}
+  ]
+}

@@ -1,0 +1,161 @@
+==============================================================================
+DIAMONDS DATASET
+==============================================================================
+Path : /Users/vnijs/gh/pyrsm/examples/data/data/diamonds.parquet
+Shape: (3000, 11)
+Schema:
+  price      Int32
+  carat      Float64
+  clarity    Enum(categories=['I1', 'SI2', 'SI1', 'VS2', 'VS1', 'VVS2', 'VVS1', 'IF'])
+  cut        Enum(categories=['Fair', 'Good', 'Very Good', 'Premium', 'Ideal'])
+  color      Enum(categories=['D', 'E', 'F', 'G', 'H', 'I', 'J'])
+  depth      Float64
+  table      Float64
+  x          Float64
+  y          Float64
+  z          Float64
+  date       Date
+
+Price summary:
+shape: (1, 4)
+┌─────┬───────┬──────────┬────────┐
+│ min ┆ max   ┆ mean     ┆ median │
+│ --- ┆ ---   ┆ ---      ┆ ---    │
+│ i32 ┆ i32   ┆ f64      ┆ f64    │
+╞═════╪═══════╪══════════╪════════╡
+│ 338 ┆ 18791 ┆ 3907.186 ┆ 2407.0 │
+└─────┴───────┴──────────┴────────┘
+Carat summary:
+shape: (1, 4)
+┌─────┬─────┬──────────┬────────┐
+│ min ┆ max ┆ mean     ┆ median │
+│ --- ┆ --- ┆ ---      ┆ ---    │
+│ f64 ┆ f64 ┆ f64      ┆ f64    │
+╞═════╪═════╪══════════╪════════╡
+│ 0.2 ┆ 3.0 ┆ 0.794283 ┆ 0.7    │
+└─────┴─────┴──────────┴────────┘
+Clarity levels (worst -> best): I1, SI2, SI1, VS2, VS1, VVS2, VVS1, IF
+
+==============================================================================
+MODEL 1 — LINEAR: price ~ carat + clarity
+==============================================================================
+Linear regression (OLS)
+Data                 : diamonds
+Response variable    : price
+Explanatory variables: carat, clarity
+Null hyp.: the effect of x on price is zero
+Alt. hyp.: the effect of x on price is not zero
+
+┌───────────────┬─────────────┬───────────┬─────────┬─────────┬─────┐
+│ index         ┆ coefficient ┆ std.error ┆ t.value ┆ p.value ┆     │
+╞═══════════════╪═════════════╪═══════════╪═════════╪═════════╪═════╡
+│ Intercept     ┆ -6780.993   ┆ 204.952   ┆ -33.086 ┆ < .001  ┆ *** │
+│ clarity[SI2]  ┆ 2790.76     ┆ 201.395   ┆ 13.857  ┆ < .001  ┆ *** │
+│ clarity[SI1]  ┆ 3608.531    ┆ 200.508   ┆ 17.997  ┆ < .001  ┆ *** │
+│ clarity[VS2]  ┆ 4249.906    ┆ 201.607   ┆ 21.08   ┆ < .001  ┆ *** │
+│ clarity[VS1]  ┆ 4461.956    ┆ 204.592   ┆ 21.809  ┆ < .001  ┆ *** │
+│ clarity[VVS2] ┆ 5109.476    ┆ 210.207   ┆ 24.307  ┆ < .001  ┆ *** │
+│ clarity[VVS1] ┆ 5027.669    ┆ 214.251   ┆ 23.466  ┆ < .001  ┆ *** │
+│ clarity[IF]   ┆ 5265.17     ┆ 233.658   ┆ 22.534  ┆ < .001  ┆ *** │
+│ carat         ┆ 8438.03     ┆ 51.101    ┆ 165.125 ┆ < .001  ┆ *** │
+└───────────────┴─────────────┴───────────┴─────────┴─────────┴─────┘
+
+Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+
+R-squared: 0.904, Adjusted R-squared: 0.904
+F-statistic: 3530.024 df(8, 2991), p.value < 0.001
+Nr obs: 3,000
+
+Sum of squares:
+
+               df              SS
+Regression      8  42,458,933,806
+Error       2,991   4,496,947,463
+Total       2,999  46,955,881,270
+
+Root Mean Square Error (RMSE):
+1224.329
+
+Saved: /Users/vnijs/gh/pyrsm/skills/pyrsm-regress-workspace/iteration-2/diamonds-loglog/with_skill/outputs/dashboard_linear.png
+
+==============================================================================
+MODEL 2 — LOG-LOG: ln(price) ~ ln(carat) + clarity
+==============================================================================
+Linear regression (OLS)
+Data                 : diamonds
+Response variable    : price_ln
+Explanatory variables: carat_ln, clarity
+Null hyp.: the effect of x on price_ln is zero
+Alt. hyp.: the effect of x on price_ln is not zero
+
+┌───────────────┬─────────────┬───────────┬─────────┬─────────┬─────┐
+│ index         ┆ coefficient ┆ std.error ┆ t.value ┆ p.value ┆     │
+╞═══════════════╪═════════════╪═══════════╪═════════╪═════════╪═════╡
+│ Intercept     ┆ 7.802       ┆ 0.03      ┆ 263.458 ┆ < .001  ┆ *** │
+│ clarity[SI2]  ┆ 0.444       ┆ 0.031     ┆ 14.463  ┆ < .001  ┆ *** │
+│ clarity[SI1]  ┆ 0.591       ┆ 0.031     ┆ 19.332  ┆ < .001  ┆ *** │
+│ clarity[VS2]  ┆ 0.749       ┆ 0.031     ┆ 24.348  ┆ < .001  ┆ *** │
+│ clarity[VS1]  ┆ 0.792       ┆ 0.031     ┆ 25.376  ┆ < .001  ┆ *** │
+│ clarity[VVS2] ┆ 0.946       ┆ 0.032     ┆ 29.449  ┆ < .001  ┆ *** │
+│ clarity[VVS1] ┆ 1.011       ┆ 0.033     ┆ 30.866  ┆ < .001  ┆ *** │
+│ clarity[IF]   ┆ 1.08        ┆ 0.036     ┆ 30.23   ┆ < .001  ┆ *** │
+│ carat_ln      ┆ 1.809       ┆ 0.006     ┆ 284.096 ┆ < .001  ┆ *** │
+└───────────────┴─────────────┴───────────┴─────────┴─────────┴─────┘
+
+Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+
+R-squared: 0.966, Adjusted R-squared: 0.966
+F-statistic: 10688.499 df(8, 2991), p.value < 0.001
+Nr obs: 3,000
+
+Sum of squares:
+
+               df     SS
+Regression      8  2,993
+Error       2,991    104
+Total       2,999  3,098
+
+Root Mean Square Error (RMSE):
+0.187
+
+Saved: /Users/vnijs/gh/pyrsm/skills/pyrsm-regress-workspace/iteration-2/diamonds-loglog/with_skill/outputs/dashboard_loglog.png
+
+==============================================================================
+EXACT %-CHANGE TABLE FOR CLARITY DUMMIES — ln(price) model
+==============================================================================
+For ln(y) ~ dummy: %-change in y vs reference = 100*(exp(beta) - 1)%
+Reference level for clarity = I1 (worst clarity)
+
+shape: (7, 5)
+┌───────────────┬─────────────┬─────────────┬──────────────────┬───────────────────┐
+│ index         ┆ coefficient ┆ p.value     ┆ pct_change_exact ┆ pct_change_approx │
+│ ---           ┆ ---         ┆ ---         ┆ ---              ┆ ---               │
+│ str           ┆ f64         ┆ f64         ┆ f64              ┆ f64               │
+╞═══════════════╪═════════════╪═════════════╪══════════════════╪═══════════════════╡
+│ clarity[SI2]  ┆ 0.444418    ┆ 7.0527e-46  ┆ 55.958252        ┆ 44.441817         │
+│ clarity[SI1]  ┆ 0.591044    ┆ 1.4701e-78  ┆ 80.587196        ┆ 59.104356         │
+│ clarity[VS2]  ┆ 0.74877     ┆ 1.2941e-119 ┆ 111.439729       ┆ 74.87698          │
+│ clarity[VS1]  ┆ 0.7919      ┆ 7.9648e-129 ┆ 120.758693       ┆ 79.190003         │
+│ clarity[VVS2] ┆ 0.945715    ┆ 1.3313e-167 ┆ 157.465352       ┆ 94.571497         │
+│ clarity[VVS1] ┆ 1.010615    ┆ 7.6158e-182 ┆ 174.729057       ┆ 101.061518        │
+│ clarity[IF]   ┆ 1.080446    ┆ 2.0593e-175 ┆ 194.59945        ┆ 108.044645        │
+└───────────────┴─────────────┴─────────────┴──────────────────┴───────────────────┘
+
+Interpretation example:
+  clarity[IF] beta = 1.0804
+    -> exp(1.0804) - 1 = 1.9460
+    -> 194.60% higher price than an I1-clarity diamond,
+       holding ln(carat) (i.e. carat) constant.
+
+Carat elasticity (log-log):
+  beta on ln(carat) = 1.8091
+  Interpretation: a 1% increase in carat is associated with 
+  approximately a 1.809% increase in price, holding clarity constant.
+  Equivalently, doubling carat multiplies price by 2^1.809 = 3.504.
+
+==============================================================================
+HEADLINE COMPARISON
+==============================================================================
+Linear  model R^2: 0.9042, adj-R^2: 0.9040
+Log-log model R^2: 0.9662, adj-R^2: 0.9661
+Note: R^2 from the two models is not directly comparable (different response variables), but the residual dashboards are the right yardstick — and those tell a clear story.

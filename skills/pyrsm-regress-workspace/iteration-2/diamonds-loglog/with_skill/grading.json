@@ -1,0 +1,12 @@
+{
+  "expectations": [
+    {"text": "Uses pyrsm.model.regress with polars and dict wrapper", "passed": true, "evidence": "analysis.py uses rsm.model.regress({'diamonds': df}, ...) on a polars DataFrame"},
+    {"text": "Reads sidecar description and uses real units", "passed": true, "evidence": "explanation references US dollars and ordered I1..IF clarity grades from sidecar"},
+    {"text": "Identifies funnel/curvature in linear residuals", "passed": true, "evidence": "Notes curved predicted-vs-actual, megaphone heteroscedasticity, heavy right Q-Q tail"},
+    {"text": "Refits as ln(price) ~ ln(carat) + clarity using polars log columns", "passed": true, "evidence": "analysis.py uses pl.col('price').log() and pl.col('carat').log()"},
+    {"text": "Interprets carat_ln as elasticity (~1.81)", "passed": true, "evidence": "explanation states 1% increase in carat -> ~1.81% increase in price"},
+    {"text": "Uses exact 100*(exp(beta)-1)% formula for clarity dummies with the per-level table", "passed": true, "evidence": "explanation has the full SI2..IF table with exact-form percentages"},
+    {"text": "Notes scatter direction can disagree with regression direction", "passed": true, "evidence": "Mentioned in writeup re: clarity"},
+    {"text": "Generates real residual dashboard PNGs for both specs", "passed": true, "evidence": "dashboard_linear.png and dashboard_loglog.png present, generated via plotnine g.save"}
+  ]
+}

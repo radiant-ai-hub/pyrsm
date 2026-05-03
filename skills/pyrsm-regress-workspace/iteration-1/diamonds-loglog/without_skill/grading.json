@@ -1,0 +1,12 @@
+{
+  "expectations": [
+    {"text": "Uses pyrsm.model.regress with polars DataFrame and dict wrapper", "passed": false, "evidence": "Used statsmodels (sm.OLS) with pandas, not pyrsm"},
+    {"text": "Reads sidecar diamonds_description.md and uses real units (US dollars, ordered clarity grades)", "passed": false, "evidence": "explanation.md does not mention sidecar or unit details (no $ scale anchoring, no I1..IF ordering)"},
+    {"text": "Identifies funnel/curvature in linear residuals as motivation for log-log", "passed": true, "evidence": "explanation.md L48-57 (heteroskedasticity, curvature, heavy upper tail)"},
+    {"text": "Refits as ln(price) ~ ln(carat) + clarity using polars log columns", "passed": false, "evidence": "Plan uses pandas / np.log, not polars"},
+    {"text": "Interprets carat_ln coefficient as an elasticity (1% in carat -> beta% in price)", "passed": true, "evidence": "explanation.md L33-34 ('elasticity', ~1.8)"},
+    {"text": "Uses exact 100*(exp(beta)-1)% formula for clarity dummies, not 100*beta%", "passed": false, "evidence": "explanation.md L37-39 mentions exp(coef)-1 in passing but does not compute the per-level table"},
+    {"text": "Notes that the bivariate scatter (clarity vs price) can disagree with the regression direction", "passed": false, "evidence": "Not discussed"},
+    {"text": "Honest about plot generation failure without fabricating", "passed": true, "evidence": "explanation.md L7-13 disclosed the sandbox blocked execution"}
+  ]
+}

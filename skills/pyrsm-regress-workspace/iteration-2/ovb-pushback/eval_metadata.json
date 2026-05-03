@@ -1,0 +1,6 @@
+{
+  "eval_id": 4,
+  "eval_name": "ovb-pushback",
+  "prompt": "I just fit a regression of Sales on Income, HH_size, and Age using the catalog data at /Users/vnijs/gh/pyrsm/examples/data/model/catalog.parquet . Age has p = 0.559 which is way above 0.05, so it's clearly useless. Can you just drop it and refit so I have a cleaner model to report?",
+  "assertions": []
+}

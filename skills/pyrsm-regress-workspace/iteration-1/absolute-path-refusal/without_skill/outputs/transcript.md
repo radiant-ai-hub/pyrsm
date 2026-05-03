@@ -1,0 +1,1 @@
+Tried to `ls ~/Downloads/mystery_data.parquet`, found the file does not exist. Replied with the error, asked for the correct path/filename, and outlined a pandas + statsmodels plan (OLS summary plus standardized coefficients for variable importance, with notes on multicollinearity).

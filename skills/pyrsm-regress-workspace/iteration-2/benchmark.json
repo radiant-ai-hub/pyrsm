@@ -1,0 +1,249 @@
+{
+  "metadata": {
+    "skill_name": "pyrsm-regress",
+    "skill_path": "/Users/vnijs/gh/pyrsm/skills/pyrsm-regress",
+    "timestamp": "2026-04-30T00:00:00Z",
+    "evals_run": [1, 2, 3, 4],
+    "runs_per_configuration": 1,
+    "iteration": 2,
+    "changes_from_iteration_1": [
+      "Added Step 5 closing subsection 'Don't drop variables on p-value alone'",
+      "Added new Step 6 'Model simplification' protocol (snapshot -> drop highest p -> percent shifts -> OVB triggers -> 4-option remediation menu)",
+      "Added Section 10 (OVB) to references/regress.md with intuition, protocol, worked example, helper snippet",
+      "Added new eval #4 testing OVB pushback when student wants to drop a non-significant variable",
+      "Bash(uv:*) permission now active so subagents can actually execute Python (vs iteration 1 where every fit was blocked)"
+    ]
+  },
+  "runs": [
+    {
+      "eval_id": 1,
+      "eval_name": "catalog-walkthrough",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 9,
+        "failed": 0,
+        "total": 9,
+        "time_seconds": 84.4,
+        "tokens": 38788,
+        "tool_calls": 9,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Uses pyrsm.model.regress with dict wrapper", "passed": true, "evidence": "rsm.model.regress({'catalog': df}, ...)"},
+        {"text": "Loads with polars (pl.read_parquet)", "passed": true, "evidence": "polars import + pl.read_parquet"},
+        {"text": "Reads sidecar and uses real units ($1,000 income)", "passed": true, "evidence": "explanation anchors interpretation in $1,000 income units"},
+        {"text": "States F-test H0/Ha explicitly", "passed": true, "evidence": "Null/alt stated"},
+        {"text": "Reports F, p, R^2, RMSE with conclusion", "passed": true, "evidence": "F=32.3, p<.001, R^2=.331, RMSE=$88.24"},
+        {"text": "Per-coefficient interpretation with significance verdict at 5%", "passed": true, "evidence": "All 3 coefficients given verdicts"},
+        {"text": "Uses 'holding constant' qualifier", "passed": true, "evidence": "Stated for each coefficient"},
+        {"text": "Applies new Step 5 closing: keeps Age in, explains OVB risk", "passed": true, "evidence": "Explicitly keeps Age, no Step 6 simplification proposed"},
+        {"text": "Real Python execution against the actual data", "passed": true, "evidence": "Bash worked; pyrsm summary captured"}
+      ]
+    },
+    {
+      "eval_id": 1,
+      "eval_name": "catalog-walkthrough",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.667,
+        "passed": 6,
+        "failed": 3,
+        "total": 9,
+        "time_seconds": 83.8,
+        "tokens": 24668,
+        "tool_calls": 6,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Uses pyrsm.model.regress with dict wrapper", "passed": false, "evidence": "Used statsmodels formula API"},
+        {"text": "Loads with polars (pl.read_parquet)", "passed": false, "evidence": "Used pandas"},
+        {"text": "Reads sidecar and uses real units", "passed": false, "evidence": "Did not use sidecar units"},
+        {"text": "States F-test H0/Ha explicitly", "passed": true, "evidence": "Stated"},
+        {"text": "Reports F, p, R^2, RMSE with conclusion", "passed": true, "evidence": "Reported"},
+        {"text": "Per-coefficient interpretation with significance verdict at 5%", "passed": true, "evidence": "Done"},
+        {"text": "Uses 'holding constant' qualifier", "passed": true, "evidence": "Mentioned"},
+        {"text": "Applies new Step 5 closing: keeps Age in, explains OVB risk", "passed": false, "evidence": "Does not warn against dropping Age"},
+        {"text": "Real Python execution", "passed": true, "evidence": "Bash worked; statsmodels summary captured"}
+      ]
+    },
+    {
+      "eval_id": 2,
+      "eval_name": "diamonds-loglog",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 8,
+        "failed": 0,
+        "total": 8,
+        "time_seconds": 154.4,
+        "tokens": 50072,
+        "tool_calls": 15,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "pyrsm.model.regress on polars with dict wrapper", "passed": true, "evidence": "rsm.model.regress({'diamonds': df}, ...)"},
+        {"text": "Reads sidecar and uses real units (US dollars, ordered I1..IF)", "passed": true, "evidence": "Sidecar referenced"},
+        {"text": "Identifies funnel/curvature in linear residuals", "passed": true, "evidence": "Megaphone, curvature, heavy Q-Q tail named"},
+        {"text": "Refits as ln(price) ~ ln(carat) + clarity using polars log columns", "passed": true, "evidence": "pl.col('price').log() and carat.log()"},
+        {"text": "Carat_ln coefficient as elasticity (~1.81)", "passed": true, "evidence": "Elasticity = 1.809 reported with interpretation"},
+        {"text": "Exact 100*(exp(beta)-1)% per-level table for clarity", "passed": true, "evidence": "Full SI2..IF table with exact-form percentages"},
+        {"text": "Notes scatter direction can disagree with regression direction", "passed": true, "evidence": "Mentioned"},
+        {"text": "Generates real PNG residual dashboards", "passed": true, "evidence": "Both dashboards saved successfully via plotnine"}
+      ]
+    },
+    {
+      "eval_id": 2,
+      "eval_name": "diamonds-loglog",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.375,
+        "passed": 3,
+        "failed": 5,
+        "total": 8,
+        "time_seconds": 89.4,
+        "tokens": 27405,
+        "tool_calls": 7,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "pyrsm.model.regress on polars with dict wrapper", "passed": false, "evidence": "statsmodels + pandas"},
+        {"text": "Reads sidecar and uses real units", "passed": false, "evidence": "Sidecar not consulted"},
+        {"text": "Identifies funnel/curvature in linear residuals", "passed": true, "evidence": "Breusch-Pagan p~1e-108 + heavy tail"},
+        {"text": "Refits as ln(price) ~ ln(carat) + clarity using polars log columns", "passed": false, "evidence": "pandas + np.log"},
+        {"text": "Carat_ln coefficient as elasticity (~1.81)", "passed": true, "evidence": "Elasticity = 1.81 reported"},
+        {"text": "Exact 100*(exp(beta)-1)% per-level table for clarity", "passed": false, "evidence": "Monotone clarity premia mentioned but no exact-form table"},
+        {"text": "Notes scatter direction can disagree with regression direction", "passed": false, "evidence": "Not discussed"},
+        {"text": "Generates real PNG residual dashboards", "passed": true, "evidence": "Both PNGs saved"}
+      ]
+    },
+    {
+      "eval_id": 3,
+      "eval_name": "absolute-path-refusal",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 4,
+        "failed": 0,
+        "total": 4,
+        "time_seconds": 24.6,
+        "tokens": 25208,
+        "tool_calls": 4,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Refuses to expand ~ and asks for absolute path", "passed": true, "evidence": "Explicit refusal"},
+        {"text": "Does not call ls or otherwise inspect", "passed": true, "evidence": "No probing"},
+        {"text": "Does not start fitting or write code beyond the ask", "passed": true, "evidence": "Plain-text response only"},
+        {"text": "Previews the workflow once a path is provided", "passed": true, "evidence": "Includes sidecar lookup, propose spec, fit, interpret, importance"}
+      ]
+    },
+    {
+      "eval_id": 3,
+      "eval_name": "absolute-path-refusal",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.0,
+        "passed": 0,
+        "failed": 4,
+        "total": 4,
+        "time_seconds": 35.6,
+        "tokens": 19746,
+        "tool_calls": 4,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Refuses to expand ~ and asks for absolute path", "passed": false, "evidence": "Expanded via ls and proceeded with generic plan still using ~"},
+        {"text": "Does not call ls or otherwise inspect", "passed": false, "evidence": "Did `ls -la ~/Downloads/`"},
+        {"text": "Does not start fitting or write code beyond the ask", "passed": false, "evidence": "Wrote full statsmodels + regularized model plan"},
+        {"text": "Previews the workflow once a path is provided", "passed": false, "evidence": "Generic statsmodels framing, no pyrsm or sidecar"}
+      ]
+    },
+    {
+      "eval_id": 4,
+      "eval_name": "ovb-pushback",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 9,
+        "failed": 0,
+        "total": 9,
+        "time_seconds": 121.5,
+        "tokens": 47237,
+        "tool_calls": 10,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Does NOT immediately drop Age", "passed": true, "evidence": "explanation L3 'I would push back'"},
+        {"text": "Explains OVB and why p alone is insufficient", "passed": true, "evidence": "Three-bullet pedagogical reasoning"},
+        {"text": "Asks/states why simplification is unjustified for n=200, 3 predictors", "passed": true, "evidence": "'no dimensionality problem and no deployment cost'"},
+        {"text": "Walks Step 6 protocol: snapshot, drop, refit, percent shifts, triggers", "passed": true, "evidence": "Triggers enumerated; +0.47%/-0.74% shifts reported"},
+        {"text": "Reports actual percent shifts on Income and HH_size", "passed": true, "evidence": "+0.47%, -0.74%, both flips 'no'"},
+        {"text": "Names the OVB-safe finding (orthogonality)", "passed": true, "evidence": "Correlation matrix shown; explicitly named 'approximately orthogonal'"},
+        {"text": "Recommends keeping Age in the reported model", "passed": true, "evidence": "'report the full three-predictor model'"},
+        {"text": "Mentions all four remediation options (re-include / relabel / combine / acknowledge)", "passed": true, "evidence": "All four enumerated for the trigger-fire counterfactual"},
+        {"text": "Does not propose dropping any other variable on basis of significance", "passed": true, "evidence": "No further drops"}
+      ]
+    },
+    {
+      "eval_id": 4,
+      "eval_name": "ovb-pushback",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.556,
+        "passed": 5,
+        "failed": 4,
+        "total": 9,
+        "time_seconds": 66.2,
+        "tokens": 24002,
+        "tool_calls": 6,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Does NOT immediately drop Age", "passed": true, "evidence": "Pushes back on the reasoning"},
+        {"text": "Explains OVB and why p alone is insufficient", "passed": true, "evidence": "Correct OVB-style explanation"},
+        {"text": "Asks/states why simplification is unjustified for n=200, 3 predictors", "passed": false, "evidence": "Did not raise the 'is simplification warranted at all' question"},
+        {"text": "Walks Step 6 protocol with explicit triggers", "passed": false, "evidence": "Computes shifts but no explicit >10% / sign / sig flip triggers"},
+        {"text": "Reports actual percent shifts on Income and HH_size", "passed": true, "evidence": "~0.5% and <1% reported"},
+        {"text": "Names the OVB-safe finding (orthogonality)", "passed": true, "evidence": "Correlations explained"},
+        {"text": "Recommends keeping Age in the reported model", "passed": false, "evidence": "Recommends the REDUCED model as headline (opposite of skill)"},
+        {"text": "Mentions all four remediation options", "passed": false, "evidence": "Only mentions 'keep as control' alternative"},
+        {"text": "Does not propose dropping any other variable on basis of significance", "passed": true, "evidence": "Only Age was the candidate"}
+      ]
+    }
+  ],
+  "run_summary": {
+    "with_skill": {
+      "pass_rate": {"mean": 1.0, "stddev": 0.0, "min": 1.0, "max": 1.0},
+      "time_seconds": {"mean": 96.2, "stddev": 48.2, "min": 24.6, "max": 154.4},
+      "tokens": {"mean": 40326, "stddev": 9665, "min": 25208, "max": 50072}
+    },
+    "without_skill": {
+      "pass_rate": {"mean": 0.399, "stddev": 0.253, "min": 0.0, "max": 0.667},
+      "time_seconds": {"mean": 68.8, "stddev": 21.0, "min": 35.6, "max": 89.4},
+      "tokens": {"mean": 23955, "stddev": 2744, "min": 19746, "max": 27405}
+    },
+    "delta": {
+      "pass_rate": "+0.601",
+      "time_seconds": "+27.5",
+      "tokens": "+16371"
+    }
+  },
+  "notes": [
+    "Bash(uv:*) permission now active in user settings; iteration 2 ran real Python end-to-end. All four with-skill runs and three of four baselines actually executed code against the data.",
+    "Eval 1 (catalog): both runs computed identical real coefficients. Skill version applied the new Step 5 closing subsection — explicitly kept Age in and explained OVB risk; baseline did not warn. Skill differentiation is on tooling (pyrsm/polars), sidecar usage, and the new pushback language.",
+    "Eval 2 (diamonds): both runs successfully diagnosed the linear-spec residual pathology and refit as log-log with elasticity ~1.81. Skill version produced the per-clarity-level exact 100*(exp(beta)-1)% table and noted the scatter-vs-regression direction issue; baseline did neither.",
+    "Eval 3 (path refusal): unchanged from iteration 1 — clean refusal vs. baseline ls + generic plan. Most decisive single eval.",
+    "Eval 4 (OVB pushback) is the iteration 2 highlight. Both versions push back on the reasoning, but they reach DIFFERENT recommendations: skill recommends keeping Age in (consistent with the user's pedagogy), baseline recommends the reduced model with the full model in a footnote. Skill also explicitly names the trigger thresholds, presents all four remediation options, and excludes the Intercept from the trigger check (a thoughtful detail). Baseline does the OVB math correctly but lacks the structured protocol and lands on the opposite recommendation.",
+    "Cost of the skill: ~+27s wall-clock and ~+16K tokens per eval on average vs. baseline. Mostly attributable to reading SKILL.md plus references/regress.md and producing the structured pedagogical writeup. Reasonable for a class-facing tool.",
+    "Compared to iteration 1: with-skill pass rate stayed at 1.00; baseline pass rate moved from 0.20 to 0.40 because (a) Bash now works so the catalog baseline produces output, and (b) the new eval 4 has a baseline that does substantial work. Delta narrowed from +0.80 to +0.60 — still the dominant effect, and now backed by genuine end-to-end execution rather than artifact-by-other-means."
+  ]
+}

@@ -1,0 +1,91 @@
+Data shape: (200, 5)
+   id   Sales  Income  HH_size   Age
+0   1  178.63    93.0        4  55.0
+1   2  338.59    79.0        5  35.0
+2   3  210.26    70.0        4  64.0
+3   4  378.64    95.0        2  39.0
+4   5  227.09   119.0        2  43.0 
+
+======================================================================
+FULL MODEL: Sales ~ Income + HH_size + Age
+======================================================================
+                            OLS Regression Results                            
+==============================================================================
+Dep. Variable:                  Sales   R-squared:                       0.331
+Model:                            OLS   Adj. R-squared:                  0.321
+Method:                 Least Squares   F-statistic:                     32.33
+Date:                Thu, 30 Apr 2026   Prob (F-statistic):           5.08e-17
+Time:                        00:58:38   Log-Likelihood:                -1179.8
+No. Observations:                 200   AIC:                             2368.
+Df Residuals:                     196   BIC:                             2381.
+Df Model:                           3                                         
+Covariance Type:            nonrobust                                         
+==============================================================================
+                 coef    std err          t      P>|t|      [0.025      0.975]
+------------------------------------------------------------------------------
+Intercept     45.3592     43.089      1.053      0.294     -39.618     130.336
+Income         1.7754      0.217      8.181      0.000       1.347       2.203
+HH_size       22.1218      4.190      5.279      0.000      13.858      30.386
+Age            0.4492      0.768      0.585      0.559      -1.065       1.964
+==============================================================================
+Omnibus:                        3.934   Durbin-Watson:                   2.064
+Prob(Omnibus):                  0.140   Jarque-Bera (JB):                2.522
+Skew:                           0.039   Prob(JB):                        0.283
+Kurtosis:                       2.455   Cond. No.                         607.
+==============================================================================
+
+Notes:
+[1] Standard Errors assume that the covariance matrix of the errors is correctly specified.
+
+======================================================================
+REDUCED MODEL: Sales ~ Income + HH_size
+======================================================================
+                            OLS Regression Results                            
+==============================================================================
+Dep. Variable:                  Sales   R-squared:                       0.330
+Model:                            OLS   Adj. R-squared:                  0.323
+Method:                 Least Squares   F-statistic:                     48.48
+Date:                Thu, 30 Apr 2026   Prob (F-statistic):           7.57e-18
+Time:                        00:58:38   Log-Likelihood:                -1180.0
+No. Observations:                 200   AIC:                             2366.
+Df Residuals:                     197   BIC:                             2376.
+Df Model:                           2                                         
+Covariance Type:            nonrobust                                         
+==============================================================================
+                 coef    std err          t      P>|t|      [0.025      0.975]
+------------------------------------------------------------------------------
+Intercept     67.2185     21.413      3.139      0.002      24.991     109.446
+Income         1.7838      0.216      8.251      0.000       1.357       2.210
+HH_size       21.9584      4.174      5.261      0.000      13.727      30.190
+==============================================================================
+Omnibus:                        3.181   Durbin-Watson:                   2.082
+Prob(Omnibus):                  0.204   Jarque-Bera (JB):                2.206
+Skew:                           0.047   Prob(JB):                        0.332
+Kurtosis:                       2.494   Cond. No.                         259.
+==============================================================================
+
+Notes:
+[1] Standard Errors assume that the covariance matrix of the errors is correctly specified.
+
+======================================================================
+COEFFICIENT COMPARISON
+======================================================================
+           full_coef  full_p  reduced_coef  reduced_p
+Age           0.4492  0.5593           NaN        NaN
+HH_size      22.1218  0.0000       21.9584      0.000
+Income        1.7754  0.0000        1.7838      0.000
+Intercept    45.3592  0.2938       67.2185      0.002
+
+R-squared full   : 0.331
+R-squared reduced: 0.3298
+Adj R^2 full     : 0.3208
+Adj R^2 reduced  : 0.323
+
+======================================================================
+CORRELATIONS AMONG PREDICTORS
+======================================================================
+         Sales  Income  HH_size    Age
+Sales    1.000   0.485    0.313  0.045
+Income   0.485   1.000    0.014  0.065
+HH_size  0.313   0.014    1.000 -0.066
+Age      0.045   0.065   -0.066  1.000

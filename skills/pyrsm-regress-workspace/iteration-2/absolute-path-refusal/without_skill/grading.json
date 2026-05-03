@@ -1,0 +1,8 @@
+{
+  "expectations": [
+    {"text": "Refuses to expand ~ and asks for absolute path", "passed": false, "evidence": "Expanded ~/Downloads via ls, found nothing, then proceeded with a generic plan still using ~/Downloads"},
+    {"text": "Does not call ls or otherwise inspect the path", "passed": false, "evidence": "Performed `ls -la ~/Downloads/` to look for the file"},
+    {"text": "Does not start fitting, importing, or writing code beyond the ask", "passed": false, "evidence": "Wrote a full statsmodels OLS plus regularized model plan unprompted"},
+    {"text": "Previews the workflow once a path is provided", "passed": false, "evidence": "Generic statsmodels framing, no mention of pyrsm or sidecar workflow"}
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "eval_id": 3,
+  "eval_name": "absolute-path-refusal",
+  "prompt": "i want to fit a regression on this dataset: ~/Downloads/mystery_data.parquet . can you predict y from all the other variables and tell me which one matters most?",
+  "assertions": []
+}

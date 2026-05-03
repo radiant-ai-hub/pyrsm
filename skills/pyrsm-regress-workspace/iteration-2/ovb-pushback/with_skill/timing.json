@@ -1,0 +1,6 @@
+{
+  "total_tokens": 47237,
+  "duration_ms": 121543,
+  "total_duration_seconds": 121.5,
+  "note": "Skill version pushed back, walked Step 6 protocol, computed shifts (<1% on both Income and HH_size), named the OVB-safe finding, AND recommended keeping Age in (vs. baseline which recommended dropping). Also smartly excluded Intercept from trigger check."
+}

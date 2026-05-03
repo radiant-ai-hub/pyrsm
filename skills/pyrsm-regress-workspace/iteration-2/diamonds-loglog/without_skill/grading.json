@@ -1,0 +1,12 @@
+{
+  "expectations": [
+    {"text": "Uses pyrsm.model.regress with polars and dict wrapper", "passed": false, "evidence": "Used statsmodels with pandas"},
+    {"text": "Reads sidecar description and uses real units", "passed": false, "evidence": "Did not consult sidecar; framing is generic"},
+    {"text": "Identifies funnel/curvature in linear residuals", "passed": true, "evidence": "Megaphone heteroscedasticity reported, Breusch-Pagan p~1e-108, heavy right tail"},
+    {"text": "Refits as ln(price) ~ ln(carat) + clarity using polars log columns", "passed": false, "evidence": "Used pandas and np.log; not polars"},
+    {"text": "Interprets carat_ln as elasticity (~1.81)", "passed": true, "evidence": "Reports elasticity = 1.81"},
+    {"text": "Uses exact 100*(exp(beta)-1)% formula for clarity dummies with the per-level table", "passed": false, "evidence": "Reports clarity coefficients as monotone but no per-level exact-form percentage table"},
+    {"text": "Notes scatter direction can disagree with regression direction", "passed": false, "evidence": "Not discussed"},
+    {"text": "Generates real residual dashboard PNGs for both specs", "passed": true, "evidence": "Both PNGs present and saved successfully"}
+  ]
+}

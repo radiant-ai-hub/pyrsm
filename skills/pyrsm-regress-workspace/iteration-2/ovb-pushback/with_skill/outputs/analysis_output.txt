@@ -1,0 +1,143 @@
+========================================================================
+Data loaded: /Users/vnijs/gh/pyrsm/examples/data/model/catalog.parquet
+Shape: (200, 5)
+Columns: ['id', 'Sales', 'Income', 'HH_size', 'Age']
+
+========================================================================
+STEP 1 - Full model: Sales ~ Income + HH_size + Age
+========================================================================
+Linear regression (OLS)
+Data                 : catalog
+Response variable    : Sales
+Explanatory variables: Income, HH_size, Age
+Null hyp.: the effect of x on Sales is zero
+Alt. hyp.: the effect of x on Sales is not zero
+
+┌───────────┬─────────────┬───────────┬─────────┬─────────┬─────┐
+│ index     ┆ coefficient ┆ std.error ┆ t.value ┆ p.value ┆     │
+╞═══════════╪═════════════╪═══════════╪═════════╪═════════╪═════╡
+│ Intercept ┆ 45.359      ┆ 43.089    ┆ 1.053   ┆ 0.294   ┆     │
+│ Income    ┆ 1.775       ┆ 0.217     ┆ 8.181   ┆ < .001  ┆ *** │
+│ HH_size   ┆ 22.122      ┆ 4.19      ┆ 5.279   ┆ < .001  ┆ *** │
+│ Age       ┆ 0.449       ┆ 0.768     ┆ 0.585   ┆ 0.559   ┆     │
+└───────────┴─────────────┴───────────┴─────────┴─────────┴─────┘
+
+Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+
+R-squared: 0.331, Adjusted R-squared: 0.321
+F-statistic: 32.325 df(3, 196), p.value < 0.001
+Nr obs: 200
+
+Sum of squares:
+
+             df         SS
+Regression    3    770,565
+Error       196  1,557,415
+Total       199  2,327,980
+
+Root Mean Square Error (RMSE):
+88.244
+
+========================================================================
+STEP 2 - Snapshot baseline coefficients
+========================================================================
+shape: (4, 4)
+┌───────────┬─────────────┬───────────┬────────────┐
+│ index     ┆ coefficient ┆ std.error ┆ p.value    │
+│ ---       ┆ ---         ┆ ---       ┆ ---        │
+│ str       ┆ f64         ┆ f64       ┆ f64        │
+╞═══════════╪═════════════╪═══════════╪════════════╡
+│ Intercept ┆ 45.359156   ┆ 43.08867  ┆ 0.293778   │
+│ Income    ┆ 1.775396    ┆ 0.217024  ┆ 3.5002e-14 │
+│ HH_size   ┆ 22.12183    ┆ 4.190415  ┆ 3.4280e-7  │
+│ Age       ┆ 0.449191    ┆ 0.767943  ┆ 0.559269   │
+└───────────┴─────────────┴───────────┴────────────┘
+
+========================================================================
+STEP 3 - Drop Age and refit: Sales ~ Income + HH_size
+========================================================================
+Linear regression (OLS)
+Data                 : catalog
+Response variable    : Sales
+Explanatory variables: Income, HH_size
+Null hyp.: the effect of x on Sales is zero
+Alt. hyp.: the effect of x on Sales is not zero
+
+┌───────────┬─────────────┬───────────┬─────────┬─────────┬─────┐
+│ index     ┆ coefficient ┆ std.error ┆ t.value ┆ p.value ┆     │
+╞═══════════╪═════════════╪═══════════╪═════════╪═════════╪═════╡
+│ Intercept ┆ 67.218      ┆ 21.413    ┆ 3.139   ┆ 0.002   ┆ **  │
+│ Income    ┆ 1.784       ┆ 0.216     ┆ 8.251   ┆ < .001  ┆ *** │
+│ HH_size   ┆ 21.958      ┆ 4.174     ┆ 5.261   ┆ < .001  ┆ *** │
+└───────────┴─────────────┴───────────┴─────────┴─────────┴─────┘
+
+Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+
+R-squared: 0.33, Adjusted R-squared: 0.323
+F-statistic: 48.478 df(2, 197), p.value < 0.001
+Nr obs: 200
+
+Sum of squares:
+
+             df         SS
+Regression    2    767,846
+Error       197  1,560,134
+Total       199  2,327,980
+
+Root Mean Square Error (RMSE):
+88.321
+
+========================================================================
+STEP 4 - OVB check: percent shifts on kept variables
+========================================================================
+shape: (3, 8)
+┌───────────┬───────────┬───────────┬───────────┬────────────┬────────────┬───────────┬──────────┐
+│ index     ┆ old_coef  ┆ new_coef  ┆ pct_shift ┆ old_p      ┆ new_p      ┆ sign_flip ┆ sig_flip │
+│ ---       ┆ ---       ┆ ---       ┆ ---       ┆ ---        ┆ ---        ┆ ---       ┆ ---      │
+│ str       ┆ f64       ┆ f64       ┆ f64       ┆ f64        ┆ f64        ┆ bool      ┆ bool     │
+╞═══════════╪═══════════╪═══════════╪═══════════╪════════════╪════════════╪═══════════╪══════════╡
+│ Intercept ┆ 45.359156 ┆ 67.218498 ┆ 48.19     ┆ 0.293778   ┆ 0.001955   ┆ false     ┆ true     │
+│ Income    ┆ 1.775396  ┆ 1.783824  ┆ 0.47      ┆ 3.5002e-14 ┆ 2.2105e-14 ┆ false     ┆ false    │
+│ HH_size   ┆ 22.12183  ┆ 21.958439 ┆ -0.74     ┆ 3.4280e-7  ┆ 3.7279e-7  ┆ false     ┆ false    │
+└───────────┴───────────┴───────────┴───────────┴────────────┴────────────┴───────────┴──────────┘
+
+========================================================================
+STEP 5 - Trigger evaluation (on kept slope coefficients)
+========================================================================
+Slope-only view:
+shape: (2, 8)
+┌─────────┬──────────┬───────────┬───────────┬────────────┬────────────┬───────────┬──────────┐
+│ index   ┆ old_coef ┆ new_coef  ┆ pct_shift ┆ old_p      ┆ new_p      ┆ sign_flip ┆ sig_flip │
+│ ---     ┆ ---      ┆ ---       ┆ ---       ┆ ---        ┆ ---        ┆ ---       ┆ ---      │
+│ str     ┆ f64      ┆ f64       ┆ f64       ┆ f64        ┆ f64        ┆ bool      ┆ bool     │
+╞═════════╪══════════╪═══════════╪═══════════╪════════════╪════════════╪═══════════╪══════════╡
+│ Income  ┆ 1.775396 ┆ 1.783824  ┆ 0.47      ┆ 3.5002e-14 ┆ 2.2105e-14 ┆ false     ┆ false    │
+│ HH_size ┆ 22.12183 ┆ 21.958439 ┆ -0.74     ┆ 3.4280e-7  ┆ 3.7279e-7  ┆ false     ┆ false    │
+└─────────┴──────────┴───────────┴───────────┴────────────┴────────────┴───────────┴──────────┘
+
+No OVB triggers fired.
+On the kept variables (Income, HH_size):
+  - All percent shifts are within +/- 10%
+  - No sign flips
+  - No significance status flips across the 5% line
+
+==> Age is approximately ORTHOGONAL to Income and HH_size in this sample.
+    The drop appears OVB-safe based on the statistical check.
+
+HOWEVER: with n=200 and only 3 predictors, there is no real reason
+to simplify in the first place. Recommendation: KEEP Age in the
+reported model. Non-significance does not mean 'no effect' - it
+means we lack evidence in this sample. The OVB-safe finding is a
+pedagogical confirmation, not a license to drop.
+
+========================================================================
+BONUS - Pairwise correlations among predictors
+========================================================================
+         Income  HH_size    Age
+Income    1.000    0.014  0.065
+HH_size   0.014    1.000 -0.066
+Age       0.065   -0.066  1.000
+
+Small Age <-> Income and Age <-> HH_size correlations explain why
+dropping Age barely moves the kept coefficients - that is what
+'approximately orthogonal' means in practice.

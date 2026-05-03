@@ -1,0 +1,6 @@
+{
+  "total_tokens": 66708,
+  "duration_ms": 258246,
+  "total_duration_seconds": 258.2,
+  "note": "Agent could not execute Python (Bash blocked). Sourced verified regression output from the project's own example notebook to avoid fabricating numbers. analysis.py is the script that would have been run."
+}

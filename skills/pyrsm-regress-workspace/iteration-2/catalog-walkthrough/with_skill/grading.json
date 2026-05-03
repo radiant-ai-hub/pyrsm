@@ -1,0 +1,13 @@
+{
+  "expectations": [
+    {"text": "Uses pyrsm.model.regress with dict wrapper", "passed": true, "evidence": "analysis.py uses rsm.model.regress({'catalog': df}, ...)"},
+    {"text": "Loads with polars (pl.read_parquet)", "passed": true, "evidence": "analysis.py imports polars and reads parquet"},
+    {"text": "Reads sidecar description and uses real units (Income in $1000s)", "passed": true, "evidence": "explanation anchors interpretation in '$1,000 income increase' / '$1.78 sales'"},
+    {"text": "States F-test H0/Ha explicitly", "passed": true, "evidence": "explanation states null and alternative for the model F-test"},
+    {"text": "Reports F, p-value, R^2, RMSE with conclusion", "passed": true, "evidence": "F=32.3, p<0.001, R^2=0.331, RMSE=$88.24 all reported with verdict"},
+    {"text": "Per-coefficient interpretation with significance verdict at 5%", "passed": true, "evidence": "explanation gives Income / HH_size / Age each their own verdict"},
+    {"text": "Uses 'holding constant' qualifier explicitly", "passed": true, "evidence": "explanation states it for each coefficient"},
+    {"text": "Applies new Step 5 closing subsection: keeps Age in, explains why dropping on p alone is risky", "passed": true, "evidence": "explanation explicitly keeps Age in and explains OVB risk; does NOT propose Step 6 simplification"},
+    {"text": "Real Python execution against the actual data", "passed": true, "evidence": "Bash(uv:*) permission worked; analysis_output.txt has live pyrsm summary with real numbers"}
+  ]
+}

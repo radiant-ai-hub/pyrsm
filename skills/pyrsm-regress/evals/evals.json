@@ -1,0 +1,29 @@
+{
+  "skill_name": "pyrsm-regress",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I have a dataset of catalog customer sales at /Users/vnijs/gh/pyrsm/examples/data/model/catalog.parquet and I want to run a regression to predict Sales from Income, HH_size, and Age. Walk me through it and explain the coefficients in plain English (the way my prof would), I'm pretty new to regression.",
+      "expected_output": "Conversation that: asks for/uses the absolute path, calls scripts/load_data.py (or its Python equivalent) to load the parquet, finds and reads catalog_description.md to learn that Income is in $1000s and Sales is in $, fits the regression with rsm.model.regress({'catalog': df}, rvar='Sales', evar=['Income','HH_size','Age']), prints summary(rmse=True, ssq=True), then explains: F-test conclusion, R^2 (~0.33), each coefficient interpreted in real units (e.g. '$1,000 increase in income → ~$1.78 more in sales'), significance verdict at the 5% level (Income and HH_size significant, Age not), and the 'holding other variables constant' qualifier.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "can you regress price on carat and clarity for me? data is at /Users/vnijs/gh/pyrsm/examples/data/data/diamonds.parquet . my TA said the residuals will look bad and i should try a log-log version, can you check?",
+      "expected_output": "Conversation that: loads the diamonds parquet, finds diamonds_description.md, fits the linear specification with rvar='price', evar=['carat','clarity'], shows summary, runs reg.plot('dashboard') (or names it explicitly) and notes the fanning residuals / curved predicted-vs-actual, then proposes a log-log refit by adding price_ln and carat_ln columns via polars (pl.col('price').log()), refits with rvar='price_ln', evar=['carat_ln','clarity'], shows the improved diagnostics, and interprets the carat_ln coefficient as an elasticity (~1.81% increase in price per 1% increase in carat) and the clarity dummies using the 100*(exp(beta)-1)% formula.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "i want to fit a regression on this dataset: ~/Downloads/mystery_data.parquet . can you predict y from all the other variables and tell me which one matters most?",
+      "expected_output": "Conversation that: notices the path is not absolute (uses ~), asks the user for the absolute path before running anything else, does NOT silently expand the tilde or guess. (We use this case to verify the skill enforces the absolute-path requirement from Step 1 of SKILL.md.)",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "I just fit a regression of Sales on Income, HH_size, and Age using the catalog data at /Users/vnijs/gh/pyrsm/examples/data/model/catalog.parquet . Age has p = 0.559 which is way above 0.05, so it's clearly useless. Can you just drop it and refit so I have a cleaner model to report?",
+      "expected_output": "Conversation that: (1) does NOT immediately drop Age; (2) explains why dropping a non-significant variable is risky (omitted variable bias) and that statistical insignificance is not the same as 'no effect'; (3) asks WHY the student wants to simplify (the only stated reason here is the p-value, which the skill should reject as insufficient); (4) if proceeding anyway, walks the Step 6 protocol explicitly: snapshots the baseline coefficients of Income/HH_size/Age, drops Age, refits, computes the percent shifts on Income and HH_size, and reports whether any of the OVB triggers (|shift|>10%, sign flip, significance flip) fire; (5) for the catalog data, the shifts on Income and HH_size are small (Age is roughly orthogonal here), so the drop turns out to be OVB-safe — the skill should NAME this finding rather than just present the new coefficients; (6) regardless, recommends keeping Age in the reported model because there is no real reason to simplify (n=200, only 3 predictors, communication is fine) and the p-value alone does not justify dropping; (7) does NOT propose dropping any other variable on the basis of significance.",
+      "files": []
+    }
+  ]
+}

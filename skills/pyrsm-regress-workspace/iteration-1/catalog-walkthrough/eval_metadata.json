@@ -1,0 +1,6 @@
+{
+  "eval_id": 1,
+  "eval_name": "catalog-walkthrough",
+  "prompt": "I have a dataset of catalog customer sales at /Users/vnijs/gh/pyrsm/examples/data/model/catalog.parquet and I want to run a regression to predict Sales from Income, HH_size, and Age. Walk me through it and explain the coefficients in plain English (the way my prof would), I'm pretty new to regression.",
+  "assertions": []
+}

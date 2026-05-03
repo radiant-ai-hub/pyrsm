@@ -1,0 +1,13 @@
+{
+  "expectations": [
+    {"text": "Uses pyrsm.model.regress (not statsmodels/sklearn) with dict wrapper", "passed": false, "evidence": "No outputs produced - agent terminated when Bash was denied"},
+    {"text": "Loads with polars (pl.read_parquet)", "passed": false, "evidence": "No outputs produced"},
+    {"text": "Uses units from sidecar description (Income in $1000s)", "passed": false, "evidence": "No outputs produced"},
+    {"text": "States F-test null/alternative hypotheses explicitly", "passed": false, "evidence": "No outputs produced"},
+    {"text": "Reports F-statistic, p-value, and R^2 with conclusion", "passed": false, "evidence": "No outputs produced"},
+    {"text": "Per-coefficient interpretation in plain English with significance verdict at 5%", "passed": false, "evidence": "No outputs produced"},
+    {"text": "Explains 'holding other variables constant' qualifier", "passed": false, "evidence": "No outputs produced"},
+    {"text": "Offers diagnostics rather than auto-running them", "passed": false, "evidence": "No outputs produced"},
+    {"text": "Does not invent results when execution fails", "passed": true, "evidence": "Agent did refuse to fabricate, but produced no useful artifact"}
+  ]
+}

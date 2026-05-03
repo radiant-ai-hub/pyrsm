@@ -1,0 +1,8 @@
+{
+  "expectations": [
+    {"text": "Refuses to expand ~ and asks for absolute path", "passed": true, "evidence": "response.md L1-7 explicitly asks for absolute path and explains why ~ is risky"},
+    {"text": "Does not call ls or otherwise try to inspect the path", "passed": true, "evidence": "transcript.md confirms no file-system probing occurred"},
+    {"text": "Does not start fitting, importing, or writing code beyond the ask", "passed": true, "evidence": "Response is a plain-text request only"},
+    {"text": "Previews the workflow steps once a path is provided (sidecar lookup, propose spec, fit, interpret)", "passed": true, "evidence": "response.md L9-15"}
+  ]
+}

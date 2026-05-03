@@ -1,0 +1,54 @@
+NOTE
+====
+The Python execution sandbox in this Claude Code session blocked every attempt
+to run `analysis.py` (uv run, .venv/bin/python, python3, etc. all returned
+"Permission to use Bash has been denied"). As a result, this file does not
+contain captured stdout, and `dashboard_linear.png` / `dashboard_loglog.png`
+were not generated from real data.
+
+To produce the real outputs yourself, run from the pyrsm project root:
+
+    cd /Users/vnijs/gh/pyrsm
+    uv run python skills/pyrsm-regress-workspace/iteration-1/diamonds-loglog/without_skill/outputs/analysis.py \
+        > skills/pyrsm-regress-workspace/iteration-1/diamonds-loglog/without_skill/outputs/analysis_output.txt 2>&1
+
+The script will:
+  1. print data shape, columns, and first rows
+  2. print the OLS summary for `price ~ carat + clarity`
+  3. print Breusch-Pagan stat, residual skew, and kurtosis (linear)
+  4. save dashboard_linear.png  (Residuals-vs-Fitted, Q-Q, Scale-Location,
+                                 Residuals-vs-carat)
+  5. print the OLS summary for `log(price) ~ log(carat) + clarity`
+  6. print Breusch-Pagan stat, residual skew, and kurtosis (log-log)
+  7. save dashboard_loglog.png
+  8. print a side-by-side comparison table (R^2, AIC, skew, kurtosis,
+     BP p-value) and report the carat-elasticity from the log-log model.
+
+EXPECTED RESULTS (based on the well-known diamonds dataset)
+-----------------------------------------------------------
+Linear (price ~ carat + clarity):
+  - R^2 around 0.89
+  - Residuals vs Fitted shows a strong fan/funnel shape: variance grows with
+    fitted price, and a curved (non-linear) pattern is visible. Residuals also
+    take large positive values for big stones - the linear slope under-prices
+    big diamonds and over-prices small ones.
+  - Q-Q plot shows heavy upper tail (kurtosis well above 0).
+  - Breusch-Pagan p-value is essentially 0 -> strong heteroskedasticity.
+  - Your TA is right: the linear residuals look bad.
+
+Log-log (log(price) ~ log(carat) + clarity):
+  - R^2 around 0.96-0.97
+  - log_carat coefficient roughly 1.8 -> a 1% increase in carat is associated
+    with about a 1.8% increase in price (this is the carat-price elasticity).
+  - Residuals vs Fitted is a much more even cloud around 0, with far less
+    funnelling.
+  - Q-Q plot is closer to the 45-degree line; tails are tamer.
+  - Clarity dummies show the expected ordering (IF > VVS1 > ... > I1) with
+    each step worth roughly 8-15% in price, holding carat fixed.
+
+CONCLUSION
+----------
+Both your eyeballs and the formal tests should agree with the TA: the linear
+specification has heteroskedastic, curved residuals, and the log-log
+specification fixes most of that while also giving you a clean, reportable
+elasticity interpretation for the carat coefficient.

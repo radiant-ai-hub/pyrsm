@@ -1,0 +1,12 @@
+{
+  "expectations": [
+    {"text": "Uses pyrsm.model.regress with polars DataFrame and dict wrapper", "passed": true, "evidence": "analysis.py uses rsm.model.regress({'diamonds': df}, ...)"},
+    {"text": "Reads sidecar diamonds_description.md and uses real units (US dollars, ordered clarity grades)", "passed": true, "evidence": "explanation.md L7-9 and L11"},
+    {"text": "Identifies funnel/curvature in linear residuals as motivation for log-log", "passed": true, "evidence": "explanation.md L30-37 (predicted-vs-actual curvature, funnel residuals, heavy Q-Q tails)"},
+    {"text": "Refits as ln(price) ~ ln(carat) + clarity using polars log columns", "passed": true, "evidence": "explanation.md L47-57 (pl.col('price').log() + pl.col('carat').log())"},
+    {"text": "Interprets carat_ln coefficient as an elasticity (1% in carat -> beta% in price)", "passed": true, "evidence": "explanation.md L82-88 (elasticity ~1.81)"},
+    {"text": "Uses exact 100*(exp(beta)-1)% formula for clarity dummies, not 100*beta%", "passed": true, "evidence": "explanation.md L90-110, full table for SI2..IF"},
+    {"text": "Notes that the bivariate scatter (clarity vs price) can disagree with the regression direction", "passed": true, "evidence": "explanation.md L26"},
+    {"text": "Honest about plot generation failure without fabricating", "passed": true, "evidence": "transcript.md and analysis_output.txt label that plots weren't actually rendered"}
+  ]
+}

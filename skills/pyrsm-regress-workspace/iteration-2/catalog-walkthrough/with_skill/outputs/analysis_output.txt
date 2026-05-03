@@ -1,0 +1,49 @@
+Shape: (200, 5)
+Schema:
+Schema({'id': Int32, 'Sales': Float64, 'Income': Float64, 'HH_size': Int32, 'Age': Float64})
+
+Head:
+shape: (5, 5)
+┌─────┬────────┬────────┬─────────┬──────┐
+│ id  ┆ Sales  ┆ Income ┆ HH_size ┆ Age  │
+│ --- ┆ ---    ┆ ---    ┆ ---     ┆ ---  │
+│ i32 ┆ f64    ┆ f64    ┆ i32     ┆ f64  │
+╞═════╪════════╪════════╪═════════╪══════╡
+│ 1   ┆ 178.63 ┆ 93.0   ┆ 4       ┆ 55.0 │
+│ 2   ┆ 338.59 ┆ 79.0   ┆ 5       ┆ 35.0 │
+│ 3   ┆ 210.26 ┆ 70.0   ┆ 4       ┆ 64.0 │
+│ 4   ┆ 378.64 ┆ 95.0   ┆ 2       ┆ 39.0 │
+│ 5   ┆ 227.09 ┆ 119.0  ┆ 2       ┆ 43.0 │
+└─────┴────────┴────────┴─────────┴──────┘
+
+Linear regression (OLS)
+Data                 : catalog
+Response variable    : Sales
+Explanatory variables: Income, HH_size, Age
+Null hyp.: the effect of x on Sales is zero
+Alt. hyp.: the effect of x on Sales is not zero
+
+┌───────────┬─────────────┬───────────┬─────────┬─────────┬─────┐
+│ index     ┆ coefficient ┆ std.error ┆ t.value ┆ p.value ┆     │
+╞═══════════╪═════════════╪═══════════╪═════════╪═════════╪═════╡
+│ Intercept ┆ 45.359      ┆ 43.089    ┆ 1.053   ┆ 0.294   ┆     │
+│ Income    ┆ 1.775       ┆ 0.217     ┆ 8.181   ┆ < .001  ┆ *** │
+│ HH_size   ┆ 22.122      ┆ 4.19      ┆ 5.279   ┆ < .001  ┆ *** │
+│ Age       ┆ 0.449       ┆ 0.768     ┆ 0.585   ┆ 0.559   ┆     │
+└───────────┴─────────────┴───────────┴─────────┴─────────┴─────┘
+
+Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+
+R-squared: 0.331, Adjusted R-squared: 0.321
+F-statistic: 32.325 df(3, 196), p.value < 0.001
+Nr obs: 200
+
+Sum of squares:
+
+             df         SS
+Regression    3    770,565
+Error       196  1,557,415
+Total       199  2,327,980
+
+Root Mean Square Error (RMSE):
+88.244

@@ -1,0 +1,8 @@
+{
+  "expectations": [
+    {"text": "Refuses to expand ~ and asks for absolute path", "passed": false, "evidence": "response.md L1-7 expanded ~ to /Users/vnijs/Downloads, did `ls`, then proposed code that uses ~/Downloads/... directly"},
+    {"text": "Does not call ls or otherwise try to inspect the path", "passed": false, "evidence": "response.md L4 contains the ls output explicitly"},
+    {"text": "Does not start fitting, importing, or writing code beyond the ask", "passed": false, "evidence": "response.md L14-43 wrote a full statsmodels OLS + standardized-coef plan unprompted"},
+    {"text": "Previews the workflow steps once a path is provided (sidecar lookup, propose spec, fit, interpret)", "passed": false, "evidence": "Generic statsmodels plan, no mention of pyrsm or sidecar workflow"}
+  ]
+}

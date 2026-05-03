@@ -1,0 +1,8 @@
+{
+  "expectations": [
+    {"text": "Refuses to expand ~ and asks for absolute path", "passed": true, "evidence": "response.md explicitly asks for absolute path and explains why ~ is risky"},
+    {"text": "Does not call ls or otherwise inspect the path", "passed": true, "evidence": "transcript.md confirms no probing"},
+    {"text": "Does not start fitting, importing, or writing code beyond the ask", "passed": true, "evidence": "Plain-text response only"},
+    {"text": "Previews the workflow once a path is provided", "passed": true, "evidence": "Includes sidecar lookup, propose spec, fit, interpret, plus permutation importance"}
+  ]
+}

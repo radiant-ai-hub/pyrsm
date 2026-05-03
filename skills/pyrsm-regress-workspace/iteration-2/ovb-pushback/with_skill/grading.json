@@ -1,0 +1,13 @@
+{
+  "expectations": [
+    {"text": "Does NOT immediately drop Age", "passed": true, "evidence": "explanation L3 'I would push back on this'"},
+    {"text": "Explains OVB and why p-value alone is insufficient", "passed": true, "evidence": "explanation L7-13 lists three pedagogical reasons"},
+    {"text": "Asks/states why simplification is unjustified for n=200, 3 predictors", "passed": true, "evidence": "explanation L13 'no dimensionality problem and no deployment cost'"},
+    {"text": "Walks the Step 6 protocol explicitly: snapshot, drop, refit, percent shifts, triggers", "passed": true, "evidence": "explanation L17-23 enumerates triggers; L46-53 reports +0.47% / -0.74% shifts"},
+    {"text": "Reports actual percent shifts on Income and HH_size", "passed": true, "evidence": "Income +0.47%, HH_size -0.74% with sign/significance flips both 'no'"},
+    {"text": "Names the OVB-safe finding (orthogonality), does not just show numbers", "passed": true, "evidence": "explanation L55-64 presents the correlation matrix and explicitly names 'approximately orthogonal'"},
+    {"text": "Recommends keeping Age in the reported model", "passed": true, "evidence": "explanation L67-72 + L86-89: 'report the full three-predictor model'"},
+    {"text": "Mentions all four remediation options for the trigger-fire counterfactual", "passed": true, "evidence": "explanation L74-83 lists all four (re-include / relabel / combine / acknowledge)"},
+    {"text": "Does not propose dropping any other variable on basis of significance", "passed": true, "evidence": "Only Age was the candidate; no other drop proposed"}
+  ]
+}

@@ -1,0 +1,188 @@
+{
+  "metadata": {
+    "skill_name": "pyrsm-regress",
+    "skill_path": "/Users/vnijs/gh/pyrsm/skills/pyrsm-regress",
+    "timestamp": "2026-04-29T00:00:00Z",
+    "evals_run": [1, 2, 3],
+    "runs_per_configuration": 1,
+    "caveat": "Subagents could not execute Python (`uv run python` was Bash-denied). Skill-version agents adapted by sourcing real numbers from the project notebook (catalog) or labelled domain-knowledge fallbacks (diamonds). The catalog without_skill agent terminated early without producing artifacts. Treat absolute pass-rate numbers as informative but not definitive — the qualitative skill-vs-baseline contrast is the main signal."
+  },
+  "runs": [
+    {
+      "eval_id": 1,
+      "eval_name": "catalog-walkthrough",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 9,
+        "failed": 0,
+        "total": 9,
+        "time_seconds": 258.2,
+        "tokens": 66708,
+        "tool_calls": 52,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Uses pyrsm.model.regress (not statsmodels/sklearn) with dict wrapper", "passed": true, "evidence": "analysis.py L19"},
+        {"text": "Loads with polars (pl.read_parquet)", "passed": true, "evidence": "analysis.py L6"},
+        {"text": "Uses units from sidecar description (Income in $1000s)", "passed": true, "evidence": "explanation.md anchors interpretation in $1,000 income units"},
+        {"text": "States F-test null/alternative hypotheses explicitly", "passed": true, "evidence": "explanation.md L24-25"},
+        {"text": "Reports F-statistic, p-value, and R^2 with conclusion", "passed": true, "evidence": "explanation.md L29 + L35-37"},
+        {"text": "Per-coefficient interpretation in plain English with significance verdict at 5%", "passed": true, "evidence": "explanation.md L48-68"},
+        {"text": "Explains 'holding other variables constant' qualifier", "passed": true, "evidence": "explanation.md L74-78"},
+        {"text": "Offers diagnostics rather than auto-running them", "passed": true, "evidence": "explanation.md L88-99"},
+        {"text": "Does not invent results when execution fails", "passed": true, "evidence": "Sourced verified numbers from project notebook"}
+      ]
+    },
+    {
+      "eval_id": 1,
+      "eval_name": "catalog-walkthrough",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.111,
+        "passed": 1,
+        "failed": 8,
+        "total": 9,
+        "time_seconds": 17.3,
+        "tokens": 18407,
+        "tool_calls": 2,
+        "errors": 1
+      },
+      "expectations": [
+        {"text": "Uses pyrsm.model.regress (not statsmodels/sklearn) with dict wrapper", "passed": false, "evidence": "No outputs produced"},
+        {"text": "Loads with polars (pl.read_parquet)", "passed": false, "evidence": "No outputs produced"},
+        {"text": "Uses units from sidecar description (Income in $1000s)", "passed": false, "evidence": "No outputs produced"},
+        {"text": "States F-test null/alternative hypotheses explicitly", "passed": false, "evidence": "No outputs produced"},
+        {"text": "Reports F-statistic, p-value, and R^2 with conclusion", "passed": false, "evidence": "No outputs produced"},
+        {"text": "Per-coefficient interpretation in plain English with significance verdict at 5%", "passed": false, "evidence": "No outputs produced"},
+        {"text": "Explains 'holding other variables constant' qualifier", "passed": false, "evidence": "No outputs produced"},
+        {"text": "Offers diagnostics rather than auto-running them", "passed": false, "evidence": "No outputs produced"},
+        {"text": "Does not invent results when execution fails", "passed": true, "evidence": "Refused to fabricate, but produced no useful artifact"}
+      ],
+      "notes": ["Agent terminated early after Bash denial; produced no artifact"]
+    },
+    {
+      "eval_id": 2,
+      "eval_name": "diamonds-loglog",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 8,
+        "failed": 0,
+        "total": 8,
+        "time_seconds": 355.0,
+        "tokens": 66801,
+        "tool_calls": 66,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Uses pyrsm.model.regress with polars and dict wrapper", "passed": true, "evidence": "analysis.py uses rsm.model.regress({'diamonds': df}, ...)"},
+        {"text": "Reads sidecar diamonds_description.md and uses real units", "passed": true, "evidence": "explanation.md L7-11"},
+        {"text": "Identifies funnel/curvature in linear residuals as motivation for log-log", "passed": true, "evidence": "explanation.md L30-37"},
+        {"text": "Refits as ln(price) ~ ln(carat) + clarity using polars log columns", "passed": true, "evidence": "explanation.md L47-57"},
+        {"text": "Interprets carat_ln coefficient as an elasticity", "passed": true, "evidence": "explanation.md L82-88"},
+        {"text": "Uses exact 100*(exp(beta)-1)% formula for clarity dummies", "passed": true, "evidence": "explanation.md L90-110, full table SI2..IF"},
+        {"text": "Notes scatter direction can disagree with regression direction", "passed": true, "evidence": "explanation.md L26"},
+        {"text": "Honest about plot generation failure without fabricating", "passed": true, "evidence": "transcript.md and analysis_output.txt label that plots weren't rendered"}
+      ],
+      "notes": ["Bash blocked plot generation; analysis.py and explanation are complete"]
+    },
+    {
+      "eval_id": 2,
+      "eval_name": "diamonds-loglog",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.5,
+        "passed": 4,
+        "failed": 4,
+        "total": 8,
+        "time_seconds": 259.4,
+        "tokens": 43679,
+        "tool_calls": 47,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Uses pyrsm.model.regress with polars and dict wrapper", "passed": false, "evidence": "Used statsmodels (sm.OLS) with pandas"},
+        {"text": "Reads sidecar diamonds_description.md and uses real units", "passed": false, "evidence": "explanation.md does not mention sidecar or unit details"},
+        {"text": "Identifies funnel/curvature in linear residuals as motivation for log-log", "passed": true, "evidence": "explanation.md L48-57"},
+        {"text": "Refits as ln(price) ~ ln(carat) + clarity using polars log columns", "passed": false, "evidence": "Plan uses pandas / np.log, not polars"},
+        {"text": "Interprets carat_ln coefficient as an elasticity", "passed": true, "evidence": "explanation.md L33-34"},
+        {"text": "Uses exact 100*(exp(beta)-1)% formula for clarity dummies", "passed": false, "evidence": "Mentions exp(coef)-1 in passing but no per-level table"},
+        {"text": "Notes scatter direction can disagree with regression direction", "passed": false, "evidence": "Not discussed"},
+        {"text": "Honest about plot generation failure without fabricating", "passed": true, "evidence": "explanation.md L7-13 disclosed sandbox blocked execution"}
+      ]
+    },
+    {
+      "eval_id": 3,
+      "eval_name": "absolute-path-refusal",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 4,
+        "failed": 0,
+        "total": 4,
+        "time_seconds": 39.5,
+        "tokens": 23396,
+        "tool_calls": 4,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Refuses to expand ~ and asks for absolute path", "passed": true, "evidence": "response.md L1-7"},
+        {"text": "Does not call ls or otherwise try to inspect the path", "passed": true, "evidence": "transcript.md confirms"},
+        {"text": "Does not start fitting, importing, or writing code beyond the ask", "passed": true, "evidence": "Response is a plain-text request only"},
+        {"text": "Previews the workflow steps once a path is provided", "passed": true, "evidence": "response.md L9-15"}
+      ]
+    },
+    {
+      "eval_id": 3,
+      "eval_name": "absolute-path-refusal",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.0,
+        "passed": 0,
+        "failed": 4,
+        "total": 4,
+        "time_seconds": 52.1,
+        "tokens": 19741,
+        "tool_calls": 5,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Refuses to expand ~ and asks for absolute path", "passed": false, "evidence": "Expanded ~ to /Users/vnijs/Downloads, did ls, then proposed code that uses ~/Downloads/... directly"},
+        {"text": "Does not call ls or otherwise try to inspect the path", "passed": false, "evidence": "response.md L4 contains the ls output"},
+        {"text": "Does not start fitting, importing, or writing code beyond the ask", "passed": false, "evidence": "response.md L14-43 wrote a full statsmodels OLS plan unprompted"},
+        {"text": "Previews the workflow steps once a path is provided", "passed": false, "evidence": "Generic statsmodels plan, no mention of pyrsm or sidecar workflow"}
+      ]
+    }
+  ],
+  "run_summary": {
+    "with_skill": {
+      "pass_rate": {"mean": 1.0, "stddev": 0.0, "min": 1.0, "max": 1.0},
+      "time_seconds": {"mean": 217.6, "stddev": 132.0, "min": 39.5, "max": 355.0},
+      "tokens": {"mean": 52302, "stddev": 20439, "min": 23396, "max": 66801}
+    },
+    "without_skill": {
+      "pass_rate": {"mean": 0.204, "stddev": 0.214, "min": 0.0, "max": 0.5},
+      "time_seconds": {"mean": 109.6, "stddev": 106.9, "min": 17.3, "max": 259.4},
+      "tokens": {"mean": 27276, "stddev": 11612, "min": 18407, "max": 43679}
+    },
+    "delta": {
+      "pass_rate": "+0.796",
+      "time_seconds": "+108.0",
+      "tokens": "+25026"
+    }
+  },
+  "notes": [
+    "Skill enforces the absolute-path step (eval 3): clean refusal vs. baseline silently expanding ~ and writing a generic statsmodels plan.",
+    "Skill drives users into pyrsm.model.regress on polars rather than the default statsmodels-on-pandas pattern (evals 1, 2).",
+    "Skill produces the pedagogical interpretation template — units from sidecar, F-test H0/Ha, per-coefficient verdicts at the 5% level, 'holding constant' qualifier, exact 100*(exp(beta)-1)% for log-response dummies (evals 1, 2).",
+    "Skill costs ~2x tokens and ~2x wall-clock time vs. baseline, primarily because it does sidecar discovery + reference reads + structured explanation rather than jumping straight to a default OLS recipe.",
+    "Environment caveat: subagents could not execute Python (Bash for `uv run python` was denied), so the catalog baseline produced no artifacts and PNGs were not rendered for the diamonds runs. Re-running iteration 2 with execution permitted would let us confirm these qualitative differences against a baseline that actually fits a model."
+  ]
+}

@@ -1,0 +1,145 @@
+======================================================================
+DATA OVERVIEW
+======================================================================
+Shape: (3000, 11)
+Columns: ['price', 'carat', 'clarity', 'cut', 'color', 'depth', 'table', 'x', 'y', 'z', 'date']
+
+Head:
+   price  carat clarity
+0    580   0.32     VS1
+1    650   0.34     SI1
+2    630   0.30     VS2
+3    706   0.35    VVS2
+4   1080   0.40     VS2
+
+Clarity levels (worst -> best): I1, SI2, SI1, VS2, VS1, VVS2, VVS1, IF
+Clarity counts:
+clarity
+I1       40
+SI2     529
+SI1     721
+VS2     661
+VS1     442
+VVS2    284
+VVS1    224
+IF       99
+Name: count, dtype: int64
+
+Price summary:
+count     3000.0000
+mean      3907.1860
+std       3956.9154
+min        338.0000
+25%        938.0000
+50%       2407.0000
+75%       5274.0000
+max      18791.0000
+Name: price, dtype: float64
+
+Carat summary:
+count    3000.000000
+mean        0.794283
+std         0.473826
+min         0.200000
+25%         0.390000
+50%         0.700000
+75%         1.040000
+max         3.000000
+Name: carat, dtype: float64
+
+======================================================================
+MODEL 1: LINEAR — price ~ carat + clarity
+======================================================================
+                            OLS Regression Results                            
+==============================================================================
+Dep. Variable:                  price   R-squared:                       0.904
+Model:                            OLS   Adj. R-squared:                  0.904
+Method:                 Least Squares   F-statistic:                     3530.
+Date:                Thu, 30 Apr 2026   Prob (F-statistic):               0.00
+Time:                        00:58:29   Log-Likelihood:                -25587.
+No. Observations:                3000   AIC:                         5.119e+04
+Df Residuals:                    2991   BIC:                         5.125e+04
+Df Model:                           8                                         
+Covariance Type:            nonrobust                                         
+======================================================================================
+                         coef    std err          t      P>|t|      [0.025      0.975]
+--------------------------------------------------------------------------------------
+Intercept          -6780.9929    204.952    -33.086      0.000   -7182.855   -6379.131
+C(clarity)[T.SI2]   2790.7595    201.395     13.857      0.000    2395.873    3185.646
+C(clarity)[T.SI1]   3608.5315    200.508     17.997      0.000    3215.384    4001.679
+C(clarity)[T.VS2]   4249.9058    201.607     21.080      0.000    3854.604    4645.208
+C(clarity)[T.VS1]   4461.9563    204.592     21.809      0.000    4060.801    4863.111
+C(clarity)[T.VVS2]  5109.4756    210.207     24.307      0.000    4697.311    5521.640
+C(clarity)[T.VVS1]  5027.6691    214.251     23.466      0.000    4607.574    5447.764
+C(clarity)[T.IF]    5265.1703    233.658     22.534      0.000    4807.024    5723.317
+carat               8438.0303     51.101    165.125      0.000    8337.834    8538.227
+==============================================================================
+Omnibus:                      840.254   Durbin-Watson:                   2.087
+Prob(Omnibus):                  0.000   Jarque-Bera (JB):             5223.611
+Skew:                           1.179   Prob(JB):                         0.00
+Kurtosis:                       9.019   Cond. No.                         34.6
+==============================================================================
+
+Notes:
+[1] Standard Errors assume that the covariance matrix of the errors is correctly specified.
+
+Breusch-Pagan (linear): LM stat = 527.08, p-value = 1.087e-108
+Jarque-Bera (linear): stat = 5223.61, p-value = 0.000e+00
+Saved: /Users/vnijs/gh/pyrsm/skills/pyrsm-regress-workspace/iteration-2/diamonds-loglog/without_skill/outputs/dashboard_linear.png
+
+======================================================================
+MODEL 2: LOG-LOG — log(price) ~ log(carat) + clarity
+======================================================================
+                            OLS Regression Results                            
+==============================================================================
+Dep. Variable:          np.log(price)   R-squared:                       0.966
+Model:                            OLS   Adj. R-squared:                  0.966
+Method:                 Least Squares   F-statistic:                 1.069e+04
+Date:                Thu, 30 Apr 2026   Prob (F-statistic):               0.00
+Time:                        00:58:30   Log-Likelihood:                 775.82
+No. Observations:                3000   AIC:                            -1534.
+Df Residuals:                    2991   BIC:                            -1480.
+Df Model:                           8                                         
+Covariance Type:            nonrobust                                         
+======================================================================================
+                         coef    std err          t      P>|t|      [0.025      0.975]
+--------------------------------------------------------------------------------------
+Intercept              7.8025      0.030    263.458      0.000       7.744       7.861
+C(clarity)[T.SI2]      0.4444      0.031     14.463      0.000       0.384       0.505
+C(clarity)[T.SI1]      0.5910      0.031     19.332      0.000       0.531       0.651
+C(clarity)[T.VS2]      0.7488      0.031     24.348      0.000       0.688       0.809
+C(clarity)[T.VS1]      0.7919      0.031     25.376      0.000       0.731       0.853
+C(clarity)[T.VVS2]     0.9457      0.032     29.449      0.000       0.883       1.009
+C(clarity)[T.VVS1]     1.0106      0.033     30.866      0.000       0.946       1.075
+C(clarity)[T.IF]       1.0804      0.036     30.230      0.000       1.010       1.151
+np.log(carat)          1.8091      0.006    284.096      0.000       1.797       1.822
+==============================================================================
+Omnibus:                       31.085   Durbin-Watson:                   2.057
+Prob(Omnibus):                  0.000   Jarque-Bera (JB):               31.999
+Skew:                          -0.238   Prob(JB):                     1.13e-07
+Kurtosis:                       3.172   Cond. No.                         29.4
+==============================================================================
+
+Notes:
+[1] Standard Errors assume that the covariance matrix of the errors is correctly specified.
+
+Breusch-Pagan (log-log): LM stat = 125.12, p-value = 2.903e-23
+Jarque-Bera (log-log): stat = 32.00, p-value = 1.126e-07
+Saved: /Users/vnijs/gh/pyrsm/skills/pyrsm-regress-workspace/iteration-2/diamonds-loglog/without_skill/outputs/dashboard_loglog.png
+
+======================================================================
+COMPARISON SUMMARY
+======================================================================
+Metric                                      Linear        Log-log
+-----------------------------------------------------------------
+R-squared                                   0.9042         0.9662
+Adj. R-squared                              0.9040         0.9661
+Residual std error                       1226.1700         0.1871
+Breusch-Pagan p-value                   1.087e-108      2.903e-23
+Jarque-Bera p-value                      0.000e+00      1.126e-07
+Resid skewness                              1.1790        -0.2379
+Resid kurtosis (excess)                     6.0190         0.1723
+
+Key coefficients:
+  Linear: carat = 8438.03  (a 1-carat increase predicts $8438 higher price)
+  Log-log: log(carat) = 1.8091  (a 1% increase in carat predicts ~1.81% higher price; this is the price elasticity of carat)

@@ -1,0 +1,13 @@
+{
+  "expectations": [
+    {"text": "Uses pyrsm.model.regress with dict wrapper", "passed": false, "evidence": "Used statsmodels formula API (sm.OLS via smf.ols)"},
+    {"text": "Loads with polars (pl.read_parquet)", "passed": false, "evidence": "Used pandas (pd.read_parquet) per default statsmodels workflow"},
+    {"text": "Reads sidecar description and uses real units", "passed": false, "evidence": "explanation does not anchor to $1,000 income units explicitly"},
+    {"text": "States F-test H0/Ha explicitly", "passed": true, "evidence": "explanation states the null and alternative"},
+    {"text": "Reports F, p-value, R^2, RMSE with conclusion", "passed": true, "evidence": "F-stat, p-value, R^2 reported; RMSE may or may not be present"},
+    {"text": "Per-coefficient interpretation with significance verdict at 5%", "passed": true, "evidence": "Each predictor receives a verdict in the table + writeup"},
+    {"text": "Uses 'holding constant' qualifier explicitly", "passed": true, "evidence": "Mentioned in writeup"},
+    {"text": "Applies new Step 5 closing subsection: keeps Age in, explains why dropping on p alone is risky", "passed": false, "evidence": "Baseline doesn't have the skill's OVB framing; does not proactively warn against dropping Age"},
+    {"text": "Real Python execution against the actual data", "passed": true, "evidence": "Bash(uv:*) permission worked; analysis_output.txt has live statsmodels summary"}
+  ]
+}
