@@ -35,6 +35,7 @@ dependencies = [
     "nbclient>=0.10.2",
     "ipykernel>=6.29.5",
     "pip>=25.3",
+    "certifi>=2025.11.12",
 ]
 
 [project.optional-dependencies]

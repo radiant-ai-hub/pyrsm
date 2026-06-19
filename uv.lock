@@ -1805,6 +1805,7 @@ wheels = [
 name = "pyrsm"
 source = { editable = "." }
 dependencies = [
+    { name = "certifi" },
     { name = "fastexcel" },
     { name = "ipykernel" },
     { name = "ipython" },
@@ -1886,6 +1887,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "black", marker = "extra == 'dev'" },
+    { name = "certifi", specifier = ">=2025.11.12" },
     { name = "fastexcel", specifier = ">=0.18.0" },
     { name = "great-tables", marker = "extra == 'tables'", specifier = ">=0.20.0" },
     { name = "ipykernel", specifier = ">=6.29.5" },
