@@ -1,0 +1,29 @@
+{
+  "skill_name": "pyrsm-single-prop",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I have a survey of 1,000 consumers at /Users/vnijs/gh/pyrsm/examples/data/basics/consider.parquet for a car-brand consideration study. Management will spend extra on advertising only if brand preference is below 10%. Can you walk me through how to check this? I'm new to hypothesis testing.",
+      "expected_output": "Conversation that: asks for/uses the absolute path, calls scripts/load_data.py (or its Python equivalent) to load the parquet, finds and reads consider_description.md to learn the variable is 'consider' (yes/no) measuring whether the consumer would consider purchasing this brand, picks alt_hyp='less' from the business decision (and explicitly explains why one-sided 'less' is appropriate here — advertising decision only triggers when preference is below threshold), picks lev='yes' as the success level, runs the sample-size check (n*p_0 = 100, n*(1-p_0) = 900 — both well above 10, so either test is fine but defaults to binomial-exact for class), fits with rsm.basics.single_prop({'consider': df}, var='consider', lev='yes', alt_hyp='less', conf=0.95, comp_value=0.1, test_type='binomial'), prints summary(), then explains: H0 (proportion of yes = 10%) and Ha (proportion of yes < 10%) in plain English, sample stats (ns=93 of n=1000 → p=9.3%, SE ≈ 0.9 percentage points), the three equivalent verdicts (p=0.249 > 0.05 → fail to reject; one-sided 95% upper bound 0.110 > 0.10 → 0.10 is inside [0, 0.110] → fail to reject; observed ns=93 vs critical 85 from prob_calc('binom', n=1000, p=0.1, plb=0.05) → not in rejection region → fail to reject), reports the diff (sample 9.3% vs benchmark 10% → -0.7 percentage points) and is explicit that 'fail to reject' is NOT 'accept H0', and concludes that the data do not justify additional advertising spend.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Same consider dataset at /Users/vnijs/gh/pyrsm/examples/data/basics/consider.parquet. My TA wants me to also report the z-test version of the same test and explain how the CI changes. Can you do both binomial and z-test, side by side?",
+      "expected_output": "Conversation that: refits the same test with test_type='z' (alt_hyp='less', comp_value=0.1, lev='yes'), notes that n*p_0=100 and n*(1-p_0)=900 are both well above 10 so the z-test is valid here, shows both summaries, then explicitly compares: (a) binomial test statistic is ns=93 (a count), z-test statistic is z ≈ -0.738 (a continuous standardized value), (b) the binomial CI [0, 0.110] is the Clopper-Pearson exact one-sided interval; the z-test CI is the Wilson score interval; both are NOT the naive p±z*se interval that some textbooks teach, (c) the p-values agree closely (binomial 0.249, z-test ≈ 0.231 one-sided), (d) both lead to the same conclusion (fail to reject), as expected with this sample size, (e) explains WHY they should agree here: large n + non-rare p_0 → CLT approximation is good. Mentions explicitly that the Wilson interval has substantially better coverage than the naive normal-approximation CI especially near 0 or 1, and that for class assignments the binomial-exact is the safer default.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Test whether the 'consider' rate is below 10% in ~/Downloads/consider.parquet using a z-test.",
+      "expected_output": "Conversation that: notices the path is not absolute (uses ~), asks the user for the absolute path before running anything else, does NOT silently expand the tilde or guess. (We use this case to verify the skill enforces the absolute-path requirement from Step 1 of SKILL.md.)",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "I have a pilot survey with only 20 respondents, and just 1 said they'd consider the brand. I want to know if the true rate is below 5% — use the z-test like we did for the consider data, but on this smaller sample.",
+      "expected_output": "Conversation that: (1) does NOT proceed with the z-test on this sample as requested; (2) explicitly computes the sample-size check: n*comp_value = 20*0.05 = 1, which is well below the rule-of-thumb threshold of 5-10 — flags this as a hard reason not to use the z-test on this sample, (3) explains in plain English why: the z-test relies on the central limit theorem / normal approximation to the binomial, which requires enough expected successes (and failures) in each tail to be reliable; with only 1 expected success the approximation breaks down and the z-test's p-value and Wilson CI become misleading, (4) recommends the binomial-exact test instead (test_type='binomial'), which is always valid regardless of n or p_0, (5) optionally walks through what the binomial-exact test would say for this scenario: with ns=1, n=20, comp_value=0.05, alt_hyp='less' — but emphasizes the conclusion is uncertain with only 20 observations regardless of test choice, (6) helps the user construct a tiny DataFrame to run the test if they want to proceed (e.g., a polars DataFrame with 1 'yes' and 19 'no'), but with the binomial-exact test, and (7) gently notes that with n=20 and 1 success, no test will produce strong evidence either way — the pilot is too small to draw confident conclusions.",
+      "files": []
+    }
+  ]
+}

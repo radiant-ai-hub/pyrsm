@@ -66,9 +66,7 @@ class TestExplore:
 
     def test_explore_custom_functions(self, sample_data):
         """Test explore with custom functions."""
-        result = explore(
-            sample_data, cols=["price"], agg=["mean", "median", "min", "max"]
-        )
+        result = explore(sample_data, cols=["price"], agg=["mean", "median", "min", "max"])
         assert "variable" in result.columns
         assert "mean" in result.columns
         assert "median" in result.columns
@@ -225,12 +223,8 @@ class TestExplore:
 
     def test_header_ignored_when_grouped(self, sample_data):
         """When by is set, header has no effect on the output."""
-        r1 = explore(
-            sample_data, cols=["price"], by="category", header="function"
-        ).sort("category")
-        r2 = explore(
-            sample_data, cols=["price"], by="category", header="variable"
-        ).sort("category")
+        r1 = explore(sample_data, cols=["price"], by="category", header="function").sort("category")
+        r2 = explore(sample_data, cols=["price"], by="category", header="variable").sort("category")
         assert r1.columns == r2.columns
         assert r1.equals(r2)
 
@@ -302,9 +296,7 @@ class TestPivot:
 
     def test_pivot_normalize_row(self, sample_data):
         """Test pivot with row normalization."""
-        result = pivot(
-            sample_data, rows="category", cols="region", normalize="row", totals=True
-        )
+        result = pivot(sample_data, rows="category", cols="region", normalize="row", totals=True)
         # Row totals should be 100%
         total_col = result.filter(pl.col("category") != "Total")["Total"]
         assert all(abs(v - 100.0) < 0.01 for v in total_col.to_list())
@@ -318,6 +310,71 @@ class TestPivot:
         """Test pivot with LazyFrame input."""
         result = pivot(sample_data.lazy(), rows="category")
         assert isinstance(result, pl.DataFrame)
+
+    # ---- Extended aggregation set (radiant.data parity) -----------
+
+    def test_pivot_n_obs_alias(self, sample_data):
+        """``n_obs`` is an alias of ``count`` for frequency tables."""
+        a = pivot(sample_data, rows="category").sort("category")
+        b = pivot(sample_data, rows="category", agg="n_obs").sort("category")
+        # ``count`` and ``n_obs`` use the same underlying ``pl.len()``.
+        assert a["count"].to_list() == b["count"].to_list()
+
+    def test_pivot_n_distinct(self, sample_data):
+        """``n_distinct`` counts unique values per group."""
+        result = pivot(sample_data, rows="category", values="region", agg="n_distinct")
+        # Two regions in the fixture: North + South.
+        assert all(v in (1, 2) for v in result["region_n_distinct"].to_list())
+
+    def test_pivot_n_missing(self, sample_data):
+        """``n_missing`` returns the null count per group."""
+        # Inject some nulls.
+        df = sample_data.with_columns(
+            pl.when(pl.col("price") < 200).then(None).otherwise(pl.col("price")).alias("price")
+        )
+        result = pivot(df, rows="category", values="price", agg="n_missing")
+        assert (result["price_n_missing"] >= 0).all()
+
+    def test_pivot_se_me_cv(self, sample_data):
+        """``se``, ``me``, and ``cv`` populate without errors."""
+        for agg in ("se", "me", "cv"):
+            result = pivot(sample_data, rows="category", values="price", agg=agg)
+            col = f"price_{agg}"
+            assert col in result.columns
+            # Non-trivial dataset → expect finite, non-null values.
+            assert result[col].null_count() == 0
+
+    def test_pivot_iqr(self, sample_data):
+        """``IQR`` returns p75 - p25."""
+        result = pivot(sample_data, rows="category", values="price", agg="IQR")
+        # IQR for 100 uniform draws on [100, 1000] is positive in every group.
+        assert (result["price_IQR"] > 0).all()
+
+    def test_pivot_percentiles(self, sample_data):
+        """Percentile keys ``p01`` … ``p99`` are accepted and ordered."""
+        p10 = pivot(sample_data, rows="category", values="price", agg="p10")
+        p90 = pivot(sample_data, rows="category", values="price", agg="p90")
+        # 10th percentile must be ≤ 90th percentile per group.
+        for cat, lo, hi in zip(
+            p10["category"].to_list(),
+            p10["price_p10"].to_list(),
+            p90.sort("category")["price_p90"].to_list(),
+        ):
+            assert lo <= hi, f"p10 > p90 for category {cat}"
+
+    def test_pivot_skew_kurtosis(self, sample_data):
+        """``skew`` / ``kurtosis`` route through scipy and return Float64."""
+        for agg in ("skew", "kurtosis"):
+            result = pivot(sample_data, rows="category", values="price", agg=agg)
+            assert result[f"price_{agg}"].dtype == pl.Float64
+
+    def test_pivot_prop(self, sample_data):
+        """``prop`` collapses a binary column to its share-of-1s."""
+        df = sample_data.with_columns((pl.col("price") > 500).cast(pl.Int64).alias("is_high"))
+        result = pivot(df, rows="category", values="is_high", agg="prop")
+        # Proportions live in [0, 1].
+        for v in result["is_high_prop"].to_list():
+            assert 0.0 <= v <= 1.0
 
 
 class TestCombine:

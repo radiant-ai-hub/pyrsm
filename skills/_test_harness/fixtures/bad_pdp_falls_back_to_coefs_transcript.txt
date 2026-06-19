@@ -1,0 +1,29 @@
+I'll recreate the linear regression for `price ~ carat + color + clarity`, generate PDP plots, and then interpret the fitted results in business terms.
+
+```python
+import polars as pl
+import pyrsm as rsm
+
+df = pl.read_parquet("/abs/path/diamonds.parquet")
+reg = rsm.model.regress({"diamonds": df}, rvar="price", evar=["carat", "color", "clarity"])
+reg.summary()
+```
+
+The regression results:
+
+H0 (null): all regression coefficients are equal to zero.
+Ha (alternative): at least one coefficient is non-zero.
+
+The F-statistic is 3530.0 on (8, 2991) degrees of freedom with p < .001. We reject the null and conclude the model as a whole explains a significant amount of variance in price. R² = 0.904.
+
+Per-coefficient interpretation in dollars:
+
+- **carat**: a one-carat increase in weight is associated with a $8,438 increase in price, holding clarity and color constant. Significant at the 5% level (p < .001).
+- **clarity[SI2]** through **clarity[IF]**: compared to the I1 reference, each higher clarity grade is associated with a $2,791 to $5,265 increase in price, holding carat constant. All significant.
+- **color**: compared to color D, lower color grades are associated with lower prices, holding carat and clarity constant.
+
+### Bottom line
+
+In business terms, price is most strongly associated with carat — a one-carat diamond is roughly $8,400 more expensive than a half-carat diamond of the same color and clarity. Clarity and color have meaningful but smaller effects.
+
+Note on relative importance: the variables in this model are on different scales, so coefficient magnitudes are not directly comparable for importance ranking. Use permutation importance to compare.

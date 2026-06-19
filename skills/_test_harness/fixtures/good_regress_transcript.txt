@@ -1,0 +1,42 @@
+User asked to regress Sales on Income, HH_size, Age using catalog.parquet and walk through the interpretation.
+
+Here is the full pyrsm output:
+
+```
+Linear regression (OLS)
+Data                 : catalog
+Response variable    : Sales
+Explanatory variables: Income, HH_size, Age
+Null hyp.: the regression coefficients are equal to zero
+Alt. hyp.: at least one regression coefficient is not equal to zero
+
+┌───────────┬─────────────┬───────────┬─────────┬─────────┬─────┐
+│ index     ┆ coefficient ┆ std.error ┆ t.value ┆ p.value ┆     │
+╞═══════════╪═════════════╪═══════════╪═════════╪═════════╪═════╡
+│ Intercept ┆ -88.512     ┆ 35.221    ┆ -2.513  ┆ 0.013   ┆ *   │
+│ Income    ┆ 1.778       ┆ 0.213     ┆ 8.350   ┆ < .001  ┆ *** │
+│ HH_size   ┆ 22.122      ┆ 4.111     ┆ 5.381   ┆ < .001  ┆ *** │
+│ Age       ┆ 0.449       ┆ 0.766     ┆ 0.586   ┆ 0.559   ┆     │
+└───────────┴─────────────┴───────────┴─────────┴─────────┴─────┘
+
+Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+
+R-squared: 0.331, Adjusted R-squared: 0.321
+F-statistic: 32.336 on 3 and 196 DF, p-value: < 0.001
+Nr obs: 200
+```
+
+Interpretation:
+
+H0 (null): all regression coefficients are equal to zero — the model is no better than the mean of Sales.
+Ha (alternative): at least one coefficient is non-zero — the model explains some variance in Sales.
+
+The F-statistic is 32.34 on (3, 196) degrees of freedom with p-value < .001. We reject the null hypothesis and conclude that the model as a whole explains a significant amount of variance in Sales. The R-squared of 0.331 means the model explains roughly 33.1% of the variance in Sales (in dollars), with an Adjusted R-squared of 0.321.
+
+Walking through each coefficient (units from the sidecar: Income in $1,000s, Sales in dollars, HH_size in persons, Age in years):
+
+- Income: for a $1,000 increase in household income, we expect on average a $1.78 increase in sales, holding HH_size and Age constant. Significant at the 5% level (p < .001).
+- HH_size: for a one-person increase in household size, we expect on average a $22.12 increase in sales, holding Income and Age constant. Significant at the 5% level (p < .001).
+- Age: for a one-year increase in age, we expect on average a $0.45 increase in sales, holding Income and HH_size constant. NOT significant at the 5% level (p = 0.559). We fail to reject the null hypothesis that the age coefficient is zero.
+
+Important: we are KEEPING Age in the model. Non-significance is not "no effect" — it means we don't have enough evidence in this sample to distinguish the coefficient from zero. Dropping Age could introduce omitted variable bias in the other coefficients (Income and HH_size), so the default is to keep it and report the non-significance honestly.

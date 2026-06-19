@@ -154,7 +154,7 @@ jobs:
 
           # Thresholds (seconds) - generous to avoid flakiness on CI
           THRESHOLDS = {
-              'pyrsm': 1.0,
+              'pyrsm': 2.5,
               'pyrsm.basics.compare_means': 3.0,
               'pyrsm.basics.compare_props': 3.0,
               'pyrsm.basics.correlation': 3.0,

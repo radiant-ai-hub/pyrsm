@@ -1,0 +1,47 @@
+I fit the random forest with rsm.model.rforest({"titanic (train)": df.filter(pl.col("training") == 1)}, rvar="survived", lev="Yes", evar=["pclass", "sex", "age"], max_features=2, n_estimators=100). Here's the full summary output:
+
+```
+Random Forest
+Data                 : titanic (train)
+Response variable    : survived
+Level                : Yes
+Explanatory variables: pclass, sex, age
+OOB                  : True
+Model type           : classification
+Nr. of features      : (3, 5)
+Nr. of observations  : 730
+max_features         : 2 (2)
+n_estimators         : 100
+min_samples_leaf     : 1
+max_samples          : 1.0
+random_state         : 1234
+AUC                  : 0.809
+
+Estimation data      :
+┌────────┬──────────┬────────────┬────────────┬────────────┐
+│ age    ┆ sex_male ┆ pclass_1st ┆ pclass_2nd ┆ pclass_3rd │
+╞════════╪══════════╪════════════╪════════════╪════════════╡
+│ 0.9167 ┆ 1        ┆ 1          ┆ 0          ┆ 0          │
+│ 2.0    ┆ 0        ┆ 1          ┆ 0          ┆ 0          │
+│ 25.0   ┆ 0        ┆ 1          ┆ 0          ┆ 0          │
+└────────┴──────────┴────────────┴────────────┴────────────┘
+```
+
+The OOB AUC is 0.809 — the model correctly ranks 80.9% of random survivor/non-survivor pairs using out-of-bag predictions, which is an honest training-set estimate (no memorization).
+
+I then ran rf.plot("pdp") and rf.plot("pip", ret=True). The permutation importance results were:
+
+```
+shape: (3, 2)
+┌──────────┬────────────┐
+│ variable ┆ importance │
+╞══════════╪════════════╡
+│ sex      ┆ 0.267      │
+│ pclass   ┆ 0.183      │
+│ age      ┆ 0.176      │
+└──────────┴────────────┘
+```
+
+Permutation importance says sex contributes the most to the model's discrimination (a 0.267 AUC drop when shuffled), followed by pclass (0.183) and age (0.176), holding the rest of the model constant.
+
+**Note on relative importance.** PDPs show the *shape* of each predictor's effect on the predicted probability of survival, not the magnitude of its contribution relative to other predictors. A steep PDP is NOT automatically more important than a flat PDP — the steepness depends on the predictor's natural range. The same caveat applies to sklearn's mean-decrease-in-impurity, which is biased toward continuous and high-cardinality predictors. To rank predictors by their actual contribution to model fit, use permutation importance: `rf.plot("pip")`. PIP measures the drop in AUC when each predictor is shuffled, on a scale that is comparable across predictors and across model types. The variables in this model are on different scales (age in years vs sex 0/1 dummy vs pclass 3-level categorical), so PDP curves are not directly comparable for importance ranking — the PIP scores are.

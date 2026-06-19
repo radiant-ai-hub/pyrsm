@@ -1,0 +1,29 @@
+{
+  "skill_name": "pyrsm-explore",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I have the diamonds dataset at /Users/vnijs/gh/pyrsm/examples/data/data/diamonds.parquet (3,000 diamonds with price, carat, cut, color, clarity, etc.). Can you give me summary statistics for price and carat, grouped by cut, including mean, median, sd, and count?",
+      "expected_output": "Conversation that: asks for/uses the absolute path, calls scripts/load_data.py (or its Python equivalent) to load the parquet, finds and reads diamonds_description.md to learn what each column means (price in dollars, carat is weight, cut is a quality grade with 5 levels Fair/Good/Very Good/Premium/Ideal). Fits with rsm.eda.explore(df, cols=['price', 'carat'], by='cut', agg=['mean', 'median', 'sd', 'count']), prints the resulting polars DataFrame, and walks through: shape is 5 rows (one per cut level) by 9 columns (1 group + price_{mean,median,sd,count} + carat_{mean,median,sd,count}). For price: leads with the MEDIAN per cut (not the mean) since price is right-skewed (mean far exceeds median in every group); explicitly NOTES the unexpected/counterintuitive pattern that Ideal cut has the LOWEST mean and median price (~$3,470 mean, ~$1,788 median) despite being the highest cut quality, and flags this as a classic confounding issue (Ideal diamonds tend to be smaller — see carat_mean ~ 0.70 for Ideal vs ~0.87 for Premium). For carat: mean and median are close so the right-skew is milder for carat. Flags the count column as essential context: Ideal n=1176 vs Fair n=101, so the small-group estimates (especially Fair) are noisier. Confirms missingness via count vs nrow if relevant. Optionally suggests next steps: visualize the price-by-cut distributions with pyrsm-distr or pyrsm-visualize, or run a formal compare_means test if the user wants a hypothesis test rather than descriptive comparison.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Same diamonds data at /Users/vnijs/gh/pyrsm/examples/data/data/diamonds.parquet. After running that summary, I want to filter to only the cut levels with at least 200 diamonds, sort by mean price descending, and add a coefficient-of-variation column (sd / mean). Can you do that as one chained polars expression?",
+      "expected_output": "Conversation that: explicitly demonstrates the 'extend with polars' workflow — runs the explore call to produce stats (the same as eval 1's output), then chains polars operations on the resulting DataFrame: stats.filter(pl.col('price_count') >= 200).sort('price_mean', descending=True).with_columns(cv=pl.col('price_sd') / pl.col('price_mean')). Prints the chained result. Explicitly names the pattern: 'pyrsm.eda functions return polars DataFrames, so you can extend them with any polars expression — there's no special wrapper.' Walks through the resulting table (Fair n=101 drops out at the n>=200 filter; Premium, Good, Very Good, Ideal remain, sorted by descending price_mean). Interprets the CV column: a CV near 1 (sd ≈ mean) is typical for right-skewed positive variables like price; Ideal has the highest CV (~1.10) because median is much smaller than mean. Mentions that this kind of chaining is the recommended way to refine outputs — alternatives like collecting into pandas or hand-iterating are unnecessary. Notes that 'explore is the start of an analysis, not the end' and points to other ways to extend (e.g., adding rank columns, joining with another dataset via pyrsm-combine, reshaping with pyrsm-unpivot).",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Give me summary statistics for ~/Downloads/diamonds.parquet by cut.",
+      "expected_output": "Conversation that: notices the path is not absolute (uses ~), asks the user for the absolute path before running anything else, does NOT silently expand the tilde or guess. (We use this case to verify the skill enforces the absolute-path requirement from Step 1 of SKILL.md.)",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "I ran rsm.eda.explore(titanic) on /Users/vnijs/gh/pyrsm/examples/data/data/titanic.parquet and saw a row for 'survived_No' with mean 0.593. Does that mean the average passenger has a 'No' value of 0.593 — so the mean survival is 0.593? Something seems off.",
+      "expected_output": "Conversation that: (1) immediately identifies the confusion as the to_dummies=True auto-expansion artifact — 'survived_No' is a 0/1 DUMMY column created from the categorical 'survived' (Yes/No), not a regular numeric variable; (2) explains: 'mean(survived_No) = 0.593' is actually 'proportion of passengers with survived = No', i.e., the death rate (59.3%); (3) explicitly clarifies that the categorical 'survived' was alphabetically sorted into ['No', 'Yes'], then with drop_first=True the 'No' level was kept as a dummy and 'Yes' was dropped — so the dummy convention here has the 'positive' label being 'died'; (4) optionally shows the right way to get the survival proportion: either (a) interpret 1 - 0.593 = 0.407 as the survival rate, or (b) rerun with to_dummies=False and then use pyrsm-pivot or pyrsm-cross-tabs for the categorical breakdown, or (c) compute directly with df['survived'].value_counts(); (5) explains WHY this pitfall is common: students don't notice the trailing _<level> suffix and read 'mean(survived_No)' as if it were 'mean(survived)'; (6) recommends as a habit: when reading explore output, ALWAYS check whether a column name contains an underscore + level suffix — that's the tell that it's an auto-generated dummy; (7) suggests the cleaner workflow for this specific question (survival rate by class): rsm.eda.pivot(titanic, rows='pclass', cols='survived', agg='count', normalize='row') or rsm.basics.compare_props.",
+      "files": []
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+I fit the random forest with rsm.model.rforest(...) and ran rf.plot("pdp") to get partial-dependence plots.
+
+```
+Random Forest
+Data                 : titanic (train)
+Response variable    : survived
+Level                : Yes
+Explanatory variables: pclass, sex, age
+OOB                  : True
+Model type           : classification
+Nr. of features      : (3, 5)
+Nr. of observations  : 730
+max_features         : 2 (2)
+n_estimators         : 100
+AUC                  : 0.809
+```
+
+Looking at the PDP plots:
+
+- The sex PDP drops steeply from female to male — about a 0.6 probability drop.
+- The pclass PDP drops moderately from 1st to 3rd — about a 0.4 probability drop.
+- The age PDP is relatively flat — barely 0.1 change across the full age range.
+
+### Bottom line
+
+The PDPs suggest that survival was most strongly associated with:
+
+1. sex (steep PDP, large drop)
+2. pclass (moderate PDP drop)
+3. age (flat PDP, smallest effect)
+
+If you want to use this for a stakeholder presentation, sex is the #1 predictor by a wide margin.

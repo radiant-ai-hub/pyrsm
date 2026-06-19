@@ -1,0 +1,29 @@
+{
+  "skill_name": "pyrsm-unpivot",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I have quarterly sales data in wide format that I built in Python: a polars DataFrame with columns `region` (N/S/E/W) and `Q1`, `Q2`, `Q3`, `Q4` (numeric sales). I want to make a line plot of sales over quarters with one line per region. The data is here: pl.DataFrame({'region': ['N','S','E','W'], 'Q1': [100,200,150,175], 'Q2': [120,220,160,180], 'Q3': [140,240,170,190], 'Q4': [160,260,180,200]}). Walk me through how to reshape this for the plot.",
+      "expected_output": "Conversation that: accepts the in-memory DataFrame (no file load needed) and immediately identifies the workflow: to plot 'sales by quarter, one line per region' the data needs to be in long form (one row per (region, quarter) observation, with `quarter` as a single column and `sales` as the value). Runs rsm.eda.unpivot(sales_wide, on=['Q1','Q2','Q3','Q4'], id_vars='region', variable_name='quarter', value_name='sales'); prints the resulting 16-row long-form table. Explicitly explains the shape transformation: 4 rows × 5 cols (wide) → 16 rows × 3 cols (long), same number of cells. CRITICALLY emphasizes the importance of renaming variable_name and value_name from the placeholder defaults: 'quarter' and 'sales' instead of 'variable' and 'value'. Then feeds the long-form DataFrame into rsm.eda.visualize(long, x='quarter', y='sales', color='region', geom='line') for the line chart. Explains the why: plotnine wants one row per observation, with grouping as a column (not as column names) — this is the canonical 'tidy' shape. Optionally mentions that the wide form is fine for human reading (a tabular report) but long form is right for plotting / modeling / grouped aggregation.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Now I want to extend my long-form sales data. After unpivoting, can I (a) compute the average sales across quarters per region using group_by, (b) cast the quarter column to something I can sort properly, and (c) plot the result as a faceted chart with one panel per region?",
+      "expected_output": "Conversation that: extends the long-form output via polars chaining. (1) Demonstrates group-by-then-mean using polars directly: long.group_by('region').agg(pl.col('sales').mean().alias('mean_sales')) — explicitly notes this is trivial in long form but harder in wide form (would need pl.mean_horizontal across Q1-Q4). (2) For ordering the quarter column: since `quarter` is `str` after unpivot, sorting alphabetically gives Q1<Q2<Q3<Q4 luckily, but for a robust solution recommend casting to a polars Enum with explicit category order: long.with_columns(pl.col('quarter').cast(pl.Enum(['Q1','Q2','Q3','Q4']))) — explains that an Enum preserves the canonical order even if alphabetic sort would fail (e.g., 'Q10' < 'Q2' lexically). (3) For the faceted plot, feeds the long form to rsm.eda.visualize(long, x='quarter', y='sales', geom='line', facet='region') — one panel per region. Names the pattern explicitly: 'pyrsm.eda functions return polars DataFrames, so any polars expression and any pyrsm.eda function compose naturally. The long-form output is the input to plotting, grouping, joining, or further reshaping.' Optionally mentions that for true time-series quarter handling (e.g., '2020-Q1', '2020-Q2'), pl.col('quarter').str.to_date() with the right format string works, but for this example the Enum approach is simplest.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Unpivot the file at ~/Downloads/quarterly_sales.parquet from wide to long.",
+      "expected_output": "Conversation that: notices the path is not absolute (uses ~), asks the user for the absolute path before running anything else, does NOT silently expand the tilde or guess. (We use this case to verify the skill enforces the absolute-path requirement from Step 1 of SKILL.md.)",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "I have country panel data with columns `country`, `year`, `gdp`, and `pop`. I want a 'tidy' long-form version so I can plot it. Should I unpivot gdp and pop into a single column?",
+      "expected_output": "Conversation that: (1) pushes back on the proposed unpivot — `gdp` and `pop` are conceptually different variables (different units: GDP in dollars or billions, population in count or millions; different scales by orders of magnitude). They are not levels of a single 'measure' variable; they are two distinct measurements of the same observation. (2) Explains: the data is ALREADY in tidy long form for most purposes — each row is a country-year observation, and `gdp` and `pop` are natural separate columns. Unpivoting them into a single `value` column would make plotting both on the same y-axis nearly meaningless because of the scale difference. (3) Recommends alternatives depending on what the user actually wants: (a) if they want to plot both measures over time, use TWO separate plots (or two facet panels) rather than unpivoting; (b) if they want a single-axis comparison, derive a ratio (gdp_per_capita = gdp / pop) and add as a column with with_columns(); (c) if they want a normalized view, scale each measure to its own 0-1 range or to a base-year index BEFORE any unpivot; (d) if there are MORE distinct measures over time (e.g., 2019_gdp, 2020_gdp, 2021_gdp), THEN unpivot to long would be appropriate to surface `year` as a column. (4) Reinforces the broader lesson: unpivot is for when COLUMNS of a wide table represent LEVELS of a single conceptual variable. When columns represent DIFFERENT conceptual variables, the data is already tidy and unpivoting would just hide the unit difference. (5) Asks what the actual goal is — there's almost certainly a cleaner way to address the underlying question than reflexively unpivoting.",
+      "files": []
+    }
+  ]
+}

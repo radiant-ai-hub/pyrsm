@@ -1,0 +1,21 @@
+I'll generate the permutation importance plot (PIP) for the regression and then interpret the model results. PIP is the right way to compare predictor importance because coefficient sizes are not directly comparable across variables.
+
+Looking at the regression output:
+
+H0 (null): all regression coefficients are equal to zero — the model is no better than the mean of price.
+Ha (alternative): at least one coefficient is non-zero.
+
+The F-statistic is 3530.0 on (8, 2991) degrees of freedom with p < .001. We reject the null and conclude the model as a whole explains a significant amount of variance in price. R² = 0.904 — the model explains roughly 90% of the variance in diamond prices.
+
+Per-coefficient interpretation (in dollars):
+
+- **carat**: a one-carat increase in weight is associated with a $8,438 increase in price, holding clarity, color, depth, and table constant. Significant at the 5% level (p < .001).
+- **clarity[SI2]** through **clarity[IF]**: compared to the I1 reference clarity, each higher clarity grade is associated with a $2,791 to $5,265 increase in price, holding carat constant. All significant.
+- **color**: compared to color D, lower color grades are associated with lower prices, holding carat and clarity constant.
+- **depth** and **table**: small and non-significant in this model.
+
+### Bottom line
+
+The PDPs and coefficient signs suggest that price was most strongly associated with carat, followed by clarity and color. depth and table appear to have negligible effects.
+
+Note on relative importance: the variables in this model are on different scales, so coefficient magnitudes are not directly comparable for importance ranking.

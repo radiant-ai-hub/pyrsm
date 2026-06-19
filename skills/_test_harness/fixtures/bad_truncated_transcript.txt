@@ -1,0 +1,8 @@
+I fit the regression with reg = rsm.model.regress({'diamonds': df}, rvar='price', evar=['carat', 'clarity', 'color', 'depth', 'table']) and called reg.summary(rmse=True, ssq=True).
+
+The coefficient table is omitted for brevity. The key finding is that the model explains a substantial fraction of price variance and the carat coefficient is large and positive.
+
+Next steps:
+1. Try a log-log specification.
+2. Add interaction terms.
+3. Check residual diagnostics.

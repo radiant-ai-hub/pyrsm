@@ -1,0 +1,29 @@
+{
+  "skill_name": "pyrsm-correlation",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I have the salary dataset for 397 US professors at /Users/vnijs/gh/pyrsm/examples/data/basics/salary.parquet. Can you build a correlation matrix of the numeric variables and walk me through what it shows? I'm planning to use these in a regression next week.",
+      "expected_output": "Conversation that: asks for/uses the absolute path, calls scripts/load_data.py (or its Python equivalent) to load the parquet, finds and reads salary_description.md to learn the numeric columns are salary (in dollars), yrs_since_phd (years since PhD), yrs_service (years of service); also notes that rank, discipline, and sex are categorical and will be skipped by the auto-select. Fits with rsm.basics.correlation({'salary': df}) (auto-selecting numeric columns) using Pearson by default, prints summary, then walks through: H0/Ha (pair-by-pair: variables x and y are/are not correlated), the matrix (salary×yrs_since_phd ≈ 0.42 moderate positive; salary×yrs_service ≈ 0.33 moderate positive; yrs_since_phd×yrs_service ≈ 0.91 very large positive), the p-values (all ≈ 0 → all significant). Explicitly FLAGS the 0.91 correlation between yrs_since_phd and yrs_service as a multicollinearity warning for the upcoming regression: putting both as predictors will inflate standard errors and may produce unstable coefficients. Recommends running the scatter matrix (cr.plot()) to visually confirm linearity and check for outliers BEFORE concluding. Mentions that with n=397, even moderate correlations are significant but that magnitude (not just stars) carries the substantive meaning. Translates 0.42 as 'salary and yrs_since_phd move together — longer tenure tends to come with higher pay, but r²≈0.17 means tenure alone explains only ~17% of salary variation under a linear model.'",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Same salary data at /Users/vnijs/gh/pyrsm/examples/data/basics/salary.parquet. Can you also run a Spearman correlation and tell me whether the Pearson and Spearman results agree? My TA mentioned salary distributions are usually right-skewed.",
+      "expected_output": "Conversation that: reruns the analysis with method='spearman' on the numeric columns, prints summary, then explicitly compares Pearson vs Spearman side by side. Reports Spearman correlations (salary×yrs_since_phd ≈ 0.48 vs Pearson 0.42; salary×yrs_service ≈ 0.42 vs Pearson 0.33; yrs_since_phd×yrs_service ≈ 0.91 vs Pearson 0.91). Explains: Spearman is computed on ranks, so it captures any monotonic relationship and is robust to outliers and skew. Both salary pairs show Spearman noticeably larger than Pearson — consistent with a mild non-linearity (likely diminishing returns deep into a career and right-skew in the salary distribution) that Pearson under-weights but Spearman captures via the ranks. Strongly recommends inspecting cr.plot() — if Pearson and Spearman disagreed substantially OR if a scatter showed obvious outliers/curves, switching to Spearman would matter more. With n=397 and r²≈0.18 for the Spearman salary–yrs_since_phd pair, the substantive conclusion is unchanged: tenure explains a modest share of salary variation. Optionally notes that polychoric would not be appropriate here (no ordinal Likert-scale variables) and Kendall would be similar to Spearman but typically smaller in magnitude.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Compute a correlation matrix on the numeric columns of ~/Downloads/salary.parquet using Pearson.",
+      "expected_output": "Conversation that: notices the path is not absolute (uses ~), asks the user for the absolute path before running anything else, does NOT silently expand the tilde or guess. (We use this case to verify the skill enforces the absolute-path requirement from Step 1 of SKILL.md.)",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "I ran a Pearson correlation on the salary data at /Users/vnijs/gh/pyrsm/examples/data/basics/salary.parquet and got r=-0.05 between salary and some made-up column I added called 'random_score'. So salary and random_score are unrelated — I can drop random_score from the rest of my analysis, right?",
+      "expected_output": "Conversation that: (1) pushes back on 'r=-0.05 → unrelated → drop it' as overly broad; (2) explains why r ≈ 0 does NOT imply 'unrelated': Pearson measures *linear* association only — non-linear relationships, sub-populations, and outliers can produce r ≈ 0 while the variables are genuinely related; (3) STRONGLY recommends running cr.plot() to visually inspect the scatter of salary vs random_score before concluding anything — if the scatter is a structureless cloud, fine; if it shows curvature, threshold effects, or clusters, the linear correlation is misleading; (4) also recommends running Spearman correlation on the pair to check for a monotonic-but-non-linear relationship; (5) notes the sample-size context (n=397) — at this n, |r|=0.05 means the data are consistent with the true population correlation being anywhere in roughly [-0.15, +0.05]; 'consistent with zero' is not 'is zero', and a true small correlation could exist; (6) frames 'drop the variable' as a downstream-regression decision rather than a correlation decision: even if salary and random_score have r=0 in isolation, random_score could matter in a model with other predictors via interactions or as a control; (7) recommends the user clarify what 'random_score' represents substantively — if it's literally a random column with no theoretical reason to relate to salary, it can be dropped from theoretical analysis; if it's a measured variable, the absence of linear correlation alone is weak grounds for dismissal.",
+      "files": []
+    }
+  ]
+}

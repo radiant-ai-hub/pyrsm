@@ -1,0 +1,29 @@
+{
+  "skill_name": "pyrsm-goodness",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I have a sample of 580 newspaper readers at /Users/vnijs/gh/pyrsm/examples/data/basics/newspaper.parquet. My prof wants me to run a goodness-of-fit test on the Income variable to see if the split is consistent with a 50/50 high/low income population. Walk me through it.",
+      "expected_output": "Conversation that: asks for/uses the absolute path, calls scripts/load_data.py (or its Python equivalent) to load the parquet, finds and reads newspaper_description.md to learn Income is High/Low (median split) and Newspaper is USA Today / WSJ, runs the test with rsm.basics.goodness({'newspaper': df}, var='Income', probs=(0.5, 0.5)) (or probs=None for the uniform default), prints summary with all four tables (observed, expected, chisq, dev_std), then explains: H0 (Income is 50/50 high/low) and Ha (Income is not 50/50) in plain English, sample stats (n=580, observed High=221, Low=359; expected both 290), checks the expected-count assumption (both expected cells = 290, well above the 5 threshold), reports the chi-squared verdict (chi-sq=32.83 on 1 df, p < .001 → reject H0), unpacks the dev_std table (both cells at ±4.05 → both individually significant, well above 1.96), and identifies direction (high-income under-represented, low-income over-represented relative to a 50/50 null). Optionally mentions that with 1 df, the critical chi-squared at alpha=0.05 is 3.841 from prob_calc('chisq', df=1, pub=0.95); 32.83 ≫ 3.841 confirms rejection. Translates to plain-English conclusion: 'the income split in this newspaper-reader sample is significantly different from 50/50 — more low-income than high-income readers.'",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Same newspaper data at /Users/vnijs/gh/pyrsm/examples/data/basics/newspaper.parquet. The 50/50 null is artificial — the description says Income was created with a median split. The more interesting question is whether the readership matches the US population's roughly 30% high-income / 70% low-income split. Can you redo the test with those expected proportions?",
+      "expected_output": "Conversation that: rebuilds the test with rsm.basics.goodness({'newspaper': df}, var='Income', probs=(0.3, 0.7)) — explicitly verifies that the order of probs matches the alphabetically-sorted levels (High Income first, Low Income second), so probs=(0.3, 0.7) means 30% High, 70% Low — prints summary, reports new expected values (High Income = 174, Low Income = 406), new chi-squared (≈ 18.14 on 1 df, p < .001 → still reject), and explicitly compares to the uniform case: (a) the chi-squared is smaller (18.14 vs 32.83) — the readership is closer to the census 30/70 than to 50/50, but still significantly different, (b) the dev_std SIGNS flip — High Income is now over-represented (+3.56) and Low Income is under-represented (-2.33) relative to the census null, the opposite of what we saw under uniform; (c) the substantive conclusion shifts: 'this newspaper's audience skews higher-income than the general population'. Discusses the order-of-probs gotcha (verify alphabetical sort) and mentions that the substantive null should come from the question, not from a default uniform.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Test whether Income is evenly distributed in this dataset: ~/Downloads/newspaper.parquet . Just use the default probabilities.",
+      "expected_output": "Conversation that: notices the path is not absolute (uses ~), asks the user for the absolute path before running anything else, does NOT silently expand the tilde or guess. (We use this case to verify the skill enforces the absolute-path requirement from Step 1 of SKILL.md.)",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "I have a much bigger version of this kind of survey — n=100,000 customers, asked whether they're 'High Income' or 'Low Income'. The sample had 50,250 high-income and 49,750 low-income, and chi-squared = 5.00 with p = 0.025 against a 50/50 null. So the income split is non-uniform. Should I write up that the underlying population is not 50/50?",
+      "expected_output": "Conversation that: (1) pushes back on 'p < 0.05 → meaningful non-uniformity' framing without doing the effect-size check; (2) computes the actual deviation in percentage-point terms (50.25% vs 50.00% → 0.25 percentage points off) and the standardized deviations (sqrt of 5/2 ≈ 1.58 per cell, just below the 1.96 individual-cell threshold) — emphasizes that the deviation is *tiny* in practical terms; (3) explains the large-n inflation: chi-squared scales with n, so even a 0.25-percentage-point deviation reliably rejects when n=100,000; (4) re-frames: the omnibus chi-squared p-value tells you the deviation is detectable, not that it's meaningful — both numbers can be true at once; (5) asks what the decision is — if any business action requires a substantially different mix from 50/50 (e.g., requires at least 55/45), a 50.25/49.75 split is decision-equivalent to 50/50; (6) also questions whether 50/50 is the right null at all (the goodness skill's recurring 'uniform default is rarely substantive' guard) — if the user genuinely cares about non-50/50, what's the relevant external benchmark (census, prior year, contract)? (7) recommends reporting: a clear effect-size figure (0.25 pp deviation, dev_std ≈ ±1.58), the chi-squared p-value, and an explicit statement that 'statistically significant' here means 'detectable given n=100,000', not 'large enough to matter'.",
+      "files": []
+    }
+  ]
+}

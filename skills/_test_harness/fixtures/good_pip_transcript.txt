@@ -1,0 +1,39 @@
+Generating permutation importance for the fitted regression.
+
+```python
+pip_plot, pip_df = reg.plot("pip", ret=True)
+print(pip_df)
+pip_plot.save("pip.png", width=8, height=5, dpi=120)
+```
+
+Output:
+
+```
+shape: (5, 2)
+┌──────────┬────────────┐
+│ variable ┆ importance │
+│ ---      ┆ ---        │
+│ str      ┆ f64        │
+╞══════════╪════════════╡
+│ carat    ┆ 0.920      │
+│ clarity  ┆ 0.090      │
+│ color    ┆ 0.036      │
+│ table    ┆ 0.002      │
+│ depth    ┆ 0.001      │
+└──────────┴────────────┘
+```
+
+Plot saved to pip.png.
+
+Interpretation of the PIP scores (NOT a re-interpretation of the regression coefficients — this is a separate question):
+
+1. **carat** is by far the most important predictor with importance 0.920. Randomly shuffling carat reduces the model's R² by about 0.92 — the model essentially collapses without it.
+2. **clarity** is a distant second at importance 0.090 — roughly 10x less important than carat by this measure.
+3. **color** is third at 0.036, about 2.5x less important than clarity.
+4. **table** (0.002) and **depth** (0.001) contribute almost nothing — the model's predictive power barely changes when they are shuffled.
+
+Ratios make this concrete: carat is ~10x more important than clarity, ~25x more important than color, and ~500x more important than depth or table. The model's predictive power is essentially carried by carat alone.
+
+A predictor's PIP score reflects its actual contribution to model fit. PIP gives importance, not direction — for the direction of effect (positive vs negative on price) you need the regression coefficient.
+
+**Note on relative importance.** The predictors in this model are on different scales (carat in carats, clarity as a categorical, depth in percent, etc.). Coefficient magnitudes and PDP shapes are NOT directly comparable across them. PIP measures the drop in R² when each predictor is shuffled, on a scale that is comparable across predictors and across model types — that's why PIP is the right tool for the "which variable matters most" question, and why we lead with it here instead of with the coefficient table.

@@ -1,0 +1,1 @@
+I've already fit the regression with rsm.model.regress on the diamonds dataset (price ~ carat + color + clarity). Now create and interpret PDP plots for this model.

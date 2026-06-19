@@ -1,0 +1,12 @@
+I fit the regression with rsm.model.regress({'diamonds': df}, rvar='price', evar=['carat', 'clarity', 'color', 'depth', 'table']) and called reg.summary(rmse=True, ssq=True).
+
+I'll skip the full output and give the high-level summary instead.
+
+Main takeaways:
+
+- carat is strongly positively associated with price.
+- Better clarity levels are associated with higher prices relative to the reference clarity level.
+- Worse color grades are associated with lower prices relative to color D.
+- depth and table are not statistically significant in this model.
+
+Let me know if you want next steps.

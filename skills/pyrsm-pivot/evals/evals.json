@@ -1,0 +1,29 @@
+{
+  "skill_name": "pyrsm-pivot",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I have the titanic dataset at /Users/vnijs/gh/pyrsm/examples/data/data/titanic.parquet. Can you build me a crosstab of passenger class (pclass) by survival, with row percentages and totals so I can read off the survival rate by class?",
+      "expected_output": "Conversation that: asks for/uses the absolute path, calls scripts/load_data.py (or its Python equivalent) to load the parquet, finds and reads titanic_description.md to learn pclass has 3 levels (1st/2nd/3rd as proxy for socioeconomic status) and survived is Yes/No. Fits with rsm.eda.pivot(titanic, rows='pclass', cols='survived', normalize='row', totals=True), prints the resulting table, and walks through: shape is 4×4 (3 pclass + Total row, by 2 survival levels + Total column = 100). Reports survival rates by class: 1st class 63.5% Yes / 36.5% No; 2nd class 44.1% / 55.9%; 3rd class 26.2% / 73.8%; Total 40.7% / 59.3%. Explicitly notes this is the ROW-conditional view: 'within each class, what fraction survived'. Compares the 3-class gradient (1st > 2nd > 3rd survival rates) as a monotonic relationship; ties back to the substantive interpretation (higher socioeconomic status had better access to lifeboats, deck location, etc.). Optionally notes that ALWAYS pair percentages with the underlying counts (cells contained 282, 261, 500 passengers respectively) — small-sample percentages would be noisier. Recommends as next steps: (a) for a hypothesis test of independence use pyrsm-cross-tabs (which gives chi-squared + dev_std on the same table), (b) for pairwise comparisons with adjustment use pyrsm-compare-props with var1='pclass', var2='survived', lev='Yes'.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Same titanic data at /Users/vnijs/gh/pyrsm/examples/data/data/titanic.parquet. I want to take the survival-by-class table from before, but convert it back into long form so I can plot it as a grouped bar chart. Walk me through pivot then unpivot then visualize.",
+      "expected_output": "Conversation that: explicitly demonstrates the pivot → unpivot → visualize pipeline. (1) Runs rsm.eda.pivot(titanic, rows='pclass', cols='survived', normalize='row') WITHOUT totals (since totals would pollute the long-form data with 'Total' labels). (2) Chains rsm.eda.unpivot(wide, id_vars=['pclass'], variable_name='survived', value_name='pct') to convert the 3×2 wide table to a 6-row long-form table. (3) Feeds that long table to rsm.eda.visualize(long, x='pclass', y='pct', color='survived', geom='bar', position='dodge') for a grouped bar chart. Names the pattern explicitly: 'pivot creates the analysis-shape (wide); unpivot converts to plot-shape (long); visualize draws the chart'. Notes that this is the canonical pipeline for going from raw long data → aggregated wide summary → plottable long form. Recommends pyrsm-visualize for layering plotnine theme/labels on top of the resulting ggplot. Mentions that pyrsm.eda functions all return polars DataFrames so the user can also use vanilla polars (df.unpivot(...)) or plotnine directly if they want more customization.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Build me a pivot table of mean price by cut and color for ~/Downloads/diamonds.parquet.",
+      "expected_output": "Conversation that: notices the path is not absolute (uses ~), asks the user for the absolute path before running anything else, does NOT silently expand the tilde or guess. (We use this case to verify the skill enforces the absolute-path requirement from Step 1 of SKILL.md.)",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "I want a pivot table showing the mean price of diamonds by cut and color in /Users/vnijs/gh/pyrsm/examples/data/data/diamonds.parquet. Looking at my output, Premium-cut J-color diamonds have mean price ~$7,515 but Ideal-cut D-color have ~$2,667. So Ideal-cut diamonds are cheaper than Premium? Let me write that up.",
+      "expected_output": "Conversation that: (1) pushes back on the naive 'Ideal is cheaper than Premium' reading; (2) explains the underlying issue is that 'mean' on a skewed distribution and a confounded grouping is misleading — Ideal-cut diamonds in this dataset tend to be SMALLER in carat (see the carat means by cut), and smaller diamonds are cheaper REGARDLESS of cut; (3) STRONGLY recommends running an additional pivot with values='carat', agg='median' to confirm the carat confounding: e.g., rsm.eda.pivot(diamonds, rows='cut', cols='color', values='carat', agg='median'); (4) also recommends using agg='median' for the price pivot since price is right-skewed (mean is pulled by the upper tail): rsm.eda.pivot(diamonds, rows='cut', cols='color', values='price', agg='median'); (5) explains: the right substantive claim is NOT 'Ideal cut is cheaper' but 'Ideal-cut diamonds in this sample tend to be smaller, and smaller diamonds are cheaper'; the cut-price relationship is confounded by carat; (6) suggests as next steps: (a) compute mean price PER carat (price/carat) and re-pivot — that controls for the size effect, (b) for a proper analysis, fit a regression with cut AND carat as predictors (pyrsm-regress) so the cut coefficient is interpreted holding carat constant; (7) reinforces the broader lesson: 'pivot is descriptive, not causal — confounding can produce misleading patterns. Always check at least one alternative breakdown (here, by carat) before drawing causal conclusions about a cross-tab.'",
+      "files": []
+    }
+  ]
+}

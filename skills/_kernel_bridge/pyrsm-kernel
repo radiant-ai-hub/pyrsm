@@ -1,0 +1,474 @@
+#!/usr/bin/env python3
+"""pyrsm-kernel — a long-lived IPython kernel that pyrsm skills can drive.
+
+Why this exists
+---------------
+
+Pi (and most coding-agent CLIs) run Python via subprocess: each `python -c ...`
+or `python script.py` is a fresh interpreter. That means loaded DataFrames and
+fitted models do NOT survive between agent turns — they get re-read from disk
+and re-fit every time.
+
+This wrapper starts a single long-lived IPython kernel (one per project, by
+default). Subsequent `pyrsm-kernel exec '<code>'` calls execute against the
+SAME kernel, so state persists: load data once, fit once, then run many
+follow-up cells (predict, plot, evaluate, score) against the cached objects.
+
+Commands
+--------
+
+    pyrsm-kernel start [--name NAME] [--force]
+        Start a fresh kernel. NAME defaults to the basename of the current
+        working directory. If a kernel with the same name is already running,
+        refuses unless --force (which stops the old one and starts new).
+
+    pyrsm-kernel exec [--name NAME] '<CODE>'
+    pyrsm-kernel exec [--name NAME] -          # read code from stdin
+        Send CODE to the running kernel. Streams stdout / stderr / display
+        output back to this process's stdout. Exits non-zero if the kernel
+        raises an exception (the traceback is printed).
+
+    pyrsm-kernel status [--name NAME]
+        Report whether the named kernel is alive (and its pid + age).
+
+    pyrsm-kernel stop [--name NAME]
+        Kill the named kernel and clean up its cache files.
+
+    pyrsm-kernel list
+        List all running pyrsm-kernels.
+
+Cache layout
+------------
+
+State per kernel lives under `$XDG_CACHE_HOME/pyrsm-kernel/<name>/`:
+- connection.json — jupyter connection info (ports, key, signature scheme)
+- kernel.pid      — PID of the kernel process
+- kernel.log      — combined stdout/stderr from the kernel itself
+- started.txt     — ISO timestamp the kernel was launched
+
+Notes
+-----
+
+- The kernel inherits the environment in which `pyrsm-kernel start` ran.
+  Activate your project venv first so pyrsm imports correctly.
+- Plots from inside the kernel: save to disk (`p.save("plot.png", ...)`); the
+  agent can then read the PNG. Inline display (`display_data`) is captured
+  as text representation only.
+- The kernel survives parent-shell exit (uses `start_new_session=True`).
+- Cancel a running cell with Ctrl-C in `pyrsm-kernel exec` — it sends an
+  interrupt to the kernel.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import signal
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+
+
+def _cache_root() -> Path:
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+    return Path(base) / "pyrsm-kernel"
+
+
+def _kernel_dir(name: str) -> Path:
+    return _cache_root() / _safe_name(name)
+
+
+def _safe_name(name: str) -> str:
+    # Normalize the kernel name so it's a safe path component.
+    out = re.sub(r"[^A-Za-z0-9_.-]+", "_", name).strip("_")
+    return out or "default"
+
+
+def _default_name() -> str:
+    return Path.cwd().name or "default"
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+# ---------------- commands -------------------------------------------------
+
+
+def cmd_start(args: argparse.Namespace) -> int:
+    import subprocess
+    from jupyter_client import write_connection_file
+    from jupyter_client.connect import find_connection_file
+
+    name = _safe_name(args.name or _default_name())
+    kd = _kernel_dir(name)
+
+    # Refuse if already alive
+    pid_file = kd / "kernel.pid"
+    if pid_file.exists():
+        try:
+            pid = int(pid_file.read_text().strip())
+        except Exception:
+            pid = -1
+        if pid > 0 and _pid_alive(pid):
+            if not args.force:
+                print(
+                    f"error: kernel '{name}' is already running (pid {pid}). "
+                    f"Use --force to replace it.",
+                    file=sys.stderr,
+                )
+                return 2
+            cmd_stop(argparse.Namespace(name=name))
+        else:
+            # Stale; clean up.
+            cmd_stop(argparse.Namespace(name=name))
+
+    kd.mkdir(parents=True, exist_ok=True)
+    conn_path = kd / "connection.json"
+    log_path = kd / "kernel.log"
+
+    # Pre-write a connection file so we know the path/ports.
+    write_connection_file(str(conn_path))
+
+    # Spawn the kernel as a detached child.
+    cmd = [
+        sys.executable,
+        "-m",
+        "ipykernel_launcher",
+        "-f",
+        str(conn_path),
+    ]
+    log_fh = open(log_path, "ab")
+    proc = subprocess.Popen(
+        cmd,
+        stdout=log_fh,
+        stderr=subprocess.STDOUT,
+        stdin=subprocess.DEVNULL,
+        cwd=os.getcwd(),
+        start_new_session=True,
+    )
+
+    pid_file.write_text(f"{proc.pid}\n")
+    (kd / "started.txt").write_text(
+        datetime.now(timezone.utc).astimezone().isoformat() + "\n"
+    )
+
+    # Wait briefly to confirm the kernel actually started.
+    for _ in range(20):
+        if proc.poll() is not None:
+            print(
+                f"error: kernel '{name}' exited immediately. See {log_path} "
+                f"for details.",
+                file=sys.stderr,
+            )
+            return 1
+        if _kernel_responsive(name, timeout=0.4):
+            break
+    else:
+        print(
+            f"warning: kernel '{name}' started but is not responsive yet "
+            f"(this is usually fine for the first `exec` call).",
+            file=sys.stderr,
+        )
+
+    print(f"started kernel '{name}' (pid {proc.pid}) at {kd}")
+    return 0
+
+
+def _kernel_responsive(name: str, *, timeout: float) -> bool:
+    """Quick is_alive() ping against the kernel."""
+    try:
+        from jupyter_client.blocking import BlockingKernelClient
+
+        kd = _kernel_dir(name)
+        conn = kd / "connection.json"
+        if not conn.exists():
+            return False
+        client = BlockingKernelClient()
+        client.load_connection_file(str(conn))
+        client.start_channels()
+        try:
+            client.wait_for_ready(timeout=timeout)
+            return True
+        finally:
+            client.stop_channels()
+    except Exception:
+        return False
+
+
+def cmd_exec(args: argparse.Namespace) -> int:
+    from jupyter_client.blocking import BlockingKernelClient
+
+    name = _safe_name(args.name or _default_name())
+    kd = _kernel_dir(name)
+    conn = kd / "connection.json"
+    pid_file = kd / "kernel.pid"
+
+    if not conn.exists() or not pid_file.exists():
+        print(
+            f"error: kernel '{name}' not running. Start it with "
+            f"`pyrsm-kernel start --name {name}` first.",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        pid = int(pid_file.read_text().strip())
+    except Exception:
+        pid = -1
+    if pid <= 0 or not _pid_alive(pid):
+        print(
+            f"error: kernel '{name}' is stale (pid {pid} not running). "
+            f"Restart with `pyrsm-kernel start --name {name} --force`.",
+            file=sys.stderr,
+        )
+        return 2
+
+    # Read code
+    if args.code == "-" or args.code is None:
+        code = sys.stdin.read()
+    else:
+        code = args.code
+    if not code.strip():
+        print("error: empty code.", file=sys.stderr)
+        return 2
+
+    client = BlockingKernelClient()
+    client.load_connection_file(str(conn))
+    client.start_channels()
+    try:
+        client.wait_for_ready(timeout=args.startup_timeout)
+    except RuntimeError as err:
+        print(f"error: kernel '{name}' did not become ready: {err}", file=sys.stderr)
+        client.stop_channels()
+        return 1
+
+    msg_id = client.execute(code, allow_stdin=False, stop_on_error=True)
+
+    exit_code = 0
+    try:
+        while True:
+            try:
+                msg = client.get_iopub_msg(timeout=args.cell_timeout)
+            except Exception as err:
+                # Likely Empty() — timed out
+                print(
+                    f"error: timed out after {args.cell_timeout}s waiting "
+                    f"for kernel output. The cell may still be running.",
+                    file=sys.stderr,
+                )
+                # Try to interrupt the kernel to recover
+                try:
+                    os.kill(pid, signal.SIGINT)
+                except Exception:
+                    pass
+                exit_code = 124
+                break
+
+            if msg.get("parent_header", {}).get("msg_id") != msg_id:
+                continue
+            mtype = msg["msg_type"]
+            content = msg["content"]
+            if mtype == "stream":
+                stream_name = content.get("name", "stdout")
+                text = content.get("text", "")
+                if stream_name == "stderr":
+                    sys.stderr.write(text)
+                    sys.stderr.flush()
+                else:
+                    sys.stdout.write(text)
+                    sys.stdout.flush()
+            elif mtype in ("execute_result", "display_data"):
+                # Text/plain representation of any expression value.
+                data = content.get("data", {})
+                if "text/plain" in data:
+                    sys.stdout.write(data["text/plain"])
+                    if not data["text/plain"].endswith("\n"):
+                        sys.stdout.write("\n")
+                    sys.stdout.flush()
+            elif mtype == "error":
+                ename = content.get("ename", "Error")
+                evalue = content.get("evalue", "")
+                traceback = content.get("traceback", [])
+                # Traceback lines already include ANSI; strip if needed.
+                tb_text = "\n".join(traceback)
+                sys.stderr.write(tb_text + "\n")
+                sys.stderr.write(f"{ename}: {evalue}\n")
+                sys.stderr.flush()
+                exit_code = 1
+            elif mtype == "status" and content.get("execution_state") == "idle":
+                # End of this execute request.
+                break
+    finally:
+        client.stop_channels()
+
+    return exit_code
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    name = _safe_name(args.name or _default_name())
+    kd = _kernel_dir(name)
+    pid_file = kd / "kernel.pid"
+    started_file = kd / "started.txt"
+
+    if not pid_file.exists():
+        print(f"kernel '{name}': not running")
+        return 1
+
+    try:
+        pid = int(pid_file.read_text().strip())
+    except Exception:
+        print(f"kernel '{name}': invalid pid file at {pid_file}")
+        return 1
+    alive = _pid_alive(pid)
+    started = ""
+    if started_file.exists():
+        started = started_file.read_text().strip()
+
+    print(f"kernel '{name}':")
+    print(f"  pid:      {pid} ({'alive' if alive else 'DEAD'})")
+    print(f"  cache:    {kd}")
+    if started:
+        print(f"  started:  {started}")
+    print(f"  log:      {kd / 'kernel.log'}")
+    return 0 if alive else 1
+
+
+def cmd_stop(args: argparse.Namespace) -> int:
+    name = _safe_name(args.name or _default_name())
+    kd = _kernel_dir(name)
+    pid_file = kd / "kernel.pid"
+    if not pid_file.exists():
+        print(f"kernel '{name}': not running")
+        return 0
+
+    try:
+        pid = int(pid_file.read_text().strip())
+    except Exception:
+        pid = -1
+    if pid > 0 and _pid_alive(pid):
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        # Wait briefly for clean shutdown
+        for _ in range(20):
+            if not _pid_alive(pid):
+                break
+            time.sleep(0.1)
+        if _pid_alive(pid):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+    # Clean up cache files
+    for f in ("connection.json", "kernel.pid", "started.txt"):
+        try:
+            (kd / f).unlink()
+        except FileNotFoundError:
+            pass
+    try:
+        # Leave the log file in place for postmortem
+        if kd.exists():
+            # Remove only empty dirs (log file may remain)
+            if not list(kd.iterdir()):
+                kd.rmdir()
+    except OSError:
+        pass
+
+    print(f"stopped kernel '{name}'")
+    return 0
+
+
+def cmd_list(args: argparse.Namespace) -> int:
+    root = _cache_root()
+    if not root.exists():
+        print("no pyrsm-kernels found.")
+        return 0
+    found = False
+    for kd in sorted(root.iterdir()):
+        if not kd.is_dir():
+            continue
+        pid_file = kd / "kernel.pid"
+        if not pid_file.exists():
+            continue
+        try:
+            pid = int(pid_file.read_text().strip())
+        except Exception:
+            continue
+        status = "alive" if _pid_alive(pid) else "DEAD"
+        started_file = kd / "started.txt"
+        started = ""
+        if started_file.exists():
+            started = started_file.read_text().strip()
+        print(f"{kd.name}  pid={pid}  {status}  started={started}")
+        found = True
+    if not found:
+        print("no pyrsm-kernels found.")
+    return 0
+
+
+# ---------------- argparse -------------------------------------------------
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="pyrsm-kernel",
+        description=__doc__.split("\n\n")[0],
+    )
+    sub = p.add_subparsers(dest="command", required=True)
+
+    p_start = sub.add_parser("start", help="Start a fresh kernel.")
+    p_start.add_argument("--name", default=None, help="kernel name (default: cwd basename)")
+    p_start.add_argument("--force", action="store_true", help="replace an existing kernel of the same name")
+    p_start.set_defaults(func=cmd_start)
+
+    p_exec = sub.add_parser("exec", help="Execute code in the running kernel.")
+    p_exec.add_argument("--name", default=None)
+    p_exec.add_argument("code", nargs="?", help="code to run; '-' reads from stdin")
+    p_exec.add_argument(
+        "--startup-timeout",
+        type=float,
+        default=10.0,
+        help="seconds to wait for the kernel to be ready (default: 10)",
+    )
+    p_exec.add_argument(
+        "--cell-timeout",
+        type=float,
+        default=600.0,
+        help="seconds to wait for cell completion (default: 600)",
+    )
+    p_exec.set_defaults(func=cmd_exec)
+
+    p_status = sub.add_parser("status", help="Report kernel status.")
+    p_status.add_argument("--name", default=None)
+    p_status.set_defaults(func=cmd_status)
+
+    p_stop = sub.add_parser("stop", help="Stop the kernel.")
+    p_stop.add_argument("--name", default=None)
+    p_stop.set_defaults(func=cmd_stop)
+
+    p_list = sub.add_parser("list", help="List all running pyrsm-kernels.")
+    p_list.set_defaults(func=cmd_list)
+
+    return p
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

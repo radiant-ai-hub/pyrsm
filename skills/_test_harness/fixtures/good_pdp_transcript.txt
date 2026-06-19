@@ -1,0 +1,25 @@
+Generating PDPs for the fitted regression.
+
+```python
+p = reg.plot("pdp")
+p.save("pdp.png", width=10, height=8, dpi=120)
+print("saved pdp.png")
+```
+
+Output:
+```
+saved pdp.png
+```
+
+Reading pdp.png:
+(viewing the saved image — 3 panels, one per predictor: carat, color, clarity)
+
+PDP shape interpretation, panel by panel:
+
+- **carat** (range 0.2 to 3.0 carats): the curve rises roughly linearly across the predictor's range. Predicted price increases from about $1,500 at 0.2 carats to about $16,000 at 3 carats — a monotonic increasing relationship with approximately constant slope. No threshold or saturation in the observed range.
+- **color** (categorical: D, E, F, G, H, I, J): the PDP shows discrete steps, one per level. D (reference) is at the highest predicted price; the curve falls monotonically through E, F, G, H, I to J, with the J level about $1,400 below D, holding carat and clarity constant. This is the standard "color quality grade" pattern — better grades (D, E) command higher prices.
+- **clarity** (categorical: I1, SI2, SI1, VS2, VS1, VVS2, VVS1, IF): the curve rises monotonically from I1 (worst clarity) through to IF (best), with the IF level about $5,200 above I1, holding carat and color constant. This is the expected clarity quality pattern.
+
+In the pdp plot, all three predictors show monotonic relationships with price — none have threshold effects or U-shapes in the observed data range.
+
+Note on relative importance: PDPs show the *shape* of each predictor's effect on the predicted response, not the magnitude relative to other predictors. The carat panel shows a $15,000 range while the color panel shows only a $1,400 range — but this difference is partly because the predictors are on different scales (carat is continuous 0.2–3.0, color has discrete grades). PDP shapes are not directly comparable for ranking importance. To rank predictors by their actual contribution to model fit, use permutation importance: `reg.plot("pip")` (which measures the R² drop when each predictor is shuffled, on a scale comparable across predictors and across model types).

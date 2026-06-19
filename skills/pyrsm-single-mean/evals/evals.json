@@ -1,0 +1,29 @@
+{
+  "skill_name": "pyrsm-single-mean",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I have demand data for 572 UK grocery stores at /Users/vnijs/gh/pyrsm/examples/data/basics/demand_uk.parquet. My boss says we'll only enter this market if monthly demand per store is above 1750 units. Can you walk me through how to check this? I'm new to hypothesis testing.",
+      "expected_output": "Conversation that: asks for/uses the absolute path, calls scripts/load_data.py (or its Python equivalent) to load the parquet, finds and reads demand_uk_description.md to learn that demand is total category sales in units per store per month, picks alt_hyp='greater' from the business decision (and explicitly explains why one-sided is appropriate here — entry decision only triggers when demand exceeds threshold), fits with rsm.basics.single_mean({'demand_uk': df}, var='demand', alt_hyp='greater', conf=0.95, comp_value=1750), prints summary(), then explains: H0 (mean = 1750) and Ha (mean > 1750) in plain English, sample stats (mean ≈ 1953, n=572, sd ≈ 815), the three equivalent verdicts (p < .001 → reject; one-sided 95% lower bound 1897 > 1750 → reject; observed t ≈ 5.97 ≫ critical t ≈ 1.65 → reject), reports the effect size 'diff ≈ 203 units above threshold' in units (not just p < .001), and concludes that management should enter the market.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Same data at /Users/vnijs/gh/pyrsm/examples/data/basics/demand_uk.parquet, but my prof wants me to also do a two-sided test of 'is the demand different from 1750?' at the 99% confidence level. How does the answer change?",
+      "expected_output": "Conversation that: refits with rsm.basics.single_mean({'demand_uk': df}, var='demand', alt_hyp='two-sided', conf=0.99, comp_value=1750), shows the new summary, explicitly explains how the output changes versus the one-sided 95% case: (a) the p-value is now the two-sided p (still < .001), (b) the CI is now a two-sided interval (roughly [1865, 2041]) — both bounds finite rather than [lo, +inf) — and is wider than the original because 99% confidence is stricter than 95% AND two-sided spends alpha in both tails, (c) the critical t for a two-sided test at α=0.01 is approximately ±2.58 from prob_calc('tdist', df=571, pub=0.995), not ±1.65, (d) the verdict is still 'reject H0' but the substantive interpretation is now 'demand differs from 1750 in either direction' rather than 'demand exceeds 1750'. Discusses the power tradeoff briefly: two-sided is less powerful than one-sided at the same alpha, and 99% confidence is stricter than 95%. Mentions that you typically don't pick one-sided vs two-sided or 95% vs 99% based on which gives the answer you want — those are choices set by the question, not by the data.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Test whether demand differs from 1750 in this dataset: ~/Downloads/demand.parquet . Use a 95% CI.",
+      "expected_output": "Conversation that: notices the path is not absolute (uses ~), asks the user for the absolute path before running anything else, does NOT silently expand the tilde or guess. (We use this case to verify the skill enforces the absolute-path requirement from Step 1 of SKILL.md.)",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "I ran a single-mean test on demand at /Users/vnijs/gh/pyrsm/examples/data/basics/demand_uk.parquet, but using comp_value=1900 and alt_hyp='two-sided'. The p-value came out as 0.118, well above 0.05. So the mean isn't different from 1900, right? Let me write that up and move on.",
+      "expected_output": "Conversation that: (1) pushes back on 'fail-to-reject = no difference' framing — 'fail to reject H0' is not 'accept H0'; (2) reruns or re-reads the summary and explicitly reports both the diff (sample mean 1953 vs comp_value 1900 → diff ≈ 53 units) and the 95% CI (roughly [1886, 2020]); (3) notes that the CI includes 1900 (consistent with fail-to-reject) but also includes values up to ~2020, so the data are equally consistent with a 'true mean = 2020' world; (4) explicitly explains why the p = 0.118 vs p = 0.04 framing is a cliff: p = 0.118 is moderate evidence against H0, not 'no evidence', and the threshold is a convention; (5) leads with the confidence interval as the more informative output and reframes the conclusion as 'the data are consistent with a population mean anywhere from about 1886 to 2020 units; 1900 is one of those plausible values, but so are values quite a bit higher'; (6) does NOT just say 'p > 0.05, the mean equals 1900' and stop; (7) optionally suggests checking effect size in business terms — is a ~3% difference (53/1900) meaningful for the decision being made?",
+      "files": []
+    }
+  ]
+}

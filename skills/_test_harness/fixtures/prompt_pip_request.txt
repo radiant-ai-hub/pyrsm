@@ -1,0 +1,1 @@
+I've already fit the regression with rsm.model.regress on the diamonds dataset (price ~ carat + clarity + color + depth + table). Now generate and interpret PIP for this model.

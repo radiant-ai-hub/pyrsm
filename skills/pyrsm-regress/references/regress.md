@@ -50,7 +50,7 @@ reg.summary(
 )
 ```
 
-For a first look, `summary(rmse=True, ssq=True)` is a sensible default — enough context without flooding the screen. Add `vif=True` if you suspect multicollinearity. Add `ci=True` if the user wants intervals. Add `test=["x1","x2"]` to test a subset of coefficients jointly against a smaller (nested) model.
+**The default is plain `reg.summary()` — pass no flags unless the user explicitly asks.** The plain output already shows the coefficient table, F-statistic, R², adjusted R², n, df, and significance stars. Add flags only when the user asks: `vif=True` for multicollinearity, `ci=True` for coefficient confidence intervals, `ssq=True` for the sum-of-squares decomposition, `rmse=True` for residual spread, `test=["x1","x2"]` to F-test a subset of coefficients jointly against a nested model.
 
 Output structure:
 

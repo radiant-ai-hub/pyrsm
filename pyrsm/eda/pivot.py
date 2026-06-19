@@ -1,18 +1,106 @@
 """Pivot tables and crosstabs."""
 
+from functools import lru_cache
+
 import polars as pl
 
-# Supported aggregation functions
+
+@lru_cache(maxsize=1)
+def _get_scipy_stats():
+    """Lazy load scipy.stats — only needed for skew / kurtosis."""
+    from scipy import stats
+
+    return stats
+
+
+def _percentile_expr(col: str, p: float) -> pl.Expr:
+    """Build a polars expression for the ``p`` percentile (0-1)."""
+    return pl.col(col).quantile(p)
+
+
+def _skew_expr(col: str) -> pl.Expr:
+    """Sample skewness via map_batches → scipy."""
+
+    def _skew(s: pl.Series) -> float:
+        stats = _get_scipy_stats()
+        arr = s.drop_nulls().to_numpy()
+        if arr.size < 2:
+            return float("nan")
+        return float(stats.skew(arr, bias=False))
+
+    return pl.col(col).map_batches(_skew, return_dtype=pl.Float64, returns_scalar=True)
+
+
+def _kurtosis_expr(col: str) -> pl.Expr:
+    """Excess kurtosis via map_batches → scipy."""
+
+    def _kurt(s: pl.Series) -> float:
+        stats = _get_scipy_stats()
+        arr = s.drop_nulls().to_numpy()
+        if arr.size < 2:
+            return float("nan")
+        return float(stats.kurtosis(arr, bias=False))
+
+    return pl.col(col).map_batches(_kurt, return_dtype=pl.Float64, returns_scalar=True)
+
+
+# Supported aggregation functions. Each value maps a column name to a
+# polars expression. ``count`` / ``n_obs`` ignore the column and use
+# ``pl.len()`` so the same registry covers frequency tables.
 AGG_FUNCTIONS = {
+    # --- Counts ----------------------------------------------------
     "count": lambda col: pl.len(),
+    "n_obs": lambda col: pl.len(),
+    "n_distinct": lambda col: pl.col(col).n_unique(),
+    "n_missing": lambda col: pl.col(col).null_count(),
+    # --- Central tendency ------------------------------------------
     "sum": lambda col: pl.col(col).sum(),
     "mean": lambda col: pl.col(col).mean(),
     "median": lambda col: pl.col(col).median(),
     "min": lambda col: pl.col(col).min(),
     "max": lambda col: pl.col(col).max(),
+    # --- Spread ----------------------------------------------------
     "std": lambda col: pl.col(col).std(),
+    "sd": lambda col: pl.col(col).std(),  # R-style alias
     "var": lambda col: pl.col(col).var(),
+    "se": lambda col: pl.col(col).std() / pl.col(col).count().cast(pl.Float64).sqrt(),
+    "me": lambda col: 1.96 * pl.col(col).std() / pl.col(col).count().cast(pl.Float64).sqrt(),
+    "cv": lambda col: pl.col(col).std() / pl.col(col).mean(),
+    "iqr": lambda col: _percentile_expr(col, 0.75) - _percentile_expr(col, 0.25),
+    "IQR": lambda col: _percentile_expr(col, 0.75) - _percentile_expr(col, 0.25),
+    # --- Proportions (R radiant.data parity) -----------------------
+    # ``prop`` collapses a binary 0/1 column to its mean (= share of 1s).
+    "prop": lambda col: pl.col(col).cast(pl.Float64).mean(),
+    "varprop": lambda col: (
+        pl.col(col).cast(pl.Float64).mean() * (1 - pl.col(col).cast(pl.Float64).mean())
+    ),
+    "sdprop": lambda col: (
+        pl.col(col).cast(pl.Float64).mean() * (1 - pl.col(col).cast(pl.Float64).mean())
+    ).sqrt(),
+    "seprop": lambda col: (
+        pl.col(col).cast(pl.Float64).mean()
+        * (1 - pl.col(col).cast(pl.Float64).mean())
+        / pl.col(col).count().cast(pl.Float64)
+    ).sqrt(),
+    # --- Distributional shape --------------------------------------
+    "skew": _skew_expr,
+    "kurtosis": _kurtosis_expr,
 }
+
+
+def _register_percentiles() -> None:
+    """Add ``p01`` … ``p99`` aggregation keys to :data:`AGG_FUNCTIONS`."""
+    for p in range(1, 100):
+        key = f"p{p:02d}"
+
+        def _make(percentile_value: float):
+            return lambda col, _p=percentile_value: _percentile_expr(col, _p)
+
+        AGG_FUNCTIONS[key] = _make(p / 100.0)
+
+
+_register_percentiles()
+
 
 NORMALIZE_OPTIONS = {"row", "column", "total", "none", None}
 
@@ -108,15 +196,13 @@ def pivot(
     # Validate agg
     if agg not in AGG_FUNCTIONS:
         raise ValueError(
-            f"Unknown aggregation: {agg}\n"
-            f"Supported: {', '.join(AGG_FUNCTIONS.keys())}"
+            f"Unknown aggregation: {agg}\nSupported: {', '.join(AGG_FUNCTIONS.keys())}"
         )
 
     # Validate normalize
     if normalize not in NORMALIZE_OPTIONS:
         raise ValueError(
-            f"Unknown normalize option: {normalize}\n"
-            f"Supported: row, column, total, none"
+            f"Unknown normalize option: {normalize}\nSupported: row, column, total, none"
         )
 
     # Build aggregation expression
@@ -139,9 +225,7 @@ def pivot(
         # Normalization for frequency table
         if normalize and normalize != "none":
             pivoted = pivoted.with_columns(
-                (pl.col(value_col) / pl.col(value_col).sum() * 100).alias(
-                    f"{value_col}_pct"
-                )
+                (pl.col(value_col) / pl.col(value_col).sum() * 100).alias(f"{value_col}_pct")
             )
 
         # Totals for frequency table
@@ -219,9 +303,7 @@ def pivot(
             # Each row sums to 100%
             row_sums = pivoted.select(pl.sum_horizontal(numeric_cols)).to_series()
             for col in numeric_cols:
-                pivoted = pivoted.with_columns(
-                    (pl.col(col) / row_sums * 100).alias(col)
-                )
+                pivoted = pivoted.with_columns((pl.col(col) / row_sums * 100).alias(col))
             if totals and "Total" in pivoted.columns:
                 pivoted = pivoted.with_columns(pl.lit(100.0).alias("Total"))
 
@@ -230,18 +312,14 @@ def pivot(
             for col in numeric_cols:
                 col_sum = pivoted[col].sum()
                 if col_sum > 0:
-                    pivoted = pivoted.with_columns(
-                        (pl.col(col) / col_sum * 100).alias(col)
-                    )
+                    pivoted = pivoted.with_columns((pl.col(col) / col_sum * 100).alias(col))
 
         elif normalize == "total":
             # All cells sum to 100%
             grand_total = sum(pivoted[col].sum() for col in numeric_cols)
             if grand_total > 0:
                 for col in numeric_cols:
-                    pivoted = pivoted.with_columns(
-                        (pl.col(col) / grand_total * 100).alias(col)
-                    )
+                    pivoted = pivoted.with_columns((pl.col(col) / grand_total * 100).alias(col))
 
     # Fill missing values if specified (only when no values variable)
     if fill is not None and not values:

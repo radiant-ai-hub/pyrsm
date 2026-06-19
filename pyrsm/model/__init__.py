@@ -8,6 +8,8 @@ _LAZY_SUBMODULES = {
     "perf",
     "regress",
     "visualize",
+    "dtree",
+    "simulate",
 }
 _CORE_MODULE = "pyrsm.model.model"
 
