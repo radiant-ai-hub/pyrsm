@@ -385,6 +385,7 @@ class mlp:
         nnv=30,
         minq=0.025,
         maxq=0.975,
+        figsize=None,
         ret=None,
     ) -> None:
         """
@@ -421,6 +422,8 @@ class mlp:
             Minimum quantile for the prediction plot.
         maxq : float, default=0.975
             Maximum quantile for the prediction plot.
+        figsize : tuple[int, int], default None
+            Figure size for the plots in inches (e.g., "(3, 6)"). Relevant for the 'pdp_sklearn' plot.
         ret : bool, optional
             Whether to return the variable (permutation) importance scores for a "pip" plot.
 
@@ -517,7 +520,8 @@ class mlp:
             import matplotlib.pyplot as plt
             from sklearn.inspection import PartialDependenceDisplay as pdp
 
-            figsize = (8, len(self.data_onehot.columns) * 2)
+            if figsize is None:
+                figsize = (8, len(self.data_onehot.columns) * 2)
             fig, ax = plt.subplots(figsize=figsize)
             ax.set_title("Partial Dependence Plots")
             pdp.from_estimator(

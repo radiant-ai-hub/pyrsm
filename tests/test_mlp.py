@@ -194,3 +194,34 @@ class TestMLPPlot:
         nn.plot(plots="pip")
         plt.savefig(f"{PLOT_DIR}/mlp_pip.png", dpi=100, bbox_inches="tight")
         plt.close("all")
+
+    def test_plot_figsize(self, titanic_data, monkeypatch):
+        """plot() accepts a figsize and honors it for the pdp_sklearn plot.
+
+        regress/rforest/xgboost already expose figsize; mlp must match so the
+        shared model UI can offer a single plot-size control.
+        """
+        import inspect
+
+        assert "figsize" in inspect.signature(mlp.plot).parameters
+
+        nn = mlp(
+            data=titanic_data,
+            rvar="survived",
+            lev="Yes",
+            evar=["age", "sex"],
+            hidden_layer_sizes=(10,),
+            max_iter=100,
+        )
+
+        captured = {}
+        real_subplots = plt.subplots
+
+        def spy_subplots(*args, **kwargs):
+            captured["figsize"] = kwargs.get("figsize")
+            return real_subplots(*args, **kwargs)
+
+        monkeypatch.setattr(plt, "subplots", spy_subplots)
+        nn.plot(plots="pdp_sklearn", figsize=(6, 4))
+        plt.close("all")
+        assert captured["figsize"] == (6, 4)

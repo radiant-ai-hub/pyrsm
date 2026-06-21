@@ -2,6 +2,8 @@
 
 import polars as pl
 
+from pyrsm.plot_utils import compose_plots
+
 # Geom configurations: required aesthetics and defaults
 GEOM_CONFIG = {
     "dist": {
@@ -51,10 +53,25 @@ def _is_categorical(df: pl.DataFrame, col: str) -> bool:
     return False
 
 
+def _as_list(value, name: str) -> list[str]:
+    """Normalize a string-or-sequence argument to a list of strings."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    try:
+        values = list(value)
+    except TypeError as err:
+        raise TypeError(f"{name} must be a string or a sequence of strings") from err
+    if not all(isinstance(v, str) for v in values):
+        raise TypeError(f"{name} must be a string or a sequence of strings")
+    return values
+
+
 def visualize(
     df: pl.DataFrame | pl.LazyFrame,
-    x: str,
-    y: str | None = None,
+    x: str | list[str] | tuple[str, ...],
+    y: str | list[str] | tuple[str, ...] | None = None,
     geom: str | None = None,
     color: str | None = "slateblue",
     fill: str | None = None,
@@ -73,18 +90,21 @@ def visualize(
     title: str | None = None,
     nobs: int = 1000,
     agg: str | None = None,
+    ncol: int = 2,
+    ret: str = "compose",
 ):
     """
-    Create a plot using plotnine.
+    Create one or more plots using plotnine.
 
     Parameters
     ----------
     df : pl.DataFrame | pl.LazyFrame
         Polars DataFrame or LazyFrame.
-    x : str
-        Column name for x-axis.
-    y : str | None
-        Column name for y-axis (required for scatter, line, box, violin).
+    x : str | list[str] | tuple[str, ...]
+        Column name(s) for x-axis. Multiple values create one plot per x
+        variable, or one plot per x/y pair when ``y`` is also multiple.
+    y : str | list[str] | tuple[str, ...] | None
+        Column name(s) for y-axis (required for scatter, line, box, violin).
     geom : str | None
         Plot type: dist, hist, density, scatter, bar, line, box, violin. Default:
         scatter if ``y`` provided, dist otherwise.
@@ -125,11 +145,18 @@ def visualize(
         median, sum, min, max. For bar plots, aggregates y by x. For scatter
         plots with categorical x, adds a line showing the aggregated value per
         category.
+    ncol : int
+        Number of columns in the composed plot grid when multiple plots are
+        generated.
+    ret : str
+        Return mode for multiple plots: ``"compose"`` (default) returns a
+        plotnine composition; ``"list"`` returns the individual ggplot objects.
 
     Returns
     -------
-    plotnine.ggplot
-        Plotnine ggplot object.
+    plotnine.ggplot, plotnine composition, or list
+        A single ggplot object, a composed plot grid, or a list of ggplot
+        objects if ``ret="list"``.
 
     Raises
     ------
@@ -145,6 +172,78 @@ def visualize(
     >>> type(p).__name__
     'ggplot'
     """
+    if ret not in ("compose", "list"):
+        raise ValueError("ret must be 'compose' or 'list'")
+    if ncol < 1:
+        raise ValueError("ncol must be >= 1")
+
+    if isinstance(df, pl.LazyFrame):
+        df = df.collect()
+
+    x_vars = _as_list(x, "x")
+    y_vars = _as_list(y, "y")
+    if not x_vars:
+        raise ValueError("x is required")
+
+    plot_list = []
+    for x_var in x_vars:
+        for y_var in y_vars or [None]:
+            plot_list.append(
+                _visualize_one(
+                    df,
+                    x=x_var,
+                    y=y_var,
+                    geom=geom,
+                    color=color,
+                    fill=fill,
+                    shape=shape,
+                    group=group,
+                    linetype=linetype,
+                    bins=bins,
+                    alpha=alpha,
+                    size=size,
+                    position=position,
+                    smooth=smooth,
+                    jitter=jitter,
+                    facet=facet,
+                    facet_row=facet_row,
+                    facet_col=facet_col,
+                    title=title,
+                    nobs=nobs,
+                    agg=agg,
+                )
+            )
+
+    if ret == "list":
+        return plot_list
+
+    return compose_plots(plot_list, ncol=ncol)
+
+
+def _visualize_one(
+    df: pl.DataFrame,
+    x: str,
+    y: str | None = None,
+    geom: str | None = None,
+    color: str | None = "slateblue",
+    fill: str | None = None,
+    shape: str | None = None,
+    group: str | None = None,
+    linetype: str | None = None,
+    bins: int | None = None,
+    alpha: float | None = None,
+    size: int | float | None = None,
+    position: str | None = None,
+    smooth: str | None = None,
+    jitter: bool = False,
+    facet: str | None = None,
+    facet_row: str | None = None,
+    facet_col: str | None = None,
+    title: str | None = None,
+    nobs: int = 1000,
+    agg: str | None = None,
+):
+    """Create a single plotnine plot."""
     from plotnine import (
         aes,
         facet_grid,
@@ -171,6 +270,13 @@ def visualize(
         "sum": lambda x: pl.Series(x).sum(),
         "min": lambda x: pl.Series(x).min(),
         "max": lambda x: pl.Series(x).max(),
+    }
+    AGG_EXPRS = {
+        "mean": lambda col: pl.col(col).mean(),
+        "median": lambda col: pl.col(col).median(),
+        "sum": lambda col: pl.col(col).sum(),
+        "min": lambda col: pl.col(col).min(),
+        "max": lambda col: pl.col(col).max(),
     }
 
     # Validate agg argument
@@ -290,10 +396,19 @@ def visualize(
     elif geom == "bar":
         pos = position or "stack"
         bar_kwargs = {k: v for k, v in geom_kwargs.items() if k != "position"}
-        if agg and y:
-            # Aggregated bar plot: use stat_summary
-            agg_func = AGG_FUNCS[agg]
-            p = p + geom_bar(stat="summary", fun_y=agg_func, position=pos, **bar_kwargs)
+        if y:
+            # Aggregate before plotting so duplicate x values become one bar
+            # segment per group instead of many stacked row-level rectangles.
+            agg_name = agg or "mean"
+            group_cols = [x]
+            for col in (fill, color, group, facet, facet_row, facet_col):
+                if col and col in df.columns and col not in group_cols:
+                    group_cols.append(col)
+            plot_df = df.group_by(group_cols, maintain_order=True).agg(
+                AGG_EXPRS[agg_name](y).alias(y)
+            )
+            p = ggplot(plot_df, aes(**aes_kwargs))
+            p = p + geom_bar(stat="identity", position=pos, **bar_kwargs)
         else:
             p = p + geom_bar(stat="count", position=pos, **bar_kwargs)
 
@@ -327,8 +442,8 @@ def visualize(
         y_lab = "Count"
     if geom == "density" and not y:
         y_lab = "Density"
-    if agg and y and geom == "bar":
-        y_lab = f"{agg.capitalize()} of {y}"
+    if y and geom == "bar":
+        y_lab = f"{(agg or 'mean').capitalize()} of {y}"
 
     p = p + labs(x=x_lab, y=y_lab, title=title or "", caption=nobs_caption) + theme_bw()
 

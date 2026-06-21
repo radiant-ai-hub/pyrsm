@@ -1,0 +1,123 @@
+---
+title: EDA > Diagnostics
+jupyter: python3
+---
+
+<div class="alert alert-info">Profile variables, inspect missingness, scan associations, and flag outliers.</div>
+
+These helpers return regular Polars DataFrames, so you can filter, sort, join, or pipe them into other pyrsm EDA tools.
+
+```{python}
+import polars as pl
+import pyrsm as rsm
+```
+
+# Diamonds Dataset
+
+```{python}
+diamonds = pl.read_parquet(
+    "https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/data/diamonds.parquet"
+)
+diamonds.head()
+```
+
+```{python}
+rsm.md(
+    "https://raw.githubusercontent.com/radiant-ai-hub/pyrsm/refs/heads/main/examples/data/data/diamonds_description.md"
+)
+```
+
+## Profile
+
+`profile` gives one row per variable with dtype, inferred type, missingness, unique counts, numeric summaries, and top values.
+
+```{python}
+rsm.eda.profile(diamonds)
+```
+
+```{python}
+rsm.eda.profile(diamonds, cols=["price", "carat", "cut", "color"])
+```
+
+```{python}
+(
+    rsm.eda.profile(diamonds)
+    .filter(pl.col("type") == "numeric")
+    .sort("n_unique", descending=True)
+)
+```
+
+## Missing Values
+
+The diamonds data are complete, so the next cell creates a small reproducible missing-data example.
+
+```{python}
+diamonds_missing = (
+    diamonds
+    .with_row_index("row_nr")
+    .with_columns(
+        price=pl.when(pl.col("row_nr") % 17 == 0).then(None).otherwise(pl.col("price")),
+        cut=pl.when(pl.col("row_nr") % 23 == 0).then(None).otherwise(pl.col("cut")),
+    )
+    .drop("row_nr")
+)
+
+rsm.eda.missing(diamonds_missing, cols=["price", "carat", "cut", "color"])
+```
+
+```{python}
+rsm.eda.missing(diamonds_missing, cols=["price", "cut"], by="color")
+```
+
+```{python}
+rsm.eda.missing(diamonds_missing, cols=["price", "cut", "color"], patterns=True)
+```
+
+## Associations
+
+`associations` chooses the metric from the variable types: Pearson/Spearman for numeric pairs, eta-squared for categorical-numeric pairs, and Cramer's V for categorical pairs.
+
+```{python}
+rsm.eda.associations(
+    diamonds,
+    cols=["carat", "depth", "table", "cut", "color", "clarity"],
+    target="price",
+)
+```
+
+```{python}
+rsm.eda.associations(diamonds, cols=["price", "carat", "depth", "table"], method="spearman")
+```
+
+## Outliers
+
+`outliers` is diagnostic only. It reports likely outliers or returns row-level flags; it never removes rows.
+
+```{python}
+rsm.eda.outliers(diamonds, cols=["price", "carat", "depth", "table"])
+```
+
+```{python}
+rsm.eda.outliers(diamonds, cols=["price", "carat"], method="robust_zscore")
+```
+
+```{python}
+flags = rsm.eda.outliers(diamonds, cols=["price", "carat"], ret="flags")
+flags.filter(pl.any_horizontal(pl.exclude("row_nr"))).head()
+```
+
+## Connect Diagnostics to Visualization
+
+The output is just a Polars DataFrame. For example, sort the outlier summary and visualize the variables that deserve a closer look.
+
+```{python}
+outlier_summary = rsm.eda.outliers(diamonds, cols=["price", "carat", "depth", "table"])
+outlier_summary.sort("pct_outliers", descending=True)
+```
+
+```{python}
+rsm.eda.visualize(diamonds, x=["price", "carat", "depth", "table"], geom="hist", ncol=2)
+```
+
+© Vincent Nijs (2026)
+

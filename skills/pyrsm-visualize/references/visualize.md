@@ -5,17 +5,18 @@ This file is the deeper reference for `pyrsm.eda.visualize`. The main `SKILL.md`
 ## Table of contents
 
 1. Function signature
-2. The 8 geoms in detail
-3. Aesthetics — column mapping vs literal values
-4. Faceting (`facet`, `facet_row`, `facet_col`)
-5. Aggregation (`agg`) and smoothing (`smooth`)
-6. The `nobs` sample cap for scatter plots
-7. The categorical-vs-numeric auto-detection
-8. Plain-English interpretation templates
-9. Extending the plot with plotnine
-10. Preprocessing the data with polars
-11. Worked examples
-12. Common pitfalls
+2. Multiple x/y variables
+3. The 8 geoms in detail
+4. Aesthetics — column mapping vs literal values
+5. Faceting (`facet`, `facet_row`, `facet_col`)
+6. Aggregation (`agg`) and smoothing (`smooth`)
+7. The `nobs` sample cap for scatter plots
+8. The categorical-vs-numeric auto-detection
+9. Plain-English interpretation templates
+10. Extending the plot with plotnine
+11. Preprocessing the data with polars
+12. Worked examples
+13. Common pitfalls
 
 ---
 
@@ -24,8 +25,8 @@ This file is the deeper reference for `pyrsm.eda.visualize`. The main `SKILL.md`
 ```python
 rsm.eda.visualize(
     df,                       # pl.DataFrame or pl.LazyFrame
-    x,                        # str — column for x-axis (required)
-    y=None,                   # str | None — column for y-axis (required for scatter, line, box, violin)
+    x,                        # str | list[str] — column(s) for x-axis (required)
+    y=None,                   # str | list[str] | None — y-axis column(s)
     geom=None,                # str | None — see §2
     color="slateblue",        # str | None — column for color aesthetic OR a literal color
     fill=None,                # str | None — column for fill OR literal color
@@ -44,10 +45,12 @@ rsm.eda.visualize(
     title=None,               # str | None
     nobs=1000,                # int — sample cap for scatter (-1 for all)
     agg=None,                 # str | None — "mean", "median", "sum", "min", "max"
-) -> plotnine.ggplot
+    ncol=2,                   # int — columns in the composed grid for multiple plots
+    ret="compose",            # "compose" or "list"
+) -> plotnine.ggplot | plotnine composition | list[plotnine.ggplot]
 ```
 
-Returns a `plotnine.ggplot` object. In Jupyter it auto-renders; elsewhere use `print(p)` or `p.save(...)`.
+Returns a `plotnine.ggplot` object for one plot. If multiple plots are generated, returns a plotnine composition by default. Use `ret="list"` to get the individual ggplot objects.
 
 If `geom` is `None`, the default depends on whether `y` is set:
 - `y` set → `geom="scatter"`.
@@ -55,7 +58,37 @@ If `geom` is `None`, the default depends on whether `y` is set:
 
 Unknown `geom` or `agg` values raise `ValueError`.
 
-## 2. The 8 geoms in detail
+## 2. Multiple x/y variables
+
+`x` and `y` can each be a string or a list/tuple of strings.
+
+For one-variable geoms (`dist`, `hist`, `density`, or `bar` without `y`), multiple `x` values create one plot per x variable:
+
+```python
+rsm.eda.visualize(df, x=["price", "carat", "depth"], geom="hist", ncol=2)
+```
+
+For two-variable geoms, pyrsm creates one plot for every `x` × `y` pair:
+
+```python
+rsm.eda.visualize(
+    df,
+    x=["carat", "depth"],
+    y=["price", "quantity"],
+    geom="scatter",
+    ncol=2,
+)
+# carat vs price, carat vs quantity, depth vs price, depth vs quantity
+```
+
+By default these plots are composed into a grid using plotnine composition. To customize individual panels before composing, request a list:
+
+```python
+plots = rsm.eda.visualize(df, x=["price", "carat"], geom="hist", ret="list")
+plots[0] + labs(title="Price distribution")
+```
+
+## 3. The 8 geoms in detail
 
 ```python
 GEOM_CONFIG = {
@@ -93,7 +126,7 @@ For categorical x with `agg=` set, adds a `stat_summary` crossbar at the agg per
 
 ### `bar`
 
-`geom_bar()` with `stat="count"` by default (counts per x level) or `stat="summary"` when `agg=` and `y=` are both set (aggregates y by x).
+`geom_bar()` with `stat="count"` when `y` is omitted (counts per x level). When `y` is set, pyrsm first groups the data with Polars and computes the selected aggregation per x level, then plots the aggregated values as bar heights. If `agg` is omitted, the default aggregation is `mean`.
 
 `position` controls grouping: `"stack"` (default) or `"dodge"`.
 
@@ -109,7 +142,7 @@ For categorical x with `agg=` set, adds a `stat_summary` crossbar at the agg per
 
 `geom_violin()`. Like box but shows the kernel-density envelope on either side. Useful when you want the full distribution shape per group, not just the summary statistics.
 
-## 3. Aesthetics — column mapping vs literal values
+## 4. Aesthetics — column mapping vs literal values
 
 The aesthetics `color`, `fill`, `shape`, `group`, `linetype` can each be:
 
@@ -137,7 +170,7 @@ Maps a categorical to point shapes (only applies to scatter). Use sparingly: mor
 
 Maps to line styles (solid, dashed, dotted, etc.). Useful for distinguishing series when you can't use color.
 
-## 4. Faceting (`facet`, `facet_row`, `facet_col`)
+## 5. Faceting (`facet`, `facet_row`, `facet_col`)
 
 Faceting splits the plot into multiple sub-plots based on a categorical variable.
 
@@ -171,7 +204,7 @@ Pass `facet_row="."` (with just `facet_col`) for column-only grids, or `facet_co
 
 Rule of thumb: ≤ 6 groups → color; > 6 groups → facet.
 
-## 5. Aggregation (`agg`) and smoothing (`smooth`)
+## 6. Aggregation (`agg`) and smoothing (`smooth`)
 
 ### `agg`
 
@@ -190,7 +223,7 @@ Adds a `geom_smooth()` to scatter plots:
 
 If a `color=` mapping is also set, the smoother is fit *per color group* (one smooth per group).
 
-## 6. The `nobs` sample cap for scatter plots
+## 7. The `nobs` sample cap for scatter plots
 
 For large datasets, plotting every scatter point hurts readability and rendering performance. `visualize` samples down to `nobs` points (default 1000) using `df.sample(n=nobs, seed=1234)` for reproducibility.
 
@@ -202,7 +235,7 @@ Set `nobs=-1` to use all points (no sampling).
 
 `nobs` only applies to `geom="scatter"`. Other geoms always use all data.
 
-## 7. The categorical-vs-numeric auto-detection
+## 8. The categorical-vs-numeric auto-detection
 
 The internal `_is_categorical(df, col)` function:
 
@@ -214,7 +247,7 @@ This drives the `dist` / `hist` auto-switch (histogram for numeric x, bar for ca
 
 The threshold is hardcoded at 20 (unlike `distr` where it's the `nint` parameter). If you have an integer column with 21-25 unique values that you want treated as categorical, cast to string first: `df.with_columns(pl.col("rating").cast(pl.Utf8))`.
 
-## 8. Plain-English interpretation templates
+## 9. Plain-English interpretation templates
 
 ### Spec announcement
 
@@ -232,7 +265,7 @@ The threshold is hardcoded at 20 (unlike `distr` where it's the `nint` parameter
 
 > For a quantitative confirmation of this visual pattern, use `<pyrsm-correlation>` (scatter), `<pyrsm-distr>` (histogram), `<pyrsm-compare-means>` (box), `<pyrsm-pivot>` (bar), etc.
 
-## 9. Extending the plot with plotnine
+## 10. Extending the plot with plotnine
 
 `visualize` returns a `plotnine.ggplot`. **Anything plotnine supports can be added.**
 
@@ -305,6 +338,14 @@ p.save("plot.svg", width=10, height=6)
 ### Compose multiple plots
 
 ```python
+# Built-in multi-variable composition
+rsm.eda.visualize(df, x=["price", "carat", "depth"], geom="hist", ncol=2)
+rsm.eda.visualize(df, x=["carat", "depth"], y=["price", "quantity"], geom="scatter")
+
+# Raw plot list for per-panel customization
+plots = rsm.eda.visualize(df, x=["price", "carat"], geom="hist", ret="list")
+
+# Manual composition operators still work
 p1 = rsm.eda.visualize(df, x="carat", y="price", geom="scatter")
 p2 = rsm.eda.visualize(df, x="carat", geom="density")
 
@@ -314,7 +355,7 @@ composed = p1 / p2     # stacked vertically
 composed = (p1 | p2) / p3   # mixed
 ```
 
-## 10. Preprocessing the data with polars
+## 11. Preprocessing the data with polars
 
 `visualize` doesn't transform data — it expects the right shape. Preprocess with polars first:
 
@@ -351,12 +392,30 @@ long = rsm.eda.unpivot(wide, on=["Q1","Q2","Q3","Q4"], id_vars="region",
 rsm.eda.visualize(long, x="quarter", y="sales", color="region", geom="line")
 ```
 
-## 11. Worked examples
+## 12. Worked examples
 
 ### Histogram of a numeric column
 
 ```python
 rsm.eda.visualize(df, x="price", geom="hist", bins=50, title="Diamond Prices")
+```
+
+### Histograms for several variables
+
+```python
+rsm.eda.visualize(df, x=["price", "carat", "depth"], geom="hist", bins=30, ncol=2)
+```
+
+### Scatter plots for several x/y pairs
+
+```python
+rsm.eda.visualize(
+    df,
+    x=["carat", "depth"],
+    y=["price", "quantity"],
+    geom="scatter",
+    ncol=2,
+)
 ```
 
 ### Density colored by cut
@@ -483,7 +542,7 @@ p_layered = (
 p_layered.save("price_vs_carat.png", width=10, height=6, dpi=150)
 ```
 
-## 12. Common pitfalls
+## 13. Common pitfalls
 
 - **Wrong geom for the question.** `scatter` with two categoricals, `line` with unordered categorical x, `hist` of a string column (auto-switches to bar but is confusing). Pick the geom from the data types.
 - **Passing a literal color where you meant a column mapping (or vice versa).** If `df` has a column called `"red"`, `color="red"` maps to that column, not the literal color red. Renaming or pre-checking helps.
@@ -496,3 +555,4 @@ p_layered.save("price_vs_carat.png", width=10, height=6, dpi=150)
 - **Forgetting `position="dodge"` on a bar chart with `fill=`.** Default is `"stack"`, which stacks bars; `"dodge"` puts them side-by-side. For category × subcategory counts, "dodge" is usually clearer.
 - **Saving without specifying dimensions.** `p.save("plot.png")` uses plotnine defaults which can be small. Pass `width=10, height=6, dpi=150` for a presentation-quality save.
 - **Not extending with plotnine when the default isn't enough.** The whole point of `visualize` is that you keep the `ggplot` object and customize. Add scales, themes, reference lines, and additional geoms freely.
+- **Expecting multiple x/y variables to overlay automatically.** Multiple variables create multiple panels by default. If you want overlayed series in one panel, reshape first with `pyrsm.eda.unpivot` or Polars `unpivot`, then map the variable-name column to `color` or `fill`.

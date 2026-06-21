@@ -4,7 +4,16 @@ import numpy as np
 import polars as pl
 import pytest
 
-from pyrsm.eda import combine, explore, pivot, visualize
+from pyrsm.eda import (
+    associations,
+    combine,
+    explore,
+    missing,
+    outliers,
+    pivot,
+    profile,
+    visualize,
+)
 
 
 @pytest.fixture
@@ -266,6 +275,128 @@ class TestExplore:
         assert r_nm["n_missing"][0] == r_nc["null_count"][0]
 
 
+class TestProfile:
+    """Tests for profile function."""
+
+    def test_profile_returns_one_row_per_column(self, sample_data):
+        """Profile includes type, missingness, unique counts, and summaries."""
+        result = profile(sample_data)
+        assert result.height == len(sample_data.columns)
+        assert {"variable", "type", "n_missing", "pct_missing", "n_unique"}.issubset(
+            result.columns
+        )
+
+        price = result.filter(pl.col("variable") == "price").row(0, named=True)
+        category = result.filter(pl.col("variable") == "category").row(0, named=True)
+        assert price["type"] == "numeric"
+        assert price["mean"] is not None
+        assert category["type"] == "categorical"
+        assert category["top_values"]
+
+    def test_profile_specific_columns_lazyframe(self, sample_data):
+        """Profile supports selected columns and LazyFrame input."""
+        result = profile(sample_data.lazy(), cols=["price"])
+        assert result["variable"].to_list() == ["price"]
+
+
+class TestMissing:
+    """Tests for missing function."""
+
+    @pytest.fixture
+    def missing_data(self, sample_data):
+        """Create sample data with null values."""
+        return sample_data.with_columns(
+            price=pl.when(pl.arange(0, pl.len()) < 3)
+            .then(None)
+            .otherwise(pl.col("price")),
+            region=pl.when(pl.arange(0, pl.len()) == 0)
+            .then(None)
+            .otherwise(pl.col("region")),
+        )
+
+    def test_missing_column_summary(self, missing_data):
+        """Column summary reports counts and percentages."""
+        result = missing(missing_data)
+        price = result.filter(pl.col("variable") == "price").row(0, named=True)
+        assert price["n_missing"] == 3
+        assert price["pct_missing"] == pytest.approx(0.03)
+
+    def test_missing_by_group(self, missing_data):
+        """Grouped missingness returns wide per-group counts and rates."""
+        result = missing(missing_data, cols=["price"], by="category")
+        assert "category" in result.columns
+        assert "price_n_missing" in result.columns
+        assert "price_pct_missing" in result.columns
+
+    def test_missing_patterns(self, missing_data):
+        """Pattern table uses 1 for missing and 0 for observed."""
+        result = missing(missing_data, cols=["price", "region"], patterns=True)
+        assert {"price", "region", "n", "pct"}.issubset(result.columns)
+        assert result["n"].sum() == missing_data.height
+
+
+class TestAssociations:
+    """Tests for associations function."""
+
+    def test_associations_target(self, sample_data):
+        """Target mode computes associations from each selected variable to target."""
+        df = sample_data.with_columns(price_scaled=pl.col("price") * 2)
+        result = associations(
+            df,
+            cols=["price_scaled", "category", "region"],
+            target="price",
+        )
+        assert {"var1", "var2", "metric", "value", "p_value", "n"}.issubset(
+            result.columns
+        )
+        assert set(result["var2"].to_list()) == {"price"}
+        assert "pearson" in result["metric"].to_list()
+        assert "eta_squared" in result["metric"].to_list()
+
+    def test_associations_categorical_categorical(self):
+        """Categorical pairs return Cramer's V."""
+        df = pl.DataFrame(
+            {
+                "a": ["x", "x", "y", "y", "y", "x"],
+                "b": ["u", "u", "v", "v", "u", "v"],
+            }
+        )
+        result = associations(df)
+        row = result.row(0, named=True)
+        assert row["metric"] == "cramers_v"
+        assert row["value"] is not None
+
+    def test_associations_invalid_method(self, sample_data):
+        """Invalid numeric correlation method raises."""
+        with pytest.raises(ValueError, match="method must be"):
+            associations(sample_data, method="kendall")
+
+
+class TestOutliers:
+    """Tests for outliers function."""
+
+    def test_outliers_iqr_summary(self):
+        """IQR summary flags a clear extreme value."""
+        df = pl.DataFrame({"x": [1.0, 2.0, 3.0, 100.0], "g": ["a", "a", "b", "b"]})
+        result = outliers(df, cols="x")
+        row = result.row(0, named=True)
+        assert row["variable"] == "x"
+        assert row["n_outliers"] == 1
+        assert row["pct_outliers"] == pytest.approx(0.25)
+
+    def test_outliers_flags(self):
+        """ret='flags' returns row-level boolean indicators."""
+        df = pl.DataFrame({"x": [1.0, 2.0, 3.0, 100.0]})
+        result = outliers(df, cols="x", ret="flags")
+        assert result.columns == ["row_nr", "x_outlier"]
+        assert result["x_outlier"].sum() == 1
+
+    def test_outliers_invalid_method(self, sample_data):
+        """Invalid outlier method raises."""
+        with pytest.raises(ValueError, match="method must be"):
+            outliers(sample_data, method="bad")
+
+
 class TestPivot:
     """Tests for pivot function."""
 
@@ -478,10 +609,83 @@ class TestVisualize:
         p = visualize(sample_data, x="price", y="quantity")
         assert p is not None
 
+    def test_visualize_multiple_x_composes_plots(self, sample_data):
+        """Multiple x variables return a composed plot grid by default."""
+        from plotnine.composition import Compose
+
+        p = visualize(sample_data, x=["price", "quantity"], geom="hist")
+        assert isinstance(p, Compose)
+
+    def test_visualize_multiple_x_and_y_can_return_plot_list(self, sample_data):
+        """ret='list' returns one ggplot per x/y pair in nested-loop order."""
+        plots = visualize(
+            sample_data,
+            x=["price", "quantity"],
+            y=["quantity", "price"],
+            geom="scatter",
+            ret="list",
+        )
+
+        assert len(plots) == 4
+        assert [p.labels.x for p in plots] == [
+            "price",
+            "price",
+            "quantity",
+            "quantity",
+        ]
+        assert [p.labels.y for p in plots] == [
+            "quantity",
+            "price",
+            "quantity",
+            "price",
+        ]
+
+    def test_visualize_invalid_ret_raises(self, sample_data):
+        """Invalid return mode raises a helpful error."""
+        with pytest.raises(ValueError, match="ret must be"):
+            visualize(sample_data, x=["price", "quantity"], ret="invalid")
+
     def test_visualize_bar(self, sample_data):
         """Test bar chart for categorical."""
         p = visualize(sample_data, x="category", geom="bar")
         assert p is not None
+
+    def test_visualize_bar_with_y_groups_by_x_mean_by_default(self, sample_data):
+        """Bar charts with y aggregate duplicate x values before plotting."""
+        import matplotlib.pyplot as plt
+
+        p = visualize(sample_data, x="category", y="price", geom="bar")
+        expected = sample_data.group_by("category").agg(
+            pl.col("price").mean().alias("price")
+        )
+        actual = p.data
+
+        assert actual.height == expected.height
+        assert actual.sort("category")["category"].to_list() == expected.sort(
+            "category"
+        )["category"].to_list()
+        assert actual.sort("category")["price"].to_list() == pytest.approx(
+            expected.sort("category")["price"].to_list()
+        )
+        assert type(p.layers[0].stat).__name__ == "stat_identity"
+        assert p.labels.y == "Mean of price"
+
+        p.draw()
+        plt.close("all")
+
+    def test_visualize_bar_with_y_respects_sum_agg(self, sample_data):
+        """Bar-chart agg selection is computed with Polars group_by."""
+        p = visualize(sample_data, x="category", y="price", geom="bar", agg="sum")
+        expected = sample_data.group_by("category").agg(
+            pl.col("price").sum().alias("price")
+        )
+        actual = p.data
+
+        assert actual.height == expected.height
+        assert actual.sort("category")["price"].to_list() == pytest.approx(
+            expected.sort("category")["price"].to_list()
+        )
+        assert p.labels.y == "Sum of price"
 
     def test_visualize_box(self, sample_data):
         """Test box plot."""

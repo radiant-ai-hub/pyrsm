@@ -169,5 +169,96 @@ Useful when x or y has discrete values to avoid overplotting.
 rsm.eda.visualize(titanic, x="pclass", y="age", jitter=True, alpha=0.5)
 ```
 
-© Vincent Nijs (2026)
+## Aggregated Bar Chart
 
+When `y` is supplied for `geom="bar"`, `visualize` aggregates `y` by `x`. The default aggregation is the mean.
+
+```{python}
+rsm.eda.visualize(diamonds, x="cut", y="price", geom="bar", agg="mean")
+```
+
+```{python}
+rsm.eda.visualize(diamonds, x="cut", y="price", geom="bar", agg="median")
+```
+
+## Multiple X Variables
+
+Pass a list of x variables to create one plot per variable. Multiple plots are composed into a plotnine grid; use `ncol` to control the layout.
+
+```{python}
+rsm.eda.visualize(
+    diamonds,
+    x=["price", "carat", "depth", "table"],
+    geom="hist",
+    bins=30,
+    ncol=2,
+)
+```
+
+```{python}
+rsm.eda.visualize(
+    diamonds,
+    x=["cut", "color", "clarity"],
+    geom="bar",
+    ncol=2,
+)
+```
+
+## Multiple X and Y Variables
+
+When both `x` and `y` are lists, `visualize` creates one plot for every x/y pair.
+
+```{python}
+rsm.eda.visualize(
+    diamonds,
+    x=["carat", "depth"],
+    y=["price", "table"],
+    geom="scatter",
+    alpha=0.4,
+    nobs=1500,
+    ncol=2,
+)
+```
+
+## Return Individual Plots
+
+Use `ret="list"` when you want to customize individual panels before displaying or composing them.
+
+```{python}
+from plotnine import labs, theme_minimal
+
+plots = rsm.eda.visualize(
+    diamonds,
+    x=["price", "carat"],
+    geom="hist",
+    ret="list",
+)
+
+plots[0] + theme_minimal() + labs(title="Diamond price distribution")
+```
+
+## Overlay Multiple Series by Reshaping First
+
+Multiple x/y variables create multiple panels by default. If you want multiple series in one panel, reshape to long form first and map the series name to `color` or `fill`.
+
+```{python}
+sales_wide = pl.DataFrame(
+    {
+        "quarter": ["Q1", "Q2", "Q3", "Q4"],
+        "sales": [100, 118, 135, 150],
+        "profit": [12, 15, 16, 22],
+    }
+)
+
+sales_long = rsm.eda.unpivot(
+    sales_wide,
+    on=["sales", "profit"],
+    id_vars="quarter",
+    variable_name="measure",
+    value_name="value",
+)
+
+rsm.eda.visualize(sales_long, x="quarter", y="value", geom="line", color="measure")
+```
+
+© Vincent Nijs (2026)

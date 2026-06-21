@@ -7,6 +7,7 @@ Exploratory data analysis using the `pyrsm.eda` module.
 | Notebook | Description |
 |----------|-------------|
 | [eda-explore.ipynb](eda-explore.ipynb) | Summary statistics for numeric columns |
+| [eda-diagnostics.ipynb](eda-diagnostics.ipynb) | Profile tables, missingness, associations, and outlier diagnostics |
 | [eda-visualize.ipynb](eda-visualize.ipynb) | Data visualization (histograms, scatter, box plots) |
 | [eda-pivot.ipynb](eda-pivot.ipynb) | Pivot tables for data aggregation |
 | [eda-unpivot.ipynb](eda-unpivot.ipynb) | Reshape data from wide to long format |
@@ -23,6 +24,12 @@ df = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/mai
 
 # Explore numeric columns
 eda.explore(df, cols=["price", "carat"], by="cut")
+
+# Profile all variables
+eda.profile(df)
+
+# Scan associations against a target
+eda.associations(df, cols=["carat", "cut", "color"], target="price")
 
 # Visualize distributions
 eda.visualize(df, x="price", geom="hist")

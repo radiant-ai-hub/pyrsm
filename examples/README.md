@@ -7,7 +7,7 @@ Example Jupyter notebooks demonstrating the pyrsm package for Business Analytics
 | Folder | Description |
 |--------|-------------|
 | [basics/](basics/) | Statistical tests (t-tests, ANOVA, chi-square, correlation) |
-| [eda/](eda/) | Exploratory data analysis (explore, pivot, visualize, combine) |
+| [eda/](eda/) | Exploratory data analysis (profile, missing, associations, outliers, explore, pivot, visualize, combine) |
 | [model/](model/) | Regression and machine learning models |
 | [data/](data/) | Example datasets used in notebooks |
 

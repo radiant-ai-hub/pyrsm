@@ -1,6 +1,6 @@
 ---
 name: pyrsm-visualize
-description: Create custom plots from a polars DataFrame in Python using the pyrsm library's `visualize` function — a plotnine wrapper supporting 8 geom types (dist / hist / density / scatter / bar / line / box / violin) with full control over aesthetics (color / fill / shape / group / linetype), faceting (facet_wrap / facet_grid), aggregation, smoothing (lm / loess), jitter, and titles. The return value is a `plotnine.ggplot` object the user can extend with any plotnine layer — scales, themes, geom_smooth, geom_vline, custom labels — making plotnine extensibility a first-class part of this skill. Triggers include phrases like "scatter plot of x vs y", "histogram of price", "box plot of price by cut", "line chart over time, colored by region", "facet by category", "add a regression line", "use plotnine to plot", "density plot of carat by cut", or any request for a specific plot in a marketing/business analytics context.
+description: Create custom plots from a polars DataFrame in Python using the pyrsm library's `visualize` function — a plotnine wrapper supporting 8 geom types (dist / hist / density / scatter / bar / line / box / violin) with full control over aesthetics (color / fill / shape / group / linetype), faceting (facet_wrap / facet_grid), aggregation, smoothing (lm / loess), jitter, titles, and multiple x/y variables. The return value is a `plotnine.ggplot` object for one plot or a plotnine composition for multiple plots, and users can extend the result with plotnine layers — scales, themes, geom_smooth, geom_vline, custom labels — making plotnine extensibility a first-class part of this skill. Triggers include phrases like "scatter plot of x vs y", "histogram of price", "box plot of price by cut", "line chart over time, colored by region", "facet by category", "add a regression line", "use plotnine to plot", "density plot of carat by cut", or any request for a specific plot in a marketing/business analytics context.
 ---
 
 # pyrsm visualize workflow
@@ -62,8 +62,8 @@ This is the **defining critical concept** of `visualize`: **choose the right geo
 
 Confirm the spec with the user. You need:
 
-- **x** (required) — column for x-axis. May be numeric or categorical.
-- **y** (required for scatter / line / box / violin) — numeric column for y-axis.
+- **x** (required) — column or list of columns for x-axis. May be numeric or categorical.
+- **y** (required for scatter / line / box / violin) — numeric column or list of columns for y-axis.
 - **geom** — one of `dist`, `hist`, `density`, `scatter`, `bar`, `line`, `box`, `violin`. Default: `scatter` if `y` is provided, `dist` otherwise.
 - **Aesthetics** (optional): `color` (line / point color or grouping), `fill` (fill color or grouping for filled shapes), `shape` (point shape), `group` (grouping without separate color), `linetype` (linetype grouping).
 - **Modifiers** (geom-dependent):
@@ -78,6 +78,8 @@ Confirm the spec with the user. You need:
   - `facet_row` / `facet_col` — `facet_grid` by row / column.
 - **Title** — optional.
 - **nobs** — for scatter plots, cap the number of plotted points (default 1000). Set `-1` for all points; the data still uses all observations for computation, but only `nobs` are drawn to keep the chart legible.
+- **ncol** — for multiple plots, number of columns in the composed grid.
+- **ret** — `"compose"` returns a composed grid for multiple plots; `"list"` returns the individual ggplot objects.
 
 State your proposed spec, e.g.: "I'll make a scatter of price vs carat, colored by cut, with a linear smooth and 500 sampled points for clarity."
 
@@ -107,12 +109,12 @@ p = rsm.eda.visualize(
     nobs=1000,             # scatter sample cap
 )
 
-# 3. Inspect (it's a plotnine ggplot)
+# 3. Inspect (it's a plotnine ggplot, or a composition for multiple plots)
 p   # in Jupyter; outside Jupyter, print(p) or p.save(...)
 ```
 
 Notes:
-- `visualize` returns a `plotnine.ggplot` object. In Jupyter it auto-renders; elsewhere use `print(p)` or `p.save("file.png", width=8, height=6)`.
+- `visualize` returns a `plotnine.ggplot` object for one plot and a plotnine composition for multiple plots. In Jupyter it auto-renders; elsewhere use `print(p)` or `p.save("file.png", width=8, height=6)`.
 - The default plot has `theme_bw()` applied. To switch themes, add `+ theme_minimal()` or `+ theme_classic()` to the returned ggplot.
 - For aesthetic mappings, the value must be a column in `df`. For fixed visual properties (e.g., always-red points), pass the literal color string — `visualize` will detect that it's not a column name and use it as a fixed color.
 
@@ -219,7 +221,14 @@ p.save("plot.pdf", width=10, height=6)
 ### Combine plots
 
 ```python
-# Composition operators from plotnine
+# Built-in multi-variable composition
+rsm.eda.visualize(df, x=["price", "carat", "depth"], geom="hist", ncol=2)
+rsm.eda.visualize(df, x=["carat", "depth"], y=["price", "quantity"], geom="scatter")
+
+# Or request the individual ggplot objects
+plots = rsm.eda.visualize(df, x=["price", "carat"], geom="hist", ret="list")
+
+# Manual composition operators from plotnine also work
 p1 = rsm.eda.visualize(df, x="carat", y="price")
 p2 = rsm.eda.visualize(df, x="carat", geom="density")
 composed = p1 | p2     # side by side
