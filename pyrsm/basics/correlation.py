@@ -342,8 +342,8 @@ class correlation:
             )
 
         def cor_text(r, p, ax_sub, dec=2):
-            if np.isnan(p):
-                p = 1
+            if self.method == "polychoric" or np.isnan(p):
+                p = 1  # polychoric correlations do not provide p-values
             p = round(p, dec)
             rt = round(r, dec)
             p_star = sig_stars([p])[0]
@@ -372,30 +372,91 @@ class correlation:
                 color="blue",
             )
 
-        def cor_plot(x_data, y_data, ax_sub, s_size):
-            # Remove NaN values for regression
-            mask = ~(np.isnan(x_data) | np.isnan(y_data))
-            x_clean = x_data[mask]
-            y_clean = y_data[mask]
+        def _as_str(arr):
+            return np.array(["" if v is None else str(v) for v in arr], dtype=object)
 
-            # Scatter plot
-            ax_sub.scatter(x_clean, y_clean, alpha=0.3, color="slateblue", s=s_size)
+        def _box_groups(cat_data, num_data):
+            """Numeric values grouped by category level (order preserved)."""
+            cats = _as_str(cat_data)
+            levels = list(dict.fromkeys(cats))
+            groups, kept = [], []
+            for lev in levels:
+                vals = num_data[cats == lev].astype(float)
+                vals = vals[~np.isnan(vals)]
+                if len(vals) > 0:
+                    groups.append(vals)
+                    kept.append(lev)
+            return kept, groups
 
-            # Regression line
-            if len(x_clean) > 1:
-                coeffs = np.polyfit(x_clean, y_clean, 1)
-                x_line = np.linspace(x_clean.min(), x_clean.max(), 100)
-                y_line = np.polyval(coeffs, x_line)
-                ax_sub.plot(x_line, y_line, color="blue")
+        _box_style = dict(
+            patch_artist=True,
+            widths=0.6,
+            boxprops=dict(facecolor="slateblue", alpha=0.4),
+            medianprops=dict(color="blue"),
+            flierprops=dict(marker="o", markersize=2, alpha=0.3),
+        )
 
+        def cor_plot(x_data, y_data, x_num, y_num, ax_sub, s_size):
+            # Mixed-type panels, mirroring radiant.basics plot.correlation:
+            #  numeric x numeric -> scatter + fitted line
+            #  factor  x numeric -> boxplots
+            #  factor  x factor  -> spineplot (proportional stacked bars)
             ax_sub.axes.xaxis.set_visible(False)
             ax_sub.axes.yaxis.set_visible(False)
+
+            if x_num and y_num:
+                x = x_data.astype(float)
+                y = y_data.astype(float)
+                mask = ~(np.isnan(x) | np.isnan(y))
+                x, y = x[mask], y[mask]
+                ax_sub.scatter(x, y, alpha=0.3, color="slateblue", s=s_size)
+                if len(x) > 1:
+                    coeffs = np.polyfit(x, y, 1)
+                    x_line = np.linspace(x.min(), x.max(), 100)
+                    ax_sub.plot(x_line, np.polyval(coeffs, x_line), color="blue")
+            elif y_num and not x_num:
+                _, groups = _box_groups(x_data, y_data)
+                if groups:
+                    ax_sub.boxplot(groups, vert=True, **_box_style)
+            elif x_num and not y_num:
+                _, groups = _box_groups(y_data, x_data)
+                if groups:
+                    ax_sub.boxplot(groups, vert=False, **_box_style)
+            else:
+                # Both categorical: spineplot — bar width ∝ x-level share,
+                # stacked height = conditional share of each y level.
+                xc = _as_str(x_data)
+                yc = _as_str(y_data)
+                xlevels = list(dict.fromkeys(xc))
+                ylevels = list(dict.fromkeys(yc))
+                n = len(xc)
+                shades = np.linspace(0.35, 0.85, max(len(ylevels), 1))
+                left = 0.0
+                for xl in xlevels:
+                    sub = yc[xc == xl]
+                    total = len(sub)
+                    width = total / n if n else 0
+                    bottom = 0.0
+                    for yi, yl in enumerate(ylevels):
+                        frac = (np.sum(sub == yl) / total) if total else 0
+                        ax_sub.bar(
+                            left, frac, width=width, bottom=bottom, align="edge",
+                            color=plt.cm.Blues(shades[yi]),
+                            edgecolor="white", linewidth=0.5,
+                        )
+                        bottom += frac
+                    left += width
+                ax_sub.set_xlim(0, 1)
+                ax_sub.set_ylim(0, 1)
 
         # data = self.data.to_pandas()
         data = self.data
         cn = list(data.columns)
         ncol = len(cn)
         longest = max(cn, key=len)
+        # Per-column type so the lower triangle can pick scatter / boxplot /
+        # spineplot (mirrors radiant.basics handling of factor variables).
+        is_num = {c: bool(data.schema[c].is_numeric()) for c in cn}
 
         fs = min(figsize[0], figsize[1])
         s_size = (5 * fs) / len(data.columns)
@@ -418,6 +479,8 @@ class correlation:
                     cor_plot(
                         data_np[cn[i]],
                         data_np[cn[j]],
+                        is_num[cn[i]],
+                        is_num[cn[j]],
                         axes[i, j],
                         s_size,
                     )

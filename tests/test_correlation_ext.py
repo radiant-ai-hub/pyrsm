@@ -110,3 +110,28 @@ def test_correlation_spearman_monotonic():
 
     assert np.isclose(c.cr[1, 0], 1.0)
     assert c.cp[1, 0] <= 0.05
+
+
+def test_plot_handles_categorical_variables():
+    """The correlation plot renders with mixed numeric + categorical variables
+    (scatter / boxplot / spineplot panels), replicating radiant.basics."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.figure import Figure
+
+    df = pl.DataFrame(
+        {
+            "price": [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0],
+            "carat": [0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6],
+            "clarity": ["SI", "VS", "SI", "VS", "IF", "SI", "VS", "IF"],
+            "cut": ["Fair", "Good", "Good", "Fair", "Ideal", "Ideal", "Good", "Fair"],
+        }
+    )
+    cr = correlation({"d": df}, vars=["price", "carat", "clarity", "cut"], method="polychoric")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fig = cr.plot(nobs=-1)
+    assert isinstance(fig, Figure)
+    plt.close("all")
