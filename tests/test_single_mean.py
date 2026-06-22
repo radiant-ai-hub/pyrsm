@@ -40,3 +40,35 @@ def test_single_mean_alt_hyp_greater():
     assert sm.diff == 3
     assert sm.p_val < 0.01
     assert sm.t_val > 0
+
+
+def test_single_mean_simulate_means_centered_on_comp_value():
+    rng = np.random.default_rng(42)
+    df = pl.DataFrame({"x": rng.normal(5.0, 2.0, 500)})
+    sm = single_mean(df, var="x", comp_value=4.0, alt_hyp="two-sided", conf=0.95)
+
+    sims, cutoffs = sm._simulate_means(nsim=2000)
+    assert sims.shape == (2000,)
+    # Simulated means are recentred on the comparison value (the null).
+    assert abs(float(sims.mean()) - 4.0) < 1e-9
+    # Two-sided alternative → two percentile cutoffs straddling comp_value.
+    assert len(cutoffs) == 2
+    assert cutoffs[0] < 4.0 < cutoffs[1]
+
+
+def test_single_mean_simulate_cutoffs_match_alternative():
+    rng = np.random.default_rng(7)
+    df = pl.DataFrame({"x": rng.normal(0.0, 1.0, 300)})
+    less = single_mean(df, var="x", comp_value=0.0, alt_hyp="less")
+    greater = single_mean(df, var="x", comp_value=0.0, alt_hyp="greater")
+
+    assert len(less._simulate_means()[1]) == 1
+    assert len(greater._simulate_means()[1]) == 1
+
+
+def test_single_mean_sim_plot_returns_object():
+    df = pd.DataFrame({"values": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]})
+    sm = single_mean(df, var="values", comp_value=3.0)
+    plot = sm.plot(plots="sim")
+    assert plot is not None
+    assert plot.__class__.__name__ == "ggplot"

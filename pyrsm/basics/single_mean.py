@@ -269,6 +269,45 @@ class single_mean:
         display(gt1)
         display(gt2)
 
+    def _simulate_means(self, nsim: int = 1000):
+        """Simulate the sampling distribution of the mean under the null.
+
+        Resamples the data with replacement ``nsim`` times, recentres the
+        bootstrapped means on ``comp_value`` (so the simulation reflects the
+        null hypothesis that the population mean equals ``comp_value``), and
+        returns the simulated means together with the percentile cutoffs for
+        the chosen alternative. Mirrors the ``"simulate"`` plot in
+        radiant.basics ``plot.single_mean``.
+
+        Parameters
+        ----------
+        nsim : int
+            Number of bootstrap replications (default 1000).
+
+        Returns
+        -------
+        tuple[np.ndarray, np.ndarray]
+            The simulated means and the cutoff value(s) under the null.
+        """
+        values = (
+            self.data.select(self.var).drop_nulls().to_series().to_numpy().astype(float)
+        )
+        nr = len(values)
+        rng = np.random.default_rng()
+        idx = rng.integers(0, nr, size=(nsim, nr))
+        sims = values[idx].mean(axis=1)
+        # Centre the bootstrap distribution on the comparison value so it
+        # represents sampling variability *if the null hypothesis is true*.
+        sims = (sims - sims.mean()) + self.comp_value
+        if self.alt_hyp == "two-sided":
+            probs = [(1 - self.conf) / 2, 1 - (1 - self.conf) / 2]
+        elif self.alt_hyp == "less":
+            probs = [1 - self.conf]
+        else:  # greater
+            probs = [self.conf]
+        cutoffs = np.quantile(sims, probs)
+        return sims, cutoffs
+
     def plot(
         self,
         plots: Literal["hist", "sim"] = "hist",
@@ -327,8 +366,45 @@ class single_mean:
             return p
 
         elif plots == "sim":
-            print("Plot type not available yet")
-            return None
+            import pandas as pd
+            from plotnine import aes, geom_histogram, ggplot, labs
+
+            pu = _get_plotting_utils()
+
+            sims, cutoffs = self._simulate_means()
+            data = pd.DataFrame({self.var: sims})
+            spread = float(sims.max() - sims.min())
+            bw = spread / 20 if spread > 0 else None
+
+            hist = (
+                geom_histogram(binwidth=bw, fill=pu.PlotConfig.FILL)
+                if bw
+                else geom_histogram(bins=20, fill=pu.PlotConfig.FILL)
+            )
+            p = (
+                ggplot(data, aes(x=self.var))
+                + hist
+                + labs(
+                    x="",
+                    y="Frequency",
+                    title=f"Simulated means if null hyp. is true ({self.var})",
+                )
+                + pu.PlotConfig.theme()
+            )
+
+            # red solid = comparison value (H0); black solid = observed mean;
+            # red dashed = simulated cutoffs under the null.
+            p = p + pu.ReferenceLine.vline(
+                self.comp_value, color="red", linetype="solid"
+            )
+            p = p + pu.ReferenceLine.vline(
+                float(self.mean), color="black", linetype="solid"
+            )
+            for cut in cutoffs:
+                p = p + pu.ReferenceLine.vline(
+                    float(cut), color="red", linetype="dashed"
+                )
+            return p
         else:
             print("Invalid plot type")
             return None
@@ -401,6 +477,45 @@ class single_mean:
                 hovermode="x unified",
             )
 
+            return fig
+        elif plot_type == "sim":
+            sims, cutoffs = self._simulate_means()
+
+            fig = go.Figure()
+            fig.add_trace(
+                go.Histogram(
+                    x=sims,
+                    nbinsx=20,
+                    marker_color="slateblue",
+                    opacity=0.7,
+                    name=self.var,
+                )
+            )
+            fig.add_vline(
+                x=self.comp_value,
+                line_dash="solid",
+                line_color="red",
+                annotation_text=f"H₀: {self.comp_value}",
+                annotation_position="top",
+            )
+            fig.add_vline(
+                x=float(self.mean),
+                line_dash="solid",
+                line_color="black",
+                annotation_text=f"Mean: {self.mean:.2f}",
+                annotation_position="top",
+            )
+            for cut in cutoffs:
+                fig.add_vline(
+                    x=float(cut), line_dash="dash", line_color="red", opacity=0.7
+                )
+            fig.update_layout(
+                title=f"Simulated means if null hyp. is true ({self.var})",
+                xaxis_title=self.var,
+                yaxis_title="Count",
+                showlegend=False,
+                hovermode="x unified",
+            )
             return fig
         else:
             print(f"Plotly backend does not support plot type: {plot_type}")
