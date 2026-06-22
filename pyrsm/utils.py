@@ -574,45 +574,104 @@ def polychoric_corr(x, y, inf=10):
         Estimated polychoric correlation.
     """
     from scipy.optimize import minimize_scalar
-    from scipy.stats import multivariate_normal, norm
+    from scipy.stats import norm
 
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
+    keep = ~(np.isnan(x) | np.isnan(y))
+    x, y = x[keep], y[keep]
+    n = x.size
+    if n == 0:
+        return 0.0
 
-    def _thresholds(v):
-        vals, counts = np.unique(v, return_counts=True)
-        cum = np.cumsum(counts[:-1])
-        return [-inf] + [norm.ppf(c / len(v)) for c in cum] + [inf]
-
-    x_thresh = _thresholds(x)
-    y_thresh = _thresholds(y)
-    p, m = len(x_thresh) - 1, len(y_thresh) - 1
-
-    x_map = {v: i for i, v in enumerate(np.unique(x))}
-    y_map = {v: i for i, v in enumerate(np.unique(y))}
+    # Integer-code the levels and build the contingency table in one vectorized
+    # pass (np.add.at) instead of a Python loop over every observation.
+    _, x_idx = np.unique(x, return_inverse=True)
+    _, y_idx = np.unique(y, return_inverse=True)
+    p, m = int(x_idx.max()) + 1, int(y_idx.max()) + 1
+    if p < 2 or m < 2:
+        return 0.0
     n_table = np.zeros((p, m))
-    for xi, yi in zip(x, y):
-        n_table[x_map[xi], y_map[yi]] += 1
+    np.add.at(n_table, (x_idx, y_idx), 1.0)
+
+    # Two-step thresholds from the marginals (held fixed while optimizing rho).
+    x_thresh = np.concatenate(
+        ([-inf], norm.ppf(np.cumsum(n_table.sum(axis=1))[:-1] / n), [inf])
+    )
+    y_thresh = np.concatenate(
+        ([-inf], norm.ppf(np.cumsum(n_table.sum(axis=0))[:-1] / n), [inf])
+    )
+
+    # Bivariate-normal CDF over the whole threshold grid via Sheppard's
+    # formula  Phi2(h,k,rho) = Phi(h)Phi(k) + int_0^rho phi2(h,k,t) dt,
+    # the 1-D integral approximated with fixed Gauss-Legendre nodes. This is
+    # fully vectorized in numpy (no per-point scipy CDF calls), which is what
+    # makes the optimization fast.
+    gx, gy = np.meshgrid(x_thresh, y_thresh, indexing="ij")
+    h = gx.ravel()
+    k = gy.ravel()
+    nz = n_table > 0
+    counts = n_table[nz]
+
+    gl_nodes, gl_weights = np.polynomial.legendre.leggauss(24)
+    base = norm.cdf(h) * norm.cdf(k)
+    h2k2 = h**2 + k**2
+    hk = h * k
+
+    def _phi2_grid(rho):
+        if rho == 0.0:
+            cdf = base
+        else:
+            t = 0.5 * rho * (gl_nodes + 1.0)
+            w = 0.5 * rho * gl_weights
+            omt2 = 1.0 - t**2
+            expo = -(h2k2[:, None] - 2.0 * t[None, :] * hk[:, None]) / (
+                2.0 * omt2[None, :]
+            )
+            dens = np.exp(expo) / (2.0 * np.pi * np.sqrt(omt2)[None, :])
+            cdf = base + dens @ w
+        return cdf.reshape(p + 1, m + 1)
 
     def _neg_ll(rho):
-        cov = np.array([[1.0, rho], [rho, 1.0]])
-        rv = multivariate_normal(mean=[0.0, 0.0], cov=cov, allow_singular=True)
-        ll = 0.0
-        for i in range(p):
-            for j in range(m):
-                if n_table[i, j] > 0:
-                    prob = max(
-                        rv.cdf([x_thresh[i + 1], y_thresh[j + 1]])
-                        - rv.cdf([x_thresh[i], y_thresh[j + 1]])
-                        - rv.cdf([x_thresh[i + 1], y_thresh[j]])
-                        + rv.cdf([x_thresh[i], y_thresh[j]]),
-                        1e-20,
-                    )
-                    ll += np.log(prob) * n_table[i, j]
-        return -ll
+        cdf = _phi2_grid(rho)
+        probs = cdf[1:, 1:] - cdf[:-1, 1:] - cdf[1:, :-1] + cdf[:-1, :-1]
+        probs = np.clip(probs[nz], 1e-20, None)
+        return -np.sum(counts * np.log(probs))
 
     result = minimize_scalar(_neg_ll, bounds=(-0.999, 0.999), method="bounded")
     return result.x
+
+
+def polyserial_corr(x_num, y_codes):
+    """Two-step polyserial correlation (Olsson, Drasgow & Dorans, 1982).
+
+    Correlation between a continuous variable ``x_num`` and an ordinal variable
+    given as integer ``y_codes``. Matches the default (non-ML) estimator used
+    by ``polycor::polyserial`` and is the numeric-vs-factor cell of
+    ``polycor::hetcor``. Closed-form, so it is fast.
+    """
+    from scipy.stats import norm
+
+    x = np.asarray(x_num, dtype=float)
+    y = np.asarray(y_codes, dtype=float)
+    keep = ~(np.isnan(x) | np.isnan(y))
+    x, y = x[keep], y[keep]
+    if x.size < 2 or x.std(ddof=1) == 0 or y.std(ddof=1) == 0:
+        return 0.0
+
+    r_xy = np.corrcoef(x, y)[0, 1]
+    sy = y.std(ddof=1)
+
+    # sum of normal densities at the category thresholds
+    levels = np.sort(np.unique(y))
+    cum = 0.0
+    dens_sum = 0.0
+    for lev in levels[:-1]:
+        cum += np.mean(y == lev)
+        dens_sum += norm.pdf(norm.ppf(cum))
+    if dens_sum == 0:
+        return 0.0
+    return float(np.clip(r_xy * sy / dens_sum, -1.0, 1.0))
 
 
 def polychoric_matrix(data_matrix):

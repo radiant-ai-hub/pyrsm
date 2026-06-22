@@ -4,7 +4,7 @@ import numpy as np
 import polars as pl
 
 import pyrsm.basics.display_utils as du
-from pyrsm.utils import check_dataframe, polychoric_corr, sig_stars
+from pyrsm.utils import check_dataframe, sig_stars
 
 
 @lru_cache(maxsize=1)
@@ -83,51 +83,67 @@ class correlation:
         cv = cr.copy()
 
         if method == "polychoric":
-            # Convert columns to numeric codes for polychoric correlation
-            cols = []
+            # Heterogeneous correlations, matching radiant.basics'
+            # polycor::hetcor: only factor x factor pairs use the (now
+            # vectorized) polychoric estimator, numeric x factor pairs use the
+            # fast closed-form polyserial, and numeric x numeric pairs use
+            # Pearson. This avoids running continuous columns (which have
+            # thousands of distinct "levels") through the polychoric optimizer.
+            from pyrsm.utils import polychoric_corr, polyserial_corr
+
+            codes, is_cat = [], []
             for col_name in self.vars:
                 col = self.data[col_name]
-                if col.dtype == pl.String or isinstance(
+                cat = col.dtype == pl.String or isinstance(
                     col.dtype, (pl.Categorical, pl.Enum)
-                ):
+                )
+                if cat:
                     numeric = col.cast(pl.Categorical).to_physical().cast(pl.Float64)
                 else:
                     numeric = col.cast(pl.Float64)
-                cols.append(numeric.to_numpy())
+                codes.append(numeric.to_numpy())
+                is_cat.append(cat)
 
-            data_matrix = np.column_stack(cols)
+            mat = np.column_stack(codes)
+            cr = np.eye(ncol)
             for i in range(ncol - 1):
                 for j in range(i + 1, ncol):
-                    r = polychoric_corr(data_matrix[:, i], data_matrix[:, j])
-                    cr[i, j] = r
-                    cr[j, i] = r
+                    xi, xj = mat[:, i], mat[:, j]
+                    ci, cj = is_cat[i], is_cat[j]
+                    if ci and cj:
+                        r = polychoric_corr(xi, xj)
+                    elif ci:
+                        r = polyserial_corr(xj, xi)
+                    elif cj:
+                        r = polyserial_corr(xi, xj)
+                    else:
+                        keep = ~(np.isnan(xi) | np.isnan(xj))
+                        r = (
+                            np.corrcoef(xi[keep], xj[keep])[0, 1]
+                            if keep.sum() > 1
+                            else np.nan
+                        )
+                    cr[i, j] = cr[j, i] = r
             # p-values and covariance are not available for polychoric
         else:
-            for i in range(ncol - 1):
-                for j in range(i + 1, ncol):
-                    x = self.data.select(self.vars[i]).to_series().to_numpy()
-                    y = self.data.select(self.vars[j]).to_series().to_numpy()
-                    mask = ~(np.isnan(x) | np.isnan(y))
-                    x = x[mask]
-                    y = y[mask]
-                    if x.dtype == bool:
-                        x = x.astype(int)
-                    if y.dtype == bool:
-                        y = y.astype(int)
-                    stats = _get_scipy_stats()
-                    if self.method == "spearman":
-                        c = stats.spearmanr(x, y)
-                    elif self.method == "kendall":
-                        c = stats.kendalltau(x, y)
-                    else:
-                        c = stats.pearsonr(x, y)
+            # Vectorized matrix correlation with pairwise-complete handling and
+            # p-values from the t-test approximation, matching radiant's
+            # psych::corr.test + cov() instead of a Python pairwise loop (orders
+            # of magnitude faster for wide/large data).
+            import pandas as pd
 
-                    cr[j, i] = c[0]
-                    cp[j, i] = c[1]
-                    cv[j, i] = np.cov(x, y, ddof=1)[0, 1]
-                    cr[i, j] = cr[j, i]
-                    cp[i, j] = cp[j, i]
-                    cv[i, j] = cv[j, i]
+            stats = _get_scipy_stats()
+            pdf = self.data.to_pandas()
+            cr = pdf.corr(method=method).to_numpy()
+            cv = pdf.cov().to_numpy()
+            notna = pdf.notna().to_numpy().astype(float)
+            n_pair = notna.T @ notna  # pairwise-complete observation counts
+            with np.errstate(divide="ignore", invalid="ignore"):
+                dof = n_pair - 2.0
+                tval = cr * np.sqrt(dof / (1.0 - cr**2))
+                cp = 2.0 * stats.t.sf(np.abs(tval), dof)
+            cp = np.where(np.isfinite(cp), cp, 0.0)
+            np.fill_diagonal(cp, 0.0)
 
         self.cr = cr
         self.cp = cp
