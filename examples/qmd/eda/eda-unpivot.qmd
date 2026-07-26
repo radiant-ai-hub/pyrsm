@@ -3,6 +3,11 @@ title: Unpivot (Melt) Examples
 jupyter: python3
 ---
 
+<!-- pyrsm-teaching-note: roadmap -->
+## Teaching Roadmap
+
+Use this notebook to teach tidy data. Unpivoting moves repeated measurement columns into rows so the same plotting or modeling command can work across variables. Ask students to name the identifier columns, the new variable-name column, and the new value column before running the code.
+
 
 This notebook demonstrates the `/unpivot` verb for converting wide-format data to long-format.
 

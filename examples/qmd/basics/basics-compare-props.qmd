@@ -7,6 +7,11 @@ jupyter: pyrsm-venv
 
 <div class="alert alert-info">Compare proportions for two or more groups in the data</div>
 
+
+<!-- pyrsm-teaching-note: roadmap -->
+## Teaching Roadmap
+
+Use this notebook to teach how proportions depend on a clearly defined numerator, denominator, and event level. Have students compare raw counts, conditional percentages, confidence intervals, and p-values before writing a conclusion. The main habit to build is reading the direction of the comparison from the selected levels rather than from the p-value alone.
 The compare proportions test is used to evaluate if the frequency of occurrence of some event, behavior, intention, etc. differs across groups. The null hypothesis for the difference in proportions across groups in the population is set to zero. We test this hypothesis using sample data.
 
 We can perform either a one-tailed test (i.e., `less` or `greater`) or a two-tailed test (`two-sided`). A one-tailed test is useful if we want to evaluate if the available sample data suggest that, for example, the proportion of dropped calls is larger (or smaller) for one wireless service provider compared to others.

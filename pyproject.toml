@@ -36,6 +36,8 @@ dependencies = [
     "ipykernel>=6.29.5",
     "pip>=25.3",
     "certifi>=2025.11.12",
+    "adjusttext>=1.4.0",
+    "pulp>=3.3.2",
 ]
 
 [project.optional-dependencies]

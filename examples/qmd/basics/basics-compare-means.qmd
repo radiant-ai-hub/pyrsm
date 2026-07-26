@@ -6,6 +6,11 @@ jupyter: python3
 
 <div class="alert alert-info">Compare the means of two or more variables or groups in the data</div>
 
+
+<!-- pyrsm-teaching-note: roadmap -->
+## Teaching Roadmap
+
+Use this notebook to connect a business question to a formal comparison of means. Students should be able to identify the response variable, the grouping variable, the null and alternative hypotheses, the test statistic, the p-value, and the confidence interval. Emphasize that statistical significance answers whether the observed difference is surprising under the null, while practical significance asks whether the difference is large enough to matter.
 The compare means t-test is used to compare the mean of a variable in one group to the mean of the same variable in one, or more, other groups. The null hypothesis for the difference between the groups in the population is set to zero. We test this hypothesis using sample data.
 
 We can perform either a one-tailed test (i.e., `less than` or `greater than`) or a two-tailed test (see the ‘Alternative hypothesis’ dropdown). We use one-tailed tests to evaluate if the available data provide evidence that the difference in sample means between groups is less than (or greater than ) zero.

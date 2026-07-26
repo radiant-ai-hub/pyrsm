@@ -6,6 +6,11 @@ jupyter: python3
 
 <div class="alert alert-info">Combine datasets using joins and set operations</div>
 
+
+<!-- pyrsm-teaching-note: roadmap -->
+## Teaching Roadmap
+
+Use this notebook to teach joins as explicit assumptions about keys. Students should predict row counts before each join, identify unmatched records after the join, and check whether duplicated keys create extra rows. The goal is to make data combining auditable instead of treating it as a black box.
 This notebook demonstrates how to combine datasets using various join operations and set operations. We use the `superheroes`, `publishers`, and `avengers` datasets to illustrate these concepts.
 
 

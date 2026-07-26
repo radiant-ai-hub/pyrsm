@@ -12,6 +12,7 @@ pl.Config.set_tbl_width_chars(200)
 
 _LAZY_MODULES = {
     "basics": "pyrsm.basics",
+    "decide": "pyrsm.decide",
     "model": "pyrsm.model",
     "multivariate": "pyrsm.multivariate",
     "eda": "pyrsm.eda",

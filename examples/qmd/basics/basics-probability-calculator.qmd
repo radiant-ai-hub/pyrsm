@@ -6,6 +6,11 @@ jupyter: pyrsm-venv
 
 <div class="alert alert-info">Simplify probability and value calculations using the Probability Calculator</div>
 
+
+<!-- pyrsm-teaching-note: roadmap -->
+## Teaching Roadmap
+
+Use this notebook as the bridge between probability distributions and statistical tests. The shaded area in each plot can represent a probability, a p-value, or a rejection region depending on the inputs. Have students change the tails and confidence level to see how critical values move.
 Calculate probabilities or values based on the Binomial, Chi-squared, Discrete, F, Exponential, Normal, Poisson, t, or Uniform distribution.
 
 

@@ -1,6 +1,12 @@
 ---
+title: State > Save and Load State
 jupyter: python3
 ---
+
+<!-- pyrsm-teaching-note: state-roadmap -->
+## Teaching Roadmap
+
+Use this notebook to teach reproducibility and workflow management. Students should understand what is saved, where it is saved, why some Python objects cannot be pickled, and why it is usually better to save a small dictionary of needed objects than the entire global environment.
 
 ```{python}
 #| tags: []
@@ -13,6 +19,12 @@ z = x - y
 #| tags: []
 import pyrsm as rsm
 ```
+
+
+<!-- pyrsm-teaching-note: state-save-globals -->
+### Saving the current environment
+
+`globals()` contains all objects currently defined in the notebook session. Saving it is convenient for demonstrations, but it can also capture temporary objects that are not needed later. For production work, prefer saving the specific objects required to continue the analysis.
 
 ```{python}
 rsm.notebook.save_state(globals(), "save-load.state.pkl")
@@ -30,6 +42,12 @@ except Exception as err:
 ```
 
 Use `rsm.notebook.load_state` to either return a dictionary of the objects you stored, or add them to `globals()` for easy access
+
+
+<!-- pyrsm-teaching-note: state-load-globals -->
+### Loading back into the notebook
+
+Passing `globals()` to `load_state` restores the saved names directly into the active notebook environment. That is useful when continuing an analysis, but students should recognize that it changes the session state rather than returning a visible table.
 
 ```{python}
 rsm.notebook.load_state("save-load.state.pkl", globals())
@@ -59,6 +77,17 @@ except Exception as err:
 ```{python}
 rsm.notebook.load_state("objects-to-keep.state.pkl")
 ```
+
+<!-- pyrsm-teaching-note: state-returned-dict -->
+### Inspecting a returned state dictionary
+
+When `load_state` is called without `globals()`, it returns a dictionary. This is often safer because students can inspect the restored object names before deciding what to put back into the notebook environment.
+
+```{python}
+restored = rsm.notebook.load_state("objects-to-keep.state.pkl")
+list(restored.keys())
+```
+
 
 ```{python}
 # cleaning up ...

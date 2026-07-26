@@ -7,6 +7,11 @@ jupyter: python3
 <div class="alert alert-info">Estimate a Logistic regression model for binary classification</div>
 
 
+
+<!-- pyrsm-teaching-note: roadmap -->
+## Teaching Roadmap
+
+Use this notebook to teach binary classification with an interpretable model. Logistic regression models the log-odds of the selected event level, so coefficients are easiest to discuss as odds ratios and predictions are easiest to discuss as probabilities. Students should distinguish statistical evidence about a coefficient from predictive usefulness.
 ```{python}
 import polars as pl
 import pyrsm as rsm
@@ -71,12 +76,24 @@ levels = titanic["pclass"].dtype.categories.to_list()
 levels
 ```
 
+
+<!-- pyrsm-teaching-note: logistic-summary -->
+### Logistic regression output
+
+The fitted model estimates survival probabilities through log-odds. In the coefficient table, signs indicate whether a predictor increases or decreases the log-odds of survival relative to the reference level. The odds-ratio plot below translates those effects onto a scale that is usually easier to explain.
+
 ```{python}
 clf = rsm.model.logistic(
     {"titanic": titanic}, rvar="survived", lev="Yes", evar=["pclass", "sex", "age"]
 )
 clf.summary()
 ```
+
+
+<!-- pyrsm-teaching-note: logistic-predictions -->
+### Reading predictions
+
+Prediction output is row-level. For classification models, `prediction` is the estimated probability of the selected event level, not a hard class label. For regression models, it is the fitted numeric outcome. Use predictions for ranking, scoring, and scenario analysis, but evaluate them on data that were not used to choose the model whenever possible.
 
 ```{python}
 pred = clf.predict(ci=True)
@@ -89,6 +106,12 @@ clf.summary(test="pclass")
 
 In addition to the numerical output provided in the _Summary_ tab we can also evaluate the link between `survival`, `class`, `sex`, and `age` visually (see _Plot_ tab). In the screenshot below we see a coefficient (or rather an odds-ratio) plot with confidence intervals. The relative importance of gender and class compared to age clearly stands out. Note: click the check box for standardized coefficients (i.e., `standardize`) in the _Summary_ tab and see if your conclusion changes.
 
+
+<!-- pyrsm-teaching-note: logistic-odds -->
+### Odds ratios
+
+An odds ratio above 1 means the odds of the selected event level are higher than the reference case; below 1 means they are lower. Confidence intervals that include 1 are consistent with no change in odds at the selected confidence level. Odds ratios are not the same as probability differences, especially when baseline probabilities are high or low.
+
 ```{python}
 clf.plot(plots="or")
 ```
@@ -100,6 +123,12 @@ clf.plot("dist")
 ```{python}
 clf.plot(plots="corr")
 ```
+
+
+<!-- pyrsm-teaching-note: logistic-pdp -->
+### Interpreting PDP, ICE, and PIP
+
+Permutation importance (PIP) asks how much model performance changes when one variable is shuffled. Partial dependence plots (PDP) show the average predicted outcome as one variable changes while other variables are held at their observed values. ICE curves show the same relationship one observation at a time, which helps reveal heterogeneity that an average PDP can hide.
 
 ```{python}
 clf.plot("pdp")

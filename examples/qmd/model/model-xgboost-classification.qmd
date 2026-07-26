@@ -7,6 +7,11 @@ jupyter: python3
 <div class="alert alert-info">Estimate and tune an XGBoost model for binary classification</div>
 
 
+
+<!-- pyrsm-teaching-note: roadmap -->
+## Teaching Roadmap
+
+Use this notebook to teach gradient boosting for classification. XGBoost builds trees sequentially, with each new tree focusing on errors left by earlier trees. Students should watch how `n_estimators`, `max_depth`, `learning_rate`, and regularization control the trade-off between flexibility and overfitting.
 ```{python}
 import os
 
@@ -46,6 +51,12 @@ rsm.md("https://raw.githubusercontent.com/radiant-ai-hub/pyrsm/refs/heads/main/e
 evar = ["pclass", "sex", "age", "sibsp", "parch", "fare"]
 ```
 
+
+<!-- pyrsm-teaching-note: xgb-clf-model -->
+### XGBoost model
+
+XGBoost is a boosted-tree model: trees are added sequentially, and each new tree focuses on remaining prediction errors. This can produce strong predictions with small or messy datasets, but it can also overfit when trees are too deep, learning is too fast, or too many trees are used.
+
 ```{python}
 clf_xgb = rsm.model.xgboost(
     {"titanic": titanic},
@@ -60,6 +71,12 @@ clf_xgb = rsm.model.xgboost(
 )
 clf_xgb.summary()
 ```
+
+
+<!-- pyrsm-teaching-note: xgb-clf-pdp -->
+### Interpreting PDP, ICE, and PIP
+
+Permutation importance (PIP) asks how much model performance changes when one variable is shuffled. Partial dependence plots (PDP) show the average predicted outcome as one variable changes while other variables are held at their observed values. ICE curves show the same relationship one observation at a time, which helps reveal heterogeneity that an average PDP can hide.
 
 ```{python}
 clf_xgb.plot("pdp")
@@ -96,8 +113,6 @@ clf_xgb.predict()
 ```
 
 In addition to the numerical output provided in the _Summary_ tab we can also evaluate the link between `survival`, `class`, `sex`, and `age` visually (see _Plot_ tab).
-
-## Tuning an XGBoost classification model
 
 ## Tuning an XGBoost model
 
@@ -141,6 +156,12 @@ clf_xgb.summary()
 titanic = titanic.with_columns(pred_xgb=clf_xgb.predict(titanic).get_column("prediction"))
 titanic
 ```
+
+
+<!-- pyrsm-teaching-note: xgb-clf-gains -->
+### Reading gains plots
+
+A gains plot ranks observations by predicted probability and asks how quickly the model finds the positive class. A strong model lifts positives into the top-ranked groups. Always compare train and test curves: a large gap means the model learned patterns that may not generalize.
 
 ```{python}
 dct = {
@@ -193,6 +214,12 @@ else:
 # same functionality as the cell above but with less typing
 cv = rsm.model.cross_validation(clf_xgb, "clf-xgb", param_grid, scoring)
 ```
+
+
+<!-- pyrsm-teaching-note: xgb-clf-cv -->
+### Reading cross-validation output
+
+Cross-validation estimates how a model setting is expected to perform on new data by repeatedly fitting on training folds and scoring on held-out folds. `best_params_` reports the hyperparameter combination with the best validation score, while `cv_results_` shows the full ranking and helps reveal whether the winner is clearly better or only marginally different.
 
 ```{python}
 cv.best_params_

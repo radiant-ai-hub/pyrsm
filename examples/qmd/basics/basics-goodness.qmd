@@ -7,6 +7,11 @@ jupyter: pyrsm-venv
 
 <div class="alert alert-info">Evaluate the discrete distribution of a categorical variable</div>
 
+
+<!-- pyrsm-teaching-note: roadmap -->
+## Teaching Roadmap
+
+Use this notebook to teach how observed counts are compared with a specified reference distribution. Students should inspect expected counts, chi-square contributions, degrees of freedom, and the p-value. A useful class exercise is to ask which category contributes most to rejecting the null hypothesis.
 A goodness of fit test is a statistical hypothesis test that compares observed data with the expected data according to a specific model or distribution. It is used to determine if the sample data is a good fit to the expected theoretical or expected distribution.
 
 The test essentially evaluates whether there is a significant difference between the observed frequency and the expected frequency in one or more categories of a contingency or frequency table. The expected frequency is what we would expect to observe if the null hypothesis of no difference is true.

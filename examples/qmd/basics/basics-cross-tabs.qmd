@@ -7,6 +7,11 @@ jupyter: pyrsm-venv
 
 <div class="alert alert-info">Evaluate associations between two categorical variables</div>
 
+
+<!-- pyrsm-teaching-note: roadmap -->
+## Teaching Roadmap
+
+Use this notebook to teach the difference between counts, row percentages, column percentages, and expected counts. The chi-square test asks whether two categorical variables are independent; the table and plot show where the association is coming from. Ask students to write conclusions in terms of conditional percentages, not just the test result.
 Cross-tab analysis is used to evaluate if categorical variables are associated. This tool is also known as chi-square or contingency table analysis
 
 ```{python}

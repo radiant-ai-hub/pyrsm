@@ -5,6 +5,11 @@ jupyter: python3
 
 <div class="alert alert-info">Profile variables, inspect missingness, scan associations, and flag outliers.</div>
 
+
+<!-- pyrsm-teaching-note: roadmap -->
+## Teaching Roadmap
+
+Use this notebook as the first pass before modeling. Students should profile variables, inspect missingness, scan associations, and flag outliers before deciding what to plot or model. The important habit is to turn diagnostic tables into next actions: clean, transform, segment, or investigate.
 These helpers return regular Polars DataFrames, so you can filter, sort, join, or pipe them into other pyrsm EDA tools.
 
 ```{python}

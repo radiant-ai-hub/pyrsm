@@ -272,6 +272,13 @@ class correlation:
                 if cov:
                     print("\nCovariance matrix:")
                     print(cvs_display)
+            elif cov:
+                print("\nCovariance matrix:")
+                print(
+                    "Not available for the polychoric method. Heterogeneous "
+                    "correlations are estimated from latent variables, so a "
+                    "covariance matrix on the original scale is not defined."
+                )
 
     def _style_tables(self, cov: bool = False, cutoff: float = 0, dec: int = 2) -> None:
         """Display styled tables using great_tables in Jupyter."""
@@ -301,6 +308,17 @@ class correlation:
                     subtitle="",
                 )
                 display(gt3)
+        elif cov:
+            from IPython.display import Markdown
+
+            display(
+                Markdown(
+                    "**Covariance Matrix:** Not available for the polychoric "
+                    "method. Heterogeneous correlations are estimated from "
+                    "latent variables, so a covariance matrix on the original "
+                    "scale is not defined."
+                )
+            )
 
     def plot(self, nobs: int = 1000, dec: int = 2, figsize: tuple[float, float] = None):
         """

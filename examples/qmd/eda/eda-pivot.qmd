@@ -6,6 +6,11 @@ jupyter: python3
 
 <div class="alert alert-info">Create pivot tables, frequency tables, and crosstabs</div>
 
+
+<!-- pyrsm-teaching-note: roadmap -->
+## Teaching Roadmap
+
+Use this notebook to teach how a pivot table changes the unit of analysis. Students should identify the row variable, column variable, values variable, and aggregation function. A useful check is whether each displayed number is a count, total, mean, or percentage.
 The `pivot` function creates frequency tables for a single variable or crosstabs for two variables. It supports various aggregation functions, normalization, and totals.
 
 

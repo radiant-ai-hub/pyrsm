@@ -7,6 +7,11 @@ jupyter: python3
 <div class="alert alert-info">Estimate and tune a Multi-Layer Perceptron model for regression</div>
 
 
+
+<!-- pyrsm-teaching-note: roadmap -->
+## Teaching Roadmap
+
+Use this notebook to teach neural networks for regression as flexible function approximators. Students should compare the MLP to simpler regression and tree-based models, then ask whether the extra flexibility improves validation performance enough to justify the loss of direct coefficient interpretation.
 ```{python}
 #| tags: []
 import os
@@ -44,6 +49,12 @@ catalog
 rsm.md("https://raw.githubusercontent.com/radiant-ai-hub/pyrsm/refs/heads/main/examples/data/model/catalog_description.md")
 ```
 
+
+<!-- pyrsm-teaching-note: mlp-reg-model -->
+### MLP regression output
+
+An MLP regression model predicts a continuous outcome after learning nonlinear transformations of the predictors. It can fit complex patterns, but it does not provide coefficient-level explanations. Use it as a predictive benchmark and interpret it through validation metrics, residual diagnostics, PIP, PDP, and ICE.
+
 ```{python}
 reg_mlp = rsm.model.mlp(
     {"catalog": catalog}, rvar="Sales", evar=["Income", "HH_size", "Age"], mod_type="regression"
@@ -53,6 +64,12 @@ reg_mlp = rsm.model.mlp(
 ```{python}
 reg_mlp.summary()
 ```
+
+
+<!-- pyrsm-teaching-note: mlp-reg-pdp -->
+### Interpreting PDP, ICE, and PIP
+
+Permutation importance (PIP) asks how much model performance changes when one variable is shuffled. Partial dependence plots (PDP) show the average predicted outcome as one variable changes while other variables are held at their observed values. ICE curves show the same relationship one observation at a time, which helps reveal heterogeneity that an average PDP can hide.
 
 ```{python}
 reg_mlp.plot("pdp")
@@ -256,103 +273,11 @@ else:
     rsm.notebook.save_state({"cv": cv}, cv_file)
 ```
 
-```{python}
-cv.best_params_
-```
 
-```{python}
-cv.best_score_
-```
+<!-- pyrsm-teaching-note: mlp-reg-cv -->
+### Reading cross-validation output
 
-```{python}
-pl.DataFrame(cv.cv_results_).sort("rank_test_r2").head()
-```
-
-After finding the optimal parameters, we can build a new model with these tuned parameters and compare its performance to our original model. Looking at the gains charts for both the training and test sets helps us evaluate overfitting while maintaining good predictive performance.
-
-The cross validation results show that slightly different parameter values perform best with this particular dataset compared to the defaults. This demonstrates the value of parameter tuning, though the magnitude of improvement will vary by application.
-
-```{python}
-cv.best_params_
-```
-
-```{python}
-reg_mlpcv = rsm.model.mlp(
-    data={"diamonds (train)": diamonds.filter(pl.col("training") == 1)},
-    rvar="price",
-    evar=["carat", "clarity", "cut", "color"],
-    random_state=1234,
-    mod_type="regression",
-    **cv.best_params_,
-)
-reg_mlpcv.summary()
-```
-
-```{python}
-diamonds = diamonds.with_columns(
-    training=rsm.model.make_train(diamonds, test_size=0.3, random_state=1234)
-)
-```
-
-```{python}
-diamonds = diamonds.with_columns(
-    training=rsm.model.make_train(diamonds, test_size=0.3, random_state=1234)
-)
-```
-
-```{python}
-reg_mlp = rsm.model.mlp(
-    data={"diamonds (train)": diamonds.filter(pl.col("training") == 1)},
-    rvar="price",
-    evar=["carat", "clarity", "cut", "color"],
-    mod_type="regression",
-)
-reg_mlp.summary()
-```
-
-```{python}
-diamonds = diamonds.with_columns(pred_nn=reg_mlp.predict(diamonds).get_column("prediction"))
-diamonds
-```
-
-The initial model used default parameters. Let's evaluate different combinations of parameters using grid search cross validation. We'll try:
-
-- hidden_layer_sizes: 1 to 10 neurons in a single hidden layer
-- alpha: regularization parameter from 0.0 to 1.0 (in steps of 0.1)
-
-We'll use the R-squared to evaluate performance:
-
-```{python}
-hls = [(i,) for i in range(1, 11)]
-param_grid = {"hidden_layer_sizes": hls, "alpha": pl.linear_space(0, 1, num_samples=11, eager=True).round(1).to_list()}
-scoring = {"r2": "r2"}
-param_grid
-```
-
-```{python}
-cv_file = "cv-objects/reg-nn-cross-validation-object.pkl"
-if os.path.exists(cv_file):
-    cv = rsm.notebook.load_state(cv_file)["cv"]
-else:
-    folds = KFold(n_splits=5, shuffle=True, random_state=1234)
-    cv = GridSearchCV(
-        reg_mlp.fitted,
-        param_grid,
-        scoring=scoring,
-        cv=folds,
-        n_jobs=4,
-        refit=list(scoring.keys())[0],
-        verbose=1,
-    ).fit(reg_mlp.data_onehot, reg_mlp.data.price)
-    if not os.path.exists("cv-objects"):
-        os.mkdir("cv-objects")
-    rsm.notebook.save_state({"cv": cv}, cv_file)
-```
-
-```{python}
-# same functionality as the cell above but less typing
-cv = rsm.model.cross_validation(reg_mlp, "reg-nn", param_grid, scoring)
-```
+Cross-validation estimates how a model setting is expected to perform on new data by repeatedly fitting on training folds and scoring on held-out folds. `best_params_` reports the hyperparameter combination with the best validation score, while `cv_results_` shows the full ranking and helps reveal whether the winner is clearly better or only marginally different.
 
 ```{python}
 cv.best_params_
@@ -366,107 +291,12 @@ cv.best_score_
 pl.DataFrame(cv.cv_results_).sort("rank_test_r2").head()
 ```
 
-After finding the optimal parameters, we can build a new model with these tuned parameters and compare its performance to our original model. Looking at the gains charts for both the training and test sets helps us evaluate overfitting while maintaining good predictive performance.
+After finding the optimal parameters, we can build a new model with these tuned parameters and compare its performance to our original model. For regression, compare validation metrics and train/test prediction errors to evaluate overfitting while maintaining good predictive performance.
 
 The cross validation results show that slightly different parameter values perform best with this particular dataset compared to the defaults. This demonstrates the value of parameter tuning, though the magnitude of improvement will vary by application.
 
 ```{python}
 cv.best_params_
-```
-
-```{python}
-# cross_validation function simplifies the process of cross-validation
-# on pyrsm ml models
-# use ?rsm.model.cross_validation for more details
-cv = rsm.model.cross_validation(reg_mlp, "reg-nn", param_grid)
-```
-
-```{python}
-reg_mlpcv = rsm.model.mlp(
-    data={"diamonds (train)": diamonds.filter(pl.col("training") == 1)},
-    rvar="price",
-    evar=["carat", "clarity", "cut", "color"],
-    random_state=1234,
-    mod_type="regression",
-    **cv.best_params_,
-)
-reg_mlpcv.summary()
-```
-
-```{python}
-reg_mlp = rsm.model.mlp(
-    data={"diamonds (train)": diamonds.filter(pl.col("training") == 1)},
-    rvar="price",
-    evar=["carat", "clarity", "cut", "color"],
-    mod_type="regression",
-)
-reg_mlp.summary()
-```
-
-```{python}
-diamonds = diamonds.with_columns(pred_nn=reg_mlp.predict(diamonds).get_column("prediction"))
-diamonds
-```
-
-The initial model used default parameters. Let's evaluate different combinations of parameters using grid search cross validation. We'll try:
-
-- hidden_layer_sizes: 1 to 10 neurons in a single hidden layer
-- alpha: regularization parameter from 0.0 to 1.0 (in steps of 0.1)
-
-We'll use the R-squared to evaluate performance:
-
-```{python}
-hls = [(i,) for i in range(1, 11)]
-param_grid = {"hidden_layer_sizes": hls, "alpha": pl.linear_space(0, 1, 11, eager=True).round(1).to_list()}
-scoring = {"r2": "r2"}
-param_grid
-```
-
-```{python}
-cv_file = "cv-objects/reg-nn-cross-validation-object.pkl"
-if os.path.exists(cv_file):
-    cv = rsm.notebook.load_state(cv_file)["cv"]
-else:
-    folds = KFold(n_splits=5, shuffle=True, random_state=1234)
-    cv = GridSearchCV(
-        reg_mlp.fitted,
-        param_grid,
-        scoring=scoring,
-        cv=folds,
-        n_jobs=4,
-        refit=list(scoring.keys())[0],
-        verbose=1,
-    ).fit(reg_mlp.data_onehot, reg_mlp.data.get_column("price"))
-    if not os.path.exists("cv-objects"):
-        os.mkdir("cv-objects")
-    rsm.notebook.save_state({"cv": cv}, cv_file)
-```
-
-```{python}
-cv.best_params_
-```
-
-```{python}
-cv.best_score_
-```
-
-```{python}
-pl.DataFrame(cv.cv_results_).sort("rank_test_r2").head()
-```
-
-After finding the optimal parameters, we can build a new model with these tuned parameters and compare its performance to our original model. Looking at the gains charts for both the training and test sets helps us evaluate overfitting while maintaining good predictive performance.
-
-The cross validation results show that slightly different parameter values perform best with this particular dataset compared to the defaults. This demonstrates the value of parameter tuning, though the magnitude of improvement will vary by application.
-
-```{python}
-cv.best_params_
-```
-
-```{python}
-# cross_validation function simplifies the process of cross-validation
-# on pyrsm ml models
-# use ?rsm.model.cross_validation for more details
-cv = rsm.model.cross_validation(reg_mlp, "reg-nn", param_grid)
 ```
 
 ```{python}

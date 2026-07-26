@@ -9,6 +9,11 @@ jupyter: pyrsm-venv
 <div class="alert alert-info">How correlated are the variables in the data?</div>
 
 
+
+<!-- pyrsm-teaching-note: roadmap -->
+## Teaching Roadmap
+
+Use this notebook to separate visual association from numeric correlation. Students should inspect scatter plots first, then read the correlation coefficient as the strength and direction of a linear relationship. Discuss why outliers, nonlinear patterns, and restricted ranges can change the interpretation even when the p-value is small.
 Create a correlation matrix of selected numeric variables (`int` or `float`). Correlations and p.values are provided for each variable pair. 
 
 ```{python}

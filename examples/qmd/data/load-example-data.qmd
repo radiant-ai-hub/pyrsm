@@ -3,6 +3,11 @@ title: Loading example data sets from the pyrsm package
 jupyter: python3
 ---
 
+<!-- pyrsm-teaching-note: roadmap -->
+## Teaching Roadmap
+
+Use this notebook to show how every example starts: load a dataset, read its data dictionary, inspect the schema, and verify that the data match the question. Students should leave with the habit of checking variable definitions before modeling or plotting.
+
 ```{python}
 import polars as pl
 import pyrsm as rsm
@@ -16,6 +21,16 @@ For example, to load the `catalog` data set from example 1 (https://radiant-rsta
 catalog = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/model/catalog.parquet")
 catalog
 ```
+
+<!-- pyrsm-teaching-note: data-profile-example -->
+### Quick structure check
+
+After loading a dataset, inspect variable types and missingness before using it in an example. This small profile gives students a compact view of what each column represents operationally.
+
+```{python}
+rsm.eda.profile(catalog).select(["variable", "type", "n_missing", "n_unique"]).head()
+```
+
 
 ```{python}
 rsm.md("https://raw.githubusercontent.com/radiant-ai-hub/pyrsm/refs/heads/main/examples/data/model/catalog_description.md")

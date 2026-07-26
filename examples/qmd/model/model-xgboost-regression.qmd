@@ -7,6 +7,11 @@ jupyter: python3
 <div class="alert alert-info">Estimate and tune an XGBoost model for regression</div>
 
 
+
+<!-- pyrsm-teaching-note: roadmap -->
+## Teaching Roadmap
+
+Use this notebook to teach boosted trees for prediction problems with nonlinear patterns. XGBoost can fit complex relationships, but that flexibility makes validation essential. Students should use train/test performance, cross-validation rankings, and dependence plots together instead of treating any one output as definitive.
 ```{python}
 #| tags: []
 import os
@@ -44,6 +49,12 @@ catalog
 rsm.md("https://raw.githubusercontent.com/radiant-ai-hub/pyrsm/refs/heads/main/examples/data/model/catalog_description.md")
 ```
 
+
+<!-- pyrsm-teaching-note: xgb-reg-model -->
+### XGBoost regression output
+
+For regression, XGBoost predicts a numeric outcome by adding many small tree corrections. The model can fit curves and interactions that a linear regression misses, but validation determines whether that extra flexibility is useful or merely fitting noise.
+
 ```{python}
 reg_xgb = rsm.model.xgboost(
     {"catalog": catalog}, rvar="Sales", evar=["Income", "HH_size", "Age"], mod_type="regression"
@@ -53,6 +64,12 @@ reg_xgb = rsm.model.xgboost(
 ```{python}
 reg_xgb.summary()
 ```
+
+
+<!-- pyrsm-teaching-note: xgb-reg-pdp -->
+### Interpreting PDP, ICE, and PIP
+
+Permutation importance (PIP) asks how much model performance changes when one variable is shuffled. Partial dependence plots (PDP) show the average predicted outcome as one variable changes while other variables are held at their observed values. ICE curves show the same relationship one observation at a time, which helps reveal heterogeneity that an average PDP can hide.
 
 ```{python}
 reg_xgb.plot("pdp")
@@ -276,6 +293,12 @@ else:
 cv = rsm.model.cross_validation(reg_xgb, "reg-xgb", param_grid)
 ```
 
+
+<!-- pyrsm-teaching-note: xgb-reg-cv -->
+### Reading cross-validation output
+
+Cross-validation estimates how a model setting is expected to perform on new data by repeatedly fitting on training folds and scoring on held-out folds. `best_params_` reports the hyperparameter combination with the best validation score, while `cv_results_` shows the full ranking and helps reveal whether the winner is clearly better or only marginally different.
+
 ```{python}
 cv.best_params_
 ```
@@ -288,7 +311,7 @@ cv.best_score_
 pl.DataFrame(cv.cv_results_).sort("rank_test_r2").head()
 ```
 
-After finding the optimal parameters, we can build a new model with these tuned parameters and compare its performance to our original model. Looking at the gains charts for both the training and test sets helps us evaluate overfitting while maintaining good predictive performance.
+After finding the optimal parameters, we can build a new model with these tuned parameters and compare its performance to our original model. For regression, compare validation metrics and train/test prediction errors to evaluate overfitting while maintaining good predictive performance.
 
 The cross validation results show that slightly different parameter values perform best with this particular dataset compared to the defaults. This demonstrates the value of parameter tuning, though the magnitude of improvement will vary by application.
 

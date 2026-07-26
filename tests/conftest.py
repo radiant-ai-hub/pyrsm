@@ -9,6 +9,59 @@ import pytest
 pl.disable_string_cache()
 
 DATA_BASE = Path(__file__).resolve().parents[1] / "examples" / "data"
+MV_REF_BASE = Path(__file__).resolve().parent / "reference" / "radiant_multivariate"
+
+
+# ---------------------------------------------------------------------------
+# multivariate helpers (reference fixtures generated from radiant.multivariate)
+# ---------------------------------------------------------------------------
+
+
+def mv_load_dataset(name: str) -> pl.DataFrame:
+    """Load a multivariate example dataset as Polars (Enum order preserved)."""
+    p = DATA_BASE / "multivariate" / f"{name}.parquet"
+    if not p.exists():
+        p = DATA_BASE / "model" / f"{name}.parquet"  # diamonds, etc.
+    return pl.read_parquet(p)
+
+
+def mv_load_ref(name: str) -> dict:
+    """Load a reference JSON fixture produced by the R generator."""
+    import json
+
+    return json.loads((MV_REF_BASE / f"{name}.json").read_text())
+
+
+def mv_mat(d: dict) -> np.ndarray:
+    """Reshape a serialized (flat, row-major) matrix fixture into an ndarray."""
+    return np.array(d["values"], dtype=float).reshape(d["nrow"], d["ncol"])
+
+
+def mv_sign_align(A: np.ndarray, B: np.ndarray) -> np.ndarray:
+    """Flip columns of A so each aligns in sign with the matching column of B."""
+    A = np.array(A, dtype=float, copy=True)
+    for j in range(A.shape[1]):
+        if float(A[:, j] @ B[:, j]) < 0:
+            A[:, j] *= -1
+    return A
+
+
+def mv_to_ordered_enum(df: pl.DataFrame, cols) -> pl.DataFrame:
+    """Cast integer columns to ordered Enum (numeric ascending) to mark ordinal."""
+    for c in cols:
+        levels = [str(x) for x in sorted(df[c].unique().to_list())]
+        df = df.with_columns(pl.col(c).cast(pl.Utf8).cast(pl.Enum(levels)))
+    return df
+
+
+@pytest.fixture(scope="session")
+def mv_data():
+    return mv_load_dataset
+
+
+@pytest.fixture(scope="session")
+def mv_ref():
+    return mv_load_ref
 
 
 def _load_dataset(pkg: str, name: str, as_polars: bool = True):

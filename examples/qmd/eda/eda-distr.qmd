@@ -6,6 +6,11 @@ jupyter: python3
 
 <div class="alert alert-info">Analyze and visualize data distributions</div>
 
+
+<!-- pyrsm-teaching-note: roadmap -->
+## Teaching Roadmap
+
+Use this notebook to teach distributional thinking. Students should describe center, spread, skew, outliers, rare categories, and missingness before calculating relationships among variables. The summary table and plots should produce concrete follow-up questions, not just decoration.
 The `distr` function provides summary statistics and distribution plots for numeric, categorical, and other variable types in your data.
 
 

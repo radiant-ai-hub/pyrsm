@@ -7,6 +7,11 @@ jupyter: python3
 <div class="alert alert-info">Estimate and tune a Random Forest model for binary classification</div>
 
 
+
+<!-- pyrsm-teaching-note: roadmap -->
+## Teaching Roadmap
+
+Use this notebook to teach random forests as ensembles of decision trees. Each tree is fit to a bootstrap sample and a random subset of predictors, and the forest averages the votes into predicted probabilities. Students should focus on performance, variable importance, partial dependence, and the difference between in-sample, out-of-bag, and test-set predictions.
 ```{python}
 import os
 
@@ -38,6 +43,12 @@ titanic = pl.read_parquet("https://github.com/radiant-ai-hub/pyrsm/raw/refs/head
 titanic
 ```
 
+
+<!-- pyrsm-teaching-note: rf-clf-model -->
+### Random forest model
+
+A random forest combines many decision trees. Each tree sees a different bootstrap sample of rows and a random subset of predictors, so the trees make different errors. Averaging their votes usually improves predictive accuracy, but the model no longer has simple coefficients, so interpretation relies on prediction diagnostics and model-agnostic plots.
+
 ```{python}
 clf_rf = rsm.model.rforest(
     {"titanic": titanic}, rvar="survived", lev="Yes", evar=["pclass", "sex", "age"]
@@ -64,6 +75,12 @@ clf_rf.plot("pdp", ice=True)
 ```{python}
 clf_rf.plot("pdp_sklearn")
 ```
+
+
+<!-- pyrsm-teaching-note: rf-clf-pdp -->
+### Interpreting PDP, ICE, and PIP
+
+Permutation importance (PIP) asks how much model performance changes when one variable is shuffled. Partial dependence plots (PDP) show the average predicted outcome as one variable changes while other variables are held at their observed values. ICE curves show the same relationship one observation at a time, which helps reveal heterogeneity that an average PDP can hide.
 
 ```{python}
 clf_rf.plot("pip")
@@ -121,7 +138,10 @@ titanic
 titanic = titanic.with_columns(pred_rf=clf_rf.predict(titanic).get_column("prediction"))
 ```
 
-There is something interesting happening in the graph below. Compare this graph with the next one which seems to have no overfitting. The issue is connected to OOB. Use Advanced Voice Mode in ChatGPT to have a discussion about OOB and overfitting in Random Forest models.
+<!-- pyrsm-teaching-note: rf-oob -->
+### Out-of-bag predictions
+
+Notice how the first gains plot can look overly optimistic for the training data. Random forests can provide out-of-bag (OOB) predictions: each training row is scored only by trees that did not use that row in fitting. Replacing the in-sample training predictions with OOB predictions gives a cleaner estimate of training-set performance and makes the train/test comparison more meaningful.
 
 ```{python}
 dct = {
@@ -183,6 +203,12 @@ else:
 # same functionality as the cell above but with less typing
 cv = rsm.model.cross_validation(clf_rf, "clf-rf", param_grid, scoring)
 ```
+
+
+<!-- pyrsm-teaching-note: rf-clf-cv -->
+### Reading cross-validation output
+
+Cross-validation estimates how a model setting is expected to perform on new data by repeatedly fitting on training folds and scoring on held-out folds. `best_params_` reports the hyperparameter combination with the best validation score, while `cv_results_` shows the full ranking and helps reveal whether the winner is clearly better or only marginally different.
 
 ```{python}
 cv.best_params_

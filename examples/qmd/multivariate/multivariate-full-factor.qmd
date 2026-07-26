@@ -1,0 +1,245 @@
+---
+title: Multivariate > Factor Analysis
+jupyter: python3
+---
+
+<div class="alert alert-info">Reduce data dimensionality without significant loss of information.</div>
+
+```{python}
+import polars as pl
+import pyrsm as rsm
+```
+
+```{python}
+## setup pyrsm for autoreload
+%reload_ext autoreload
+%autoreload 2
+%aimport pyrsm
+```
+
+## Overview
+
+As stated in the documentation for pre-factor analysis (see _Multivariate > Factor > Pre-factor_), the goal of factor analysis is to reduce the dimensionality of the data without significant loss of information. The tool tries to achieve this goal by looking for structure in the correlation matrix of the variables included in the analysis. The researcher will often try to link the original variables (or _items_) to an underlying factor and provide a descriptive label for each.
+
+### Example: Toothpaste
+
+The `toothpaste` dataset contains information from 60 consumers who were asked to respond to six questions to determine their attitudes towards toothpaste. The scores shown for variables `v1`-`v6` indicate the level of agreement with statements on a 7-point scale where 1 = strongly disagree and 7 = strongly agree.
+
+```{python}
+toothpaste = pl.read_parquet(
+    "https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/multivariate/toothpaste.parquet"
+)
+toothpaste.head()
+```
+
+## Step 1 — Recap: Is the Data Suitable for Factor Analysis?
+
+Before extracting and rotating factors you should confirm the data are appropriate for factor analysis. Use _Multivariate > Factor > Pre-factor_ (the `pre_factor` tool) to check three things:
+
+* **Bartlett's test of sphericity** — a significant result indicates the correlation matrix differs enough from an identity matrix to make factor analysis worthwhile.
+* **Kaiser-Meyer-Olkin (KMO)** measure of sampling adequacy — values above ~0.5 suggest the variables share enough common variance.
+* **Collinearity** of the individual variables.
+
+The scree plot and the "eigenvalues > 1" criterion (both from `pre_factor`) are used to decide how many factors to extract. We summarize the pre-factor results here so the full-factor analysis that follows has a clear justification.
+
+```{python}
+pf = rsm.multivariate.pre_factor({"toothpaste": toothpaste}, "v1:v6")
+pf.summary()
+```
+
+A significant Bartlett test and a KMO comfortably above 0.5 indicate the data are suitable. The eigenvalues in the fit measures help decide how many factors to keep: values above 1 contribute more than a single standardized item.
+
+```{python}
+pf.plot(plots=("scree", "change"))
+```
+
+## Step 2 — Choose the Number of Factors and Estimate
+
+Once we have determined the number of factors we can extract and rotate them. The factors are rotated to generate a solution where, to the extent possible, a variable has a high loading on only one factor. This is an important benefit because it makes it easier to interpret what the factor represents. While there are numerous algorithms to rotate a factor loadings matrix the most commonly used is Varimax rotation.
+
+To replicate the standard toothpaste result, select variables `v1` through `v6`, set the number of factors to 2, and estimate. In `pyrsm` we pass the data as a dictionary (so the dataset name appears in the output), select the variables with the `v1:v6` range syntax, set `nr_fact=2`, and choose `rotation="varimax"`.
+
+```{python}
+ff = rsm.multivariate.full_factor(
+    {"toothpaste": toothpaste}, vars="v1:v6", nr_fact=2, rotation="varimax"
+)
+ff.summary(cutoff=0.4)
+```
+
+## Step 3 — Read the Loadings and Communalities
+
+The numbers in the `Factor loadings` table are the correlations of the six variables with the two factors. For example, variable `v1` has a correlation of .96 with factor 1 and a correlation of -.03 with factor 2. As such `v1` will play a big role in naming factor 1 but an insignificant role in naming factor 2.
+
+The `summary(cutoff=0.4)` call above already blanks out small loadings so the dominant factor for each variable stands out. To inspect the raw, un-cut loadings (every correlation, signed) use `loadings_frame`.
+
+```{python}
+ff.loadings_frame(dec=3)
+```
+
+Communalities give the share of each item's variance that is captured by the retained factors. High communalities mean the two-factor solution represents the original items well. The per-variable communalities are reported in the summary and are also available directly as an attribute.
+
+```{python}
+ff.communality
+```
+
+The `Fit measures` table reports the eigenvalues, the variance percentage explained by each factor, and the cumulative percentage. The full set of eigenvalues of the correlation matrix (one per original variable) is also available directly — values above 1 are the ones used to justify the number of factors.
+
+```{python}
+ff.eigen
+```
+
+## Step 4 — Interpret and Name the Factors (and the Role of Rotation)
+
+The rotated factor loadings can be used to determine labels or names for the different factors. We need to identify and highlight the highest factor loading, in absolute value, in each row. This is easily done by setting the cut-off value to .4 and sorting the factor loadings. The `clean_loadings` helper does both: it blanks loadings below the cut-off and (with `fsort=True`) groups the variables by the factor they load on.
+
+```{python}
+rsm.multivariate.clean_loadings(ff.loadings_frame(), cutoff=0.4, fsort=True, repl="")
+```
+
+Together, the variables shown in each column (i.e., for each factor) help us to understand what the factor represents. Questions 1, 3, and 5 reflect the importance of health issues while questions 2, 4, and 6 reflect aesthetics issues (see the data description for a description of the variables). Plausible names for the factors might therefore be:
+
+* **Factor 1:** Health benefits
+* **Factor 2:** Social benefits
+
+### What rotation does
+
+The best way to see what rotation does is to switch between `varimax` and `none` in the `rotation` argument and inspect what changes in the output. With no rotation the loadings of the variables on the two factors are not aligned with the axes; with varimax rotation each variable lines up more cleanly with a single factor.
+
+Variable `v5` is a good illustration. With no rotation `v5` falls somewhat in between the axes for factor 1 and factor 2. When we apply varimax rotation, the label for `v5` lines up nicely with the horizontal axis (i.e., factor 2). This change in alignment is also reflected in the factor loadings. The unrotated factor loadings for `v5` are about -0.87 for factor 1 and -0.35 for factor 2. The rotated factor loadings for `v5` are about -0.93 for factor 1 and -0.08 for factor 2.
+
+```{python}
+ff_none = rsm.multivariate.full_factor(
+    {"toothpaste": toothpaste}, vars="v1:v6", nr_fact=2, rotation="none"
+)
+ff_none.loadings_frame(dec=3)
+```
+
+The attribute loadings map shows each variable as a point/label in the factor space (the plot is square and centered at the origin, so distance and direction from the origin are comparable). Compare the unrotated map to the rotated one to _see_ how rotation moves the variables onto the axes.
+
+```{python}
+ff_none.plot(plots="attr")
+```
+
+```{python}
+ff.plot(plots="attr")
+```
+
+We can also overlay the respondent scores (`resp`) on the attribute map. Each point is a respondent positioned by their factor scores, which makes it easy to see how the people and the items relate in the same space.
+
+```{python}
+ff.plot(plots=["attr", "resp"])
+```
+
+### Other rotations
+
+Varimax is the most common rotation, but `full_factor` supports several. `none`, `varimax`, and `quartimax` are orthogonal (factors stay uncorrelated); `oblimin` and `simplimax` are oblique (factors are allowed to correlate, which can fit naturally related constructs better). It is worth re-estimating with a couple of these to confirm the interpretation is stable.
+
+```{python}
+for rot in ["none", "varimax", "quartimax", "oblimin", "simplimax"]:
+    f = rsm.multivariate.full_factor(
+        {"toothpaste": toothpaste}, "v1:v6", nr_fact=2, rotation=rot
+    )
+    print(f"rotation = {rot}")
+    print(f.loadings_frame(dec=2))
+    print()
+```
+
+### Maximum likelihood extraction
+
+Output shown in _Multivariate > Factor_ is estimated using either Principal Components Analysis (PCA, the default) or Maximum Likelihood (ML). PCA summarizes as much total variance as possible; ML models the common (shared) variance and supports statistical inference about the number of factors. Switch with the `method` argument.
+
+```{python}
+ff_ml = rsm.multivariate.full_factor(
+    {"toothpaste": toothpaste}, "v1:v6", nr_fact=2, method="ML"
+)
+ff_ml.loadings_frame(dec=3)
+```
+
+## Step 5 — Store and Use the Factor Scores
+
+The final step is to generate the factor scores. You can think of these scores as a weighted average of the variables that are linked to a factor. They approximate the scores that a respondent would have provided if we could have asked about the factor in a single question, i.e., the respondents' inferred ratings on the factors. Calling `store` returns the data with two new columns appended (`factor1` and `factor2`). We can use factor scores in other analyses (e.g., cluster analysis or regression). You can rename the new columns, e.g., to `health` and `social`, to make downstream work clearer.
+
+```{python}
+scored = ff.store(toothpaste)
+scored.head()
+```
+
+The raw scores are also available directly as a NumPy array (rows are respondents, columns are factors), along with the factor names.
+
+```{python}
+print(ff.fnames)
+ff.scores[:5]
+```
+
+## Summary
+
+1. Determine if the data are appropriate for factor analysis using Bartlett, KMO, and Collinearity (_Multivariate > Factor > Pre-factor_).
+2. Determine the number of factors to extract using the scree-plot and eigenvalues > 1 criteria (_Multivariate > Factor > Pre-factor_).
+3. Extract the (rotated) factor solution to produce:
+    - Factor loadings: Correlations between attributes and factors.
+    - Factor scores: Inferred ratings on the new factors (i.e., new variables that summarize the original variables).
+4. Identify the highest factor loading, in absolute value, in each row (i.e., for each variable).
+5. Label the factors using the strongest factor loadings.
+
+## Practice — the Shopping Data
+
+If you want more practice, open the `shopping` data set and see if you can reproduce a clean two-factor solution. Use the pre-factor diagnostics to determine whether the correct number of factors was selected. Do you agree? Why (not)?
+
+```{python}
+shopping = pl.read_parquet(
+    "https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/multivariate/shopping.parquet"
+)
+ff_shop = rsm.multivariate.full_factor(
+    {"shopping": shopping}, vars="v1:v6", nr_fact=2, rotation="varimax"
+)
+ff_shop.summary(cutoff=0.4)
+```
+
+```{python}
+ff_shop.plot(plots="attr")
+```
+
+The shopping items split into the same kind of two-factor pattern as the toothpaste data: items `v1`, `v3`, `v5` group on one factor and `v2`, `v4`, `v6` on the other. With only 20 observations, however, the solution is far less stable than the toothpaste analysis — a good reminder to always check the pre-factor diagnostics and sample size before trusting the labels.
+
+## Including Categorical Variables
+
+The correlation matrix used as input for estimation can be calculated for variables of type numeric, integer, date, and factor (categorical). When categorical variables are included, set `hcor=True`. With this adjustment, variables that are categorical will be treated as (ordinal) categorical variables and all other variables will be treated as continuous, and the correlation matrix is built from polychoric/heterogeneous correlations instead of plain Pearson correlations.
+
+```{python}
+levels = [str(x) for x in range(1, 8)]
+ordinal = toothpaste.with_columns(
+    [pl.col(f"v{i}").cast(pl.Utf8).cast(pl.Enum(levels)) for i in range(1, 7)]
+)
+
+ff_poly = rsm.multivariate.full_factor(
+    {"toothpaste": ordinal}, "v1:v6", nr_fact=2, hcor=True
+)
+ff_poly.loadings_frame(dec=3)
+```
+
+It is important to note that estimated factor scores will be biased if a mix of categorical and numeric variables is used. If you want to use factor scores as input for further analysis, e.g., clustering, you should use either (1) all categorical variables or (2) all numeric variables to avoid this bias.
+
+### Filtering the data
+
+`full_factor` also accepts a `data_filter` argument so you can fit the model on a subset of rows without changing the underlying data — useful for comparing factor structures across groups.
+
+```{python}
+ff_female = rsm.multivariate.full_factor(
+    {"toothpaste": toothpaste},
+    "v1:v6",
+    nr_fact=2,
+    rotation="varimax",
+    data_filter="gender == 'Female'",
+)
+ff_female.loadings_frame(dec=3)
+```
+
+## Discussion Prompts
+
+* Which items define each factor, and does any item load meaningfully on both?
+* What substantive names would you give the factors, and how confident are you in those labels?
+* What are the limitations? The sample is small, factor labels come from researcher judgment, and factors summarize patterns of association rather than proving an underlying psychological cause.
+
+### Related functions
+
+The key estimation routines used by the `full_factor` tool are principal-components analysis and maximum-likelihood factor analysis. The Python implementation mirrors the behavior of the `principal` and `fa` functions from the R `psych` package used in Radiant.

@@ -6,6 +6,11 @@ jupyter: python3
 
 <div class="alert alert-info">Create plots using plotnine (ggplot2 for Python)</div>
 
+
+<!-- pyrsm-teaching-note: roadmap -->
+## Teaching Roadmap
+
+Use this notebook to teach plot choice as an analytical decision. Students should choose geoms based on variable types and the comparison they want to make. The multi-variable examples show two patterns: create small multiples when comparing many variable pairs, and reshape to long form when several series belong in one panel.
 The `visualize` function provides a simplified interface to plotnine for common plot types: histograms, density plots, scatter plots, line plots, box plots, and violin plots.
 
 

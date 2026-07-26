@@ -7,6 +7,11 @@ jupyter: python3
 <div class="alert alert-info">Estimate and tune a Multi-Layer Perceptron model for binary classification</div>
 
 
+
+<!-- pyrsm-teaching-note: roadmap -->
+## Teaching Roadmap
+
+Use this notebook to teach neural networks as flexible classifiers that learn nonlinear transformations of the inputs. Because MLPs are sensitive to scaling and tuning, students should pay close attention to preprocessing, hidden-layer size, regularization, and validation performance. Interpretability comes from model-agnostic tools such as permutation importance, PDP, and ICE.
 ```{python}
 import os
 
@@ -121,6 +126,12 @@ titanic = titanic.with_columns(pred=clv_mlp.predict(titanic).get_column("predict
 titanic
 ```
 
+
+<!-- pyrsm-teaching-note: mlp-clf-gains -->
+### Reading gains plots
+
+A gains plot ranks observations by predicted probability and asks how quickly the model finds the positive class. A strong model lifts positives into the top-ranked groups. Always compare train and test curves: a large gap means the model learned patterns that may not generalize.
+
 ```{python}
 rsm.model.gains_tab(titanic, rvar="survived", lev="Yes", pred="pred")
 ```
@@ -207,6 +218,12 @@ else:
 # same functionality as the cell above but less typing
 cv = rsm.model.cross_validation(clv_mlp, "clf-nn", param_grid, scoring)
 ```
+
+
+<!-- pyrsm-teaching-note: mlp-clf-cv -->
+### Reading cross-validation output
+
+Cross-validation estimates how a model setting is expected to perform on new data by repeatedly fitting on training folds and scoring on held-out folds. `best_params_` reports the hyperparameter combination with the best validation score, while `cv_results_` shows the full ranking and helps reveal whether the winner is clearly better or only marginally different.
 
 ```{python}
 cv.best_params_
