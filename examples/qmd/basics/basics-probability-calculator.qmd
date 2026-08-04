@@ -38,7 +38,7 @@ pc.summary()
 pc.plot()
 ```
 
-We can replicate this result using the Probability Calculator in Radiant-for-R or Radiant-for-Python. The description of the problem suggests we should select `Binomial` from the `Distribution` dropdown. To find the probability, select `Values` as the `Input type` and enter `15` as the `Upper bound`. In the output below we can see that the probability is 0.989. The probability that exactly 15 laptops are still running after 12 hours is 0.032.
+We can replicate this result using the Probability Calculator in Radiant-for-R. The description of the problem suggests we should select `Binomial` from the `Distribution` dropdown. To find the probability, select `Values` as the `Input type` and enter `15` as the `Upper bound`. In the output below we can see that the probability is 0.989. The probability that exactly 15 laptops are still running after 12 hours is 0.032.
 
 ## Demand for headphones
 
@@ -52,7 +52,7 @@ pc.summary()
 pc.plot()
 ```
 
-We can replicate this result using the Probability Calculator in Radiant-for-R or Radiant-for-Python. To find the required number of headphones to hold in inventory choose `Normal` from the `Distribution` dropdown and then select `Probability` as the `Input type`. Enter `.95` as the `Upper bound`. In the output below we see the number of units to stock is 4316.
+We can replicate this result using the Probability Calculator in Radiant-for-R. To find the required number of headphones to hold in inventory choose `Normal` from the `Distribution` dropdown and then select `Probability` as the `Input type`. Enter `.95` as the `Upper bound`. In the output below we see the number of units to stock is 4316.
 
 
 ## Cups of ice cream
