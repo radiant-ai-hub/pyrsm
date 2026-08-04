@@ -1,108 +1,28 @@
 """Pivot tables and crosstabs."""
 
-from functools import lru_cache
-
 import polars as pl
 
-
-@lru_cache(maxsize=1)
-def _get_scipy_stats():
-    """Lazy load scipy.stats — only needed for skew / kurtosis."""
-    from scipy import stats
-
-    return stats
-
-
-def _percentile_expr(col: str, p: float) -> pl.Expr:
-    """Build a polars expression for the ``p`` percentile (0-1)."""
-    return pl.col(col).quantile(p)
-
-
-def _skew_expr(col: str) -> pl.Expr:
-    """Sample skewness via map_batches → scipy."""
-
-    def _skew(s: pl.Series) -> float:
-        stats = _get_scipy_stats()
-        arr = s.drop_nulls().to_numpy()
-        if arr.size < 2:
-            return float("nan")
-        return float(stats.skew(arr, bias=False))
-
-    return pl.col(col).map_batches(_skew, return_dtype=pl.Float64, returns_scalar=True)
-
-
-def _kurtosis_expr(col: str) -> pl.Expr:
-    """Excess kurtosis via map_batches → scipy."""
-
-    def _kurt(s: pl.Series) -> float:
-        stats = _get_scipy_stats()
-        arr = s.drop_nulls().to_numpy()
-        if arr.size < 2:
-            return float("nan")
-        return float(stats.kurtosis(arr, bias=False))
-
-    return pl.col(col).map_batches(_kurt, return_dtype=pl.Float64, returns_scalar=True)
-
-
-# Supported aggregation functions. Each value maps a column name to a
-# polars expression. ``count`` / ``n_obs`` ignore the column and use
-# ``pl.len()`` so the same registry covers frequency tables.
-AGG_FUNCTIONS = {
-    # --- Counts ----------------------------------------------------
-    "count": lambda col: pl.len(),
-    "n_obs": lambda col: pl.len(),
-    "n_distinct": lambda col: pl.col(col).n_unique(),
-    "n_missing": lambda col: pl.col(col).null_count(),
-    # --- Central tendency ------------------------------------------
-    "sum": lambda col: pl.col(col).sum(),
-    "mean": lambda col: pl.col(col).mean(),
-    "median": lambda col: pl.col(col).median(),
-    "min": lambda col: pl.col(col).min(),
-    "max": lambda col: pl.col(col).max(),
-    # --- Spread ----------------------------------------------------
-    "std": lambda col: pl.col(col).std(),
-    "sd": lambda col: pl.col(col).std(),  # R-style alias
-    "var": lambda col: pl.col(col).var(),
-    "se": lambda col: pl.col(col).std() / pl.col(col).count().cast(pl.Float64).sqrt(),
-    "me": lambda col: 1.96 * pl.col(col).std() / pl.col(col).count().cast(pl.Float64).sqrt(),
-    "cv": lambda col: pl.col(col).std() / pl.col(col).mean(),
-    "iqr": lambda col: _percentile_expr(col, 0.75) - _percentile_expr(col, 0.25),
-    "IQR": lambda col: _percentile_expr(col, 0.75) - _percentile_expr(col, 0.25),
-    # --- Proportions (R radiant.data parity) -----------------------
-    # ``prop`` collapses a binary 0/1 column to its mean (= share of 1s).
-    "prop": lambda col: pl.col(col).cast(pl.Float64).mean(),
-    "varprop": lambda col: (
-        pl.col(col).cast(pl.Float64).mean() * (1 - pl.col(col).cast(pl.Float64).mean())
-    ),
-    "sdprop": lambda col: (
-        pl.col(col).cast(pl.Float64).mean() * (1 - pl.col(col).cast(pl.Float64).mean())
-    ).sqrt(),
-    "seprop": lambda col: (
-        pl.col(col).cast(pl.Float64).mean()
-        * (1 - pl.col(col).cast(pl.Float64).mean())
-        / pl.col(col).count().cast(pl.Float64)
-    ).sqrt(),
-    # --- Distributional shape --------------------------------------
-    "skew": _skew_expr,
-    "kurtosis": _kurtosis_expr,
-}
-
-
-def _register_percentiles() -> None:
-    """Add ``p01`` … ``p99`` aggregation keys to :data:`AGG_FUNCTIONS`."""
-    for p in range(1, 100):
-        key = f"p{p:02d}"
-
-        def _make(percentile_value: float):
-            return lambda col, _p=percentile_value: _percentile_expr(col, _p)
-
-        AGG_FUNCTIONS[key] = _make(p / 100.0)
-
-
-_register_percentiles()
+from pyrsm.eda.agg_functions import AGG_FUNCTIONS, resolve_agg
 
 
 NORMALIZE_OPTIONS = {"row", "column", "total", "none", None}
+
+
+def _as_percent(df: pl.DataFrame, cols: list[str], dec: int) -> pl.DataFrame:
+    """Format ``cols`` as percentage strings: ``0.2341`` → ``"23.41%"``."""
+    if not cols:
+        return df
+    return df.with_columns(
+        [
+            pl.col(col)
+            .map_elements(
+                lambda v, _dec=dec: f"{v * 100:.{_dec}f}%",
+                return_dtype=pl.Utf8,
+            )
+            .alias(col)
+            for col in cols
+        ]
+    )
 
 
 def pivot(
@@ -114,6 +34,8 @@ def pivot(
     normalize: str | None = None,
     totals: bool = False,
     fill: float | None = None,
+    perc: bool = False,
+    dec: int = 2,
 ) -> pl.DataFrame:
     """
     Create pivot tables and crosstabs.
@@ -133,15 +55,26 @@ def pivot(
         specified). Supported: count, sum, mean, median, min, max, std, var.
     normalize : str | None
         Normalization type: ``"row"``, ``"column"``, ``"total"``, or ``None``.
+        Normalized cells are **proportions** (0-1), matching R's
+        ``radiant.data::pivotr``. Use ``perc=True`` to show them as
+        percentages instead.
     totals : bool
         Whether to include row/column totals.
     fill : float | None
         Fill value for missing cells (only when no values variable). Default: None.
+    perc : bool
+        Display the value cells as percentages (``0.234`` → ``"23.40%"``)
+        rather than as numbers. Opt-in, like the "Percentage" checkbox in
+        Radiant. Raw counts are left alone; only cells that are already on
+        a proportion scale (or any other non-count aggregate) are formatted.
+    dec : int
+        Number of decimals used when ``perc=True``. Default: 2.
 
     Returns
     -------
     pl.DataFrame
-        Pivot table or crosstab.
+        Pivot table or crosstab. Columns are numeric unless ``perc=True``,
+        which formats the value cells as strings.
 
     Raises
     ------
@@ -176,6 +109,36 @@ def pivot(
     │ A   ┆ 1.0 ┆ 1.0 │
     │ B   ┆ 1.0 ┆ 1.0 │
     └─────┴─────┴─────┘
+
+    Normalized cells are proportions ...
+
+    >>> out = rsm.eda.pivot(df, rows="cut", cols="color", normalize="total").sort("cut")
+    >>> print(out.select(["cut", "X", "Y"]))
+    shape: (2, 3)
+    ┌─────┬──────┬──────┐
+    │ cut ┆ X    ┆ Y    │
+    │ --- ┆ ---  ┆ ---  │
+    │ str ┆ f64  ┆ f64  │
+    ╞═════╪══════╪══════╡
+    │ A   ┆ 0.25 ┆ 0.25 │
+    │ B   ┆ 0.25 ┆ 0.25 │
+    └─────┴──────┴──────┘
+
+    ... unless you ask for percentages explicitly.
+
+    >>> out = rsm.eda.pivot(
+    ...     df, rows="cut", cols="color", normalize="total", perc=True
+    ... ).sort("cut")
+    >>> print(out.select(["cut", "X", "Y"]))
+    shape: (2, 3)
+    ┌─────┬────────┬────────┐
+    │ cut ┆ X      ┆ Y      │
+    │ --- ┆ ---    ┆ ---    │
+    │ str ┆ str    ┆ str    │
+    ╞═════╪════════╪════════╡
+    │ A   ┆ 25.00% ┆ 25.00% │
+    │ B   ┆ 25.00% ┆ 25.00% │
+    └─────┴────────┴────────┘
     """
     # Convert to LazyFrame for consistency
     if isinstance(df, pl.DataFrame):
@@ -193,21 +156,19 @@ def pivot(
     if values and agg == "count":
         agg = "mean"
 
-    # Validate agg
-    if agg not in AGG_FUNCTIONS:
-        raise ValueError(
-            f"Unknown aggregation: {agg}\nSupported: {', '.join(AGG_FUNCTIONS.keys())}"
-        )
+    # Validate agg (raises with the supported set)
+    agg_builder = resolve_agg(agg)
 
     # Validate normalize
     if normalize not in NORMALIZE_OPTIONS:
         raise ValueError(
             f"Unknown normalize option: {normalize}\nSupported: row, column, total, none"
         )
+    normalized = bool(normalize) and normalize != "none"
 
     # Build aggregation expression
     if values:
-        agg_expr = AGG_FUNCTIONS[agg](values).alias("value")
+        agg_expr = agg_builder(values).alias("value")
     else:
         agg_expr = pl.len().alias("value")
 
@@ -222,11 +183,23 @@ def pivot(
         # Collect for further processing
         pivoted = result.collect()
 
-        # Normalization for frequency table
-        if normalize and normalize != "none":
+        # ``perc`` never applies to raw frequencies, so record which value
+        # columns are plain integer counts before ``totals`` casts every
+        # numeric column to Float64.
+        perc_cols = [
+            col
+            for col in pivoted.columns
+            if col not in rows_list and pivoted[col].dtype.is_float()
+        ]
+
+        # Normalization for frequency table. The share is a proportion, as
+        # in radiant.data; ``perc`` is what turns it into a percentage.
+        if normalized:
+            share_col = f"{value_col}_perc" if perc else f"{value_col}_prop"
             pivoted = pivoted.with_columns(
-                (pl.col(value_col) / pl.col(value_col).sum() * 100).alias(f"{value_col}_pct")
+                (pl.col(value_col) / pl.col(value_col).sum()).alias(share_col)
             )
+            perc_cols.append(share_col)
 
         # Totals for frequency table
         if totals:
@@ -250,6 +223,9 @@ def pivot(
         # Fill missing values if specified (only when no values variable)
         if fill is not None and not values:
             pivoted = pivoted.fill_null(fill)
+
+        if perc:
+            pivoted = _as_percent(pivoted, perc_cols, dec)
 
         return pivoted
 
@@ -277,52 +253,89 @@ def pivot(
             if pivoted[row_col].dtype in (pl.Categorical, pl.Enum) or totals:
                 pivoted = pivoted.with_columns(pl.col(row_col).cast(pl.Utf8))
 
+    # ``perc`` never applies to raw frequencies, so note whether the cells
+    # are plain counts before the Float64 cast erases that distinction.
+    count_cells = all(pivoted[col].dtype.is_integer() for col in data_cols)
+
     # Cast numeric columns to Float64 for consistency with totals
     for col in data_cols:
         pivoted = pivoted.with_columns(pl.col(col).cast(pl.Float64))
 
-    # Add totals if requested
+    # Marginals, computed from the DATA CELLS ONLY, before any totals row or
+    # column is attached. Normalizing after the totals are in place would
+    # count every observation twice (once in its own cell, once in the totals
+    # row), halving every column- and total-normalized percentage.
+    raw_row_totals = pivoted.select(pl.sum_horizontal(data_cols)).to_series()
+    raw_col_totals = {col: float(pivoted[col].sum()) for col in data_cols}
+    grand_total = float(sum(raw_col_totals.values()))
+
+    # Normalize the data cells. The result is a proportion (0-1), as in
+    # radiant.data; ``perc`` below is the opt-in that renders percentages.
+    if normalized:
+        if normalize == "row":
+            # Each row sums to 1
+            for col in data_cols:
+                pivoted = pivoted.with_columns(
+                    (pl.col(col) / raw_row_totals).alias(col)
+                )
+
+        elif normalize == "column":
+            # Each column sums to 1
+            for col in data_cols:
+                col_sum = raw_col_totals[col]
+                if col_sum > 0:
+                    pivoted = pivoted.with_columns((pl.col(col) / col_sum).alias(col))
+
+        elif normalize == "total":
+            # All cells sum to 1
+            if grand_total > 0:
+                for col in data_cols:
+                    pivoted = pivoted.with_columns(
+                        (pl.col(col) / grand_total).alias(col)
+                    )
+
+    # Add totals if requested. The totals summarize whatever the cells now
+    # hold, so they are expressed on the same scale as the normalized cells:
+    # the margin the normalization pins to 1 reads 1, and the other margin
+    # shows that variable's share of the grand total.
     if totals:
-        # Row totals
-        pivoted = pivoted.with_columns(pl.sum_horizontal(data_cols).alias("Total"))
+        # Row totals (right-hand "Total" column)
+        if normalize == "row":
+            row_total_values = pl.Series("Total", [1.0] * pivoted.height)
+        elif normalize in ("column", "total"):
+            row_total_values = (
+                (raw_row_totals / grand_total).alias("Total")
+                if grand_total > 0
+                else pl.Series("Total", [0.0] * pivoted.height)
+            )
+        else:
+            row_total_values = raw_row_totals.alias("Total")
+        pivoted = pivoted.with_columns(row_total_values)
         data_cols.append("Total")
 
-        # Column totals (as a new row)
-        col_totals = {row_col: "Total" for row_col in rows_list}
+        # Column totals (bottom "Total" row)
+        col_totals: dict[str, object] = {row_col: "Total" for row_col in rows_list}
         for col in data_cols:
-            col_totals[col] = float(pivoted[col].sum())
+            if col == "Total":
+                # Bottom-right corner: the whole table, so 1 once normalized.
+                col_totals[col] = 1.0 if normalized else grand_total
+            elif normalize == "column":
+                col_totals[col] = 1.0
+            elif normalize in ("row", "total"):
+                col_totals[col] = (
+                    raw_col_totals[col] / grand_total if grand_total > 0 else 0.0
+                )
+            else:
+                col_totals[col] = raw_col_totals[col]
 
         total_row = pl.DataFrame([col_totals])
         pivoted = pl.concat([pivoted, total_row])
 
-    # Normalize if requested
-    if normalize and normalize != "none":
-        numeric_cols = [c for c in data_cols if c != "Total"] if totals else data_cols
-
-        if normalize == "row":
-            # Each row sums to 100%
-            row_sums = pivoted.select(pl.sum_horizontal(numeric_cols)).to_series()
-            for col in numeric_cols:
-                pivoted = pivoted.with_columns((pl.col(col) / row_sums * 100).alias(col))
-            if totals and "Total" in pivoted.columns:
-                pivoted = pivoted.with_columns(pl.lit(100.0).alias("Total"))
-
-        elif normalize == "column":
-            # Each column sums to 100%
-            for col in numeric_cols:
-                col_sum = pivoted[col].sum()
-                if col_sum > 0:
-                    pivoted = pivoted.with_columns((pl.col(col) / col_sum * 100).alias(col))
-
-        elif normalize == "total":
-            # All cells sum to 100%
-            grand_total = sum(pivoted[col].sum() for col in numeric_cols)
-            if grand_total > 0:
-                for col in numeric_cols:
-                    pivoted = pivoted.with_columns((pl.col(col) / grand_total * 100).alias(col))
-
     # Fill missing values if specified (only when no values variable)
     if fill is not None and not values:
         pivoted = pivoted.fill_null(fill)
+
+    if perc and (normalized or not count_cells):
+        pivoted = _as_percent(pivoted, data_cols, dec)
 
     return pivoted

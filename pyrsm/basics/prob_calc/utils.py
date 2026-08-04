@@ -41,6 +41,12 @@ def plot_discrete(x_range, y_range, lb, ub, title=""):
     """
     Create a discrete distribution bar plot using plotnine.
 
+    The bar at the lower and/or upper bound is highlighted in green, bars
+    inside the bounds are slateblue, and bars outside the bounds are salmon
+    (see make_colors_discrete in radiant.basics). When probability bounds are
+    used, lb and ub are the *values* implied by those probabilities, so the
+    bar at each of those values is the one shown in green.
+
     Parameters
     ----------
     x_range : array-like
@@ -48,9 +54,9 @@ def plot_discrete(x_range, y_range, lb, ub, title=""):
     y_range : array-like
         Y values (probabilities)
     lb : float or None
-        Lower bound for highlighting
+        Lower bound value for highlighting
     ub : float or None
-        Upper bound for highlighting
+        Upper bound value for highlighting
     title : str
         Plot title
 
@@ -61,40 +67,55 @@ def plot_discrete(x_range, y_range, lb, ub, title=""):
     """
     # Create DataFrame
     df = pl.DataFrame({"x": x_range, "prob": y_range})
+    x = pl.col("x")
 
     # Determine fill colors based on bounds
     if lb is not None and ub is not None:
-        # Between bounds: slateblue, outside: salmon
-        df = df.with_columns(
-            pl.when((pl.col("x") >= lb) & (pl.col("x") <= ub))
+        # At a bound: green, between bounds: slateblue, outside: salmon
+        fill_type = (
+            pl.when((x == lb) | (x == ub))
+            .then(pl.lit("at_bound"))
+            .when((x > lb) & (x < ub))
             .then(pl.lit("in_range"))
             .otherwise(pl.lit("out_range"))
-            .alias("fill_type")
         )
     elif lb is not None:
-        # >= lb: slateblue, < lb: salmon
-        df = df.with_columns(
-            pl.when(pl.col("x") >= lb)
+        # At lb: green, > lb: slateblue, < lb: salmon
+        fill_type = (
+            pl.when(x == lb)
+            .then(pl.lit("at_bound"))
+            .when(x > lb)
             .then(pl.lit("in_range"))
             .otherwise(pl.lit("out_range"))
-            .alias("fill_type")
         )
     elif ub is not None:
-        # <= ub: slateblue, > ub: salmon
-        df = df.with_columns(
-            pl.when(pl.col("x") <= ub)
+        # At ub: green, < ub: slateblue, > ub: salmon
+        fill_type = (
+            pl.when(x == ub)
+            .then(pl.lit("at_bound"))
+            .when(x < ub)
             .then(pl.lit("in_range"))
             .otherwise(pl.lit("out_range"))
-            .alias("fill_type")
         )
     else:
         # All slateblue
-        df = df.with_columns(pl.lit("in_range").alias("fill_type"))
+        fill_type = pl.lit("in_range")
+
+    df = df.with_columns(fill_type.alias("fill_type"))
 
     p = (
         ggplot(df, aes(x="x", y="prob", fill="fill_type"))
         + geom_col(alpha=0.7, width=0.8)
-        + scale_fill_manual(values={"in_range": "slateblue", "out_range": "salmon"})
+        + scale_fill_manual(
+            # "#4FEE3B" at alpha 0.7 on a white panel renders as "#84f376", the
+            # green used for the bound in radiant.basics (i.e., "green" at alpha
+            # 0.5 on the gray ggplot panel)
+            values={
+                "at_bound": "#4FEE3B",
+                "in_range": "slateblue",
+                "out_range": "salmon",
+            }
+        )
         + labs(title=title, x="", y="Probability")
         + theme_bw()
         + theme(legend_position="none")

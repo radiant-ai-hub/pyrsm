@@ -10,8 +10,10 @@ jupyter: python3
 <!-- pyrsm-teaching-note: roadmap -->
 ## Teaching Roadmap
 
-Use this notebook to teach how a pivot table changes the unit of analysis. Students should identify the row variable, column variable, values variable, and aggregation function. A useful check is whether each displayed number is a count, total, mean, or percentage.
+Use this notebook to teach how a pivot table changes the unit of analysis. Students should identify the row variable, column variable, values variable, and aggregation function. A useful check is whether each displayed number is a count, total, mean, proportion, or percentage.
 The `pivot` function creates frequency tables for a single variable or crosstabs for two variables. It supports various aggregation functions, normalization, and totals.
+
+Note that `normalize` produces **proportions** (numbers between 0 and 1). Use `perc=True` when you want those shown as percentages with a `%` sign.
 
 
 ```{python}
@@ -51,10 +53,18 @@ rsm.eda.pivot(diamonds, rows="color")
 rsm.eda.pivot(diamonds, rows="cut", values="price")
 ```
 
-## Frequency Table with Percentages
+## Frequency Table with Proportions
+
+`normalize` adds a column with each group's share of the total.
 
 ```{python}
 rsm.eda.pivot(diamonds, rows="cut", normalize="total")
+```
+
+Set `perc=True` to show that share as a percentage instead.
+
+```{python}
+rsm.eda.pivot(diamonds, rows="cut", normalize="total", perc=True)
 ```
 
 ## Frequency Table with Totals
@@ -79,7 +89,7 @@ rsm.eda.pivot(diamonds, rows="cut", cols="color", totals=True)
 
 ## Row Normalization
 
-Show percentages within each row (rows sum to 100%).
+Show proportions within each row (rows sum to 1).
 
 ```{python}
 rsm.eda.pivot(diamonds, rows="cut", cols="color", normalize="row", totals=True)
@@ -87,10 +97,24 @@ rsm.eda.pivot(diamonds, rows="cut", cols="color", normalize="row", totals=True)
 
 ## Column Normalization
 
-Show percentages within each column (columns sum to 100%).
+Show proportions within each column (columns sum to 1).
 
 ```{python}
 rsm.eda.pivot(diamonds, rows="cut", cols="color", normalize="column")
+```
+
+## Showing Percentages
+
+`perc=True` formats the cells as percentages, and `dec` sets the number of decimals. This is display-only: without it you get the raw proportions shown above.
+
+```{python}
+rsm.eda.pivot(diamonds, rows="cut", cols="color", normalize="row", totals=True, perc=True)
+```
+
+```{python}
+rsm.eda.pivot(
+    diamonds, rows="cut", cols="color", normalize="column", perc=True, dec=1
+)
 ```
 
 ## Aggregation with Values
@@ -124,10 +148,18 @@ rsm.md("https://raw.githubusercontent.com/radiant-ai-hub/pyrsm/refs/heads/main/e
 rsm.eda.pivot(titanic, rows="pclass", cols="survived", totals=True)
 ```
 
-## Survival Rate by Class (Row Percentages)
+## Survival Rate by Class (Row Proportions)
 
 ```{python}
 rsm.eda.pivot(titanic, rows="pclass", cols="survived", normalize="row", totals=True)
+```
+
+The same table as percentages:
+
+```{python}
+rsm.eda.pivot(
+    titanic, rows="pclass", cols="survived", normalize="row", totals=True, perc=True
+)
 ```
 
 ## Survival by Sex

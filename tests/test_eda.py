@@ -95,6 +95,29 @@ class TestExplore:
         assert "category" in result.columns
         assert len(result) == 3  # A, B, C
 
+    def test_explore_grouped_multiple(self, sample_data):
+        """``by`` accepts several grouping variables."""
+        result = explore(sample_data, cols=["price"], by=["category", "region"])
+        assert "category" in result.columns
+        assert "region" in result.columns
+        # One row per observed category x region combination.
+        combos = sample_data.select(["category", "region"]).unique().height
+        assert len(result) == combos
+
+    def test_explore_by_single_matches_one_element_list(self, sample_data):
+        """``by="x"`` and ``by=["x"]`` are the same request."""
+        a = explore(sample_data, cols=["price"], by="category").sort("category")
+        b = explore(sample_data, cols=["price"], by=["category"]).sort("category")
+        assert a.columns == b.columns
+        assert a.to_dicts() == b.to_dicts()
+
+    def test_explore_grouping_vars_not_dummied(self, sample_data):
+        """Grouping columns must not be dummy-encoded into the summary."""
+        result = explore(sample_data, by=["category", "region"])
+        assert "category" in result.columns and "region" in result.columns
+        assert not any(c.startswith("category_") for c in result.columns)
+        assert not any(c.startswith("region_") for c in result.columns)
+
     def test_explore_invalid_function(self, sample_data):
         """Test explore with invalid function raises error."""
         with pytest.raises(ValueError, match="Unknown aggregation function"):
@@ -397,6 +420,22 @@ class TestOutliers:
             outliers(sample_data, method="bad")
 
 
+def _channel_data() -> pl.DataFrame:
+    """Small hand-countable crosstab source.
+
+    counts: West desktop=3 mobile=3 (6); East desktop=3 mobile=1 (4); grand=10
+    """
+    return pl.DataFrame(
+        {
+            "region": ["West"] * 6 + ["East"] * 4,
+            "channel": [
+                "mobile", "mobile", "desktop", "desktop", "mobile", "desktop",
+                "mobile", "desktop", "desktop", "desktop",
+            ],
+        }
+    )
+
+
 class TestPivot:
     """Tests for pivot function."""
 
@@ -428,9 +467,145 @@ class TestPivot:
     def test_pivot_normalize_row(self, sample_data):
         """Test pivot with row normalization."""
         result = pivot(sample_data, rows="category", cols="region", normalize="row", totals=True)
-        # Row totals should be 100%
+        # Row totals should be 1 (proportions, not percentages)
         total_col = result.filter(pl.col("category") != "Total")["Total"]
-        assert all(abs(v - 100.0) < 0.01 for v in total_col.to_list())
+        assert all(abs(v - 1.0) < 1e-9 for v in total_col.to_list())
+
+    def test_pivot_normalize_column_totals(self, sample_data):
+        """Column normalization: every column sums to 1, totals included.
+
+        Regression: normalization used to run AFTER the totals row was
+        appended, so each column sum double-counted every observation and
+        every proportion came out halved.
+        """
+        result = pivot(
+            sample_data, rows="category", cols="region", normalize="column", totals=True
+        )
+        body = result.filter(pl.col("category") != "Total")
+        total_row = result.filter(pl.col("category") == "Total")
+
+        for col in ("North", "South"):
+            assert abs(body[col].sum() - 1.0) < 1e-9
+            assert abs(total_row[col].to_list()[0] - 1.0) < 1e-9
+
+        # The "Total" column is the row marginal, also on a 0-1 scale.
+        assert abs(body["Total"].sum() - 1.0) < 1e-9
+        assert abs(total_row["Total"].to_list()[0] - 1.0) < 1e-9
+
+    def test_pivot_normalize_total_totals(self, sample_data):
+        """Total normalization: all data cells sum to 1, totals included."""
+        result = pivot(
+            sample_data, rows="category", cols="region", normalize="total", totals=True
+        )
+        body = result.filter(pl.col("category") != "Total")
+        total_row = result.filter(pl.col("category") == "Total")
+
+        cell_sum = sum(body[col].sum() for col in ("North", "South"))
+        assert abs(cell_sum - 1.0) < 1e-9
+
+        # Both margins are shares of the grand total, and the corner is 1.
+        assert abs(body["Total"].sum() - 1.0) < 1e-9
+        assert abs(sum(total_row[c].to_list()[0] for c in ("North", "South")) - 1.0) < 1e-9
+        assert abs(total_row["Total"].to_list()[0] - 1.0) < 1e-9
+
+    def test_pivot_normalize_row_marginal(self, sample_data):
+        """Row normalization: the bottom Total row is the column marginal."""
+        result = pivot(
+            sample_data, rows="category", cols="region", normalize="row", totals=True
+        )
+        total_row = result.filter(pl.col("category") == "Total")
+        assert abs(sum(total_row[c].to_list()[0] for c in ("North", "South")) - 1.0) < 1e-9
+        assert abs(total_row["Total"].to_list()[0] - 1.0) < 1e-9
+
+    def test_pivot_normalize_matches_without_totals(self, sample_data):
+        """Adding totals must not change the data cells themselves.
+
+        This is the direct check on the old bug: `totals=True` silently
+        rescaled every cell for column/total normalization.
+        """
+        for norm in ("row", "column", "total"):
+            with_totals = pivot(
+                sample_data, rows="category", cols="region", normalize=norm, totals=True
+            ).filter(pl.col("category") != "Total")
+            without = pivot(
+                sample_data, rows="category", cols="region", normalize=norm, totals=False
+            )
+            for cat in without["category"].to_list():
+                a = with_totals.filter(pl.col("category") == cat)
+                b = without.filter(pl.col("category") == cat)
+                for col in ("North", "South"):
+                    assert abs(a[col].to_list()[0] - b[col].to_list()[0]) < 1e-9, (
+                        f"normalize={norm} category={cat} column={col} "
+                        "changed when totals were enabled"
+                    )
+
+    def test_pivot_normalize_known_values(self):
+        """Hand-checked crosstab so the proportions are pinned, not just summed."""
+        df = _channel_data()
+        # counts: West desktop=3 mobile=3 (6); East desktop=3 mobile=1 (4); grand=10
+        def cell(res, row, col):
+            return res.filter(pl.col("region") == row)[col].to_list()[0]
+
+        res = pivot(df, rows="region", cols="channel", normalize="column", totals=True)
+        assert abs(cell(res, "West", "desktop") - 0.50) < 1e-9   # 3/6
+        assert abs(cell(res, "East", "mobile") - 0.25) < 1e-9    # 1/4
+        assert abs(cell(res, "West", "Total") - 0.60) < 1e-9     # 6/10
+
+        res = pivot(df, rows="region", cols="channel", normalize="total", totals=True)
+        assert abs(cell(res, "East", "mobile") - 0.10) < 1e-9    # 1/10
+        assert abs(cell(res, "West", "desktop") - 0.30) < 1e-9   # 3/10
+        assert abs(cell(res, "Total", "desktop") - 0.60) < 1e-9  # 6/10
+
+    # ---- ``perc`` is opt-in, like the Radiant checkbox ---------------
+
+    def test_pivot_normalize_is_proportion_not_percentage(self):
+        """Regression: normalize used to multiply by 100 by default."""
+        df = _channel_data()
+        res = pivot(df, rows="region", cols="channel", normalize="total")
+        for col in ("desktop", "mobile"):
+            assert res[col].dtype.is_float()
+            assert all(0.0 <= v <= 1.0 for v in res[col].to_list())
+
+    def test_pivot_perc_formats_with_percent_sign(self):
+        """``perc=True`` renders proportions as percentage strings."""
+        df = _channel_data()
+        res = pivot(
+            df, rows="region", cols="channel", normalize="column", totals=True, perc=True
+        )
+
+        def cell(row, col):
+            return res.filter(pl.col("region") == row)[col].to_list()[0]
+
+        assert cell("West", "desktop") == "50.00%"  # 3/6
+        assert cell("East", "mobile") == "25.00%"   # 1/4
+        assert cell("West", "Total") == "60.00%"    # 6/10
+        assert cell("Total", "desktop") == "100.00%"
+
+    def test_pivot_perc_dec(self):
+        """``dec`` controls the decimals used by ``perc``."""
+        df = _channel_data()
+        res = pivot(df, rows="region", cols="channel", normalize="row", perc=True, dec=1)
+        assert res.filter(pl.col("region") == "East")["mobile"].to_list()[0] == "25.0%"
+
+    def test_pivot_perc_leaves_counts_alone(self):
+        """A raw frequency table never gets a % sign, even with ``perc=True``."""
+        df = _channel_data()
+        res = pivot(df, rows="region", cols="channel", totals=True, perc=True)
+        for col in ("desktop", "mobile", "Total"):
+            assert res[col].dtype.is_float()
+
+    def test_pivot_freq_table_normalize_proportion(self):
+        """Frequency table gains a proportion column, renamed under ``perc``."""
+        df = _channel_data()
+        res = pivot(df, rows="region", normalize="total")
+        assert "count_prop" in res.columns
+        assert abs(res.filter(pl.col("region") == "West")["count_prop"].to_list()[0] - 0.6) < 1e-9
+
+        res = pivot(df, rows="region", normalize="total", perc=True)
+        assert "count_perc" in res.columns
+        assert res.filter(pl.col("region") == "West")["count_perc"].to_list()[0] == "60.00%"
+        # The count itself stays a count.
+        assert res["count"].dtype.is_integer()
 
     def test_pivot_invalid_agg(self, sample_data):
         """Test pivot with invalid aggregation raises error."""

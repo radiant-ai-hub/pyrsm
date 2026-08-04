@@ -4,22 +4,12 @@ from typing import Literal
 
 import polars as pl
 
-# Supported summary functions
-EXPLORE_FUNCTIONS = {
-    "mean": lambda col: pl.col(col).mean(),
-    "median": lambda col: pl.col(col).median(),
-    "sum": lambda col: pl.col(col).sum(),
-    "std": lambda col: pl.col(col).std(),
-    "sd": lambda col: pl.col(col).std(),  # Alias for std (R-style)
-    "var": lambda col: pl.col(col).var(),
-    "min": lambda col: pl.col(col).min(),
-    "max": lambda col: pl.col(col).max(),
-    "count": lambda col: pl.col(col).count(),
-    "n": lambda col: pl.col(col).count(),  # Alias for count
-    "n_unique": lambda col: pl.col(col).n_unique(),
-    "n_missing": lambda col: pl.col(col).null_count(),  # Alias for null_count
-    "null_count": lambda col: pl.col(col).null_count(),
-}
+from pyrsm.eda.agg_functions import AGG_FUNCTIONS, resolve_agg
+
+#: Supported summary functions. Shared with ``pivot`` so the two tools can
+#: never disagree about which metrics exist — see
+#: :mod:`pyrsm.eda.agg_functions` for the radiant.data parity set.
+EXPLORE_FUNCTIONS = AGG_FUNCTIONS
 
 DEFAULT_AGG = ["mean", "median", "min", "max", "sd"]
 
@@ -45,7 +35,7 @@ def explore(
     df: pl.DataFrame | pl.LazyFrame,
     cols: list[str] | None = None,
     agg: list[str] | None = None,
-    by: str | None = None,
+    by: str | list[str] | None = None,
     to_dummies: bool = True,
     header: Literal["function", "variable"] = "function",
 ) -> pl.DataFrame:
@@ -63,8 +53,9 @@ def explore(
         Aggregation functions to compute. Default: ``["mean", "median", "min",
         "max", "sd"]``. Supported: mean, median, sum, std, sd, var, min, max,
         count, n, n_unique, n_missing, null_count.
-    by : str | None
-        Optional column to group by.
+    by : str | list[str] | None
+        Optional column(s) to group by. Pass a list to group by several
+        variables at once.
     to_dummies : bool
         If True, convert categorical/Enum/String columns to dummy variables
         (drop_first=True) and include them in the summary.
@@ -120,7 +111,28 @@ def explore(
     │ a   ┆ 1.5    │
     │ b   ┆ 3.0    │
     └─────┴────────┘
+
+    ``by`` also accepts several grouping variables.
+
+    >>> df3 = pl.DataFrame(
+    ...     {"g": ["a", "a", "b"], "h": ["x", "y", "x"], "v": [1.0, 2.0, 3.0]}
+    ... )
+    >>> print(rsm.eda.explore(df3, cols=["v"], by=["g", "h"], agg=["mean"]).sort(["g", "h"]))
+    shape: (3, 3)
+    ┌─────┬─────┬────────┐
+    │ g   ┆ h   ┆ v_mean │
+    │ --- ┆ --- ┆ ---    │
+    │ str ┆ str ┆ f64    │
+    ╞═════╪═════╪════════╡
+    │ a   ┆ x   ┆ 1.0    │
+    │ a   ┆ y   ┆ 2.0    │
+    │ b   ┆ x   ┆ 3.0    │
+    └─────┴─────┴────────┘
     """
+    # Normalize ``by`` to a list so one and many grouping variables follow
+    # the same path.
+    by_cols = [by] if isinstance(by, str) else list(by or [])
+
     # Materialize if LazyFrame
     if isinstance(df, pl.LazyFrame):
         df = df.collect()
@@ -138,7 +150,7 @@ def explore(
                 isinstance(schema[name], CATEGORICAL_DTYPES)
                 or schema[name] in CATEGORICAL_DTYPES
             )
-            and name != by
+            and name not in by_cols
         ]
         if cat_cols:
             df = df.to_dummies(columns=cat_cols, drop_first=True)
@@ -157,13 +169,9 @@ def explore(
     if agg is None:
         agg = DEFAULT_AGG
 
-    # Validate aggregation functions
+    # Validate aggregation functions (raises with the supported set)
     for func in agg:
-        if func not in EXPLORE_FUNCTIONS:
-            raise ValueError(
-                f"Unknown aggregation function: {func}\n"
-                f"Supported: {', '.join(EXPLORE_FUNCTIONS.keys())}"
-            )
+        resolve_agg(func)
 
     # Auto-detect numeric columns if none specified
     if cols is None:
@@ -180,12 +188,12 @@ def explore(
     exprs = []
     for col in cols:
         for func in agg:
-            expr = EXPLORE_FUNCTIONS[func](col).alias(f"{col}_{func}")
+            expr = resolve_agg(func)(col).alias(f"{col}_{func}")
             exprs.append(expr)
 
     # Execute with or without grouping
-    if by:
-        result = lf.group_by(by).agg(exprs).collect()
+    if by_cols:
+        result = lf.group_by(by_cols).agg(exprs).collect()
     elif header == "variable":
         # Statistics as rows, variables as columns
         wide_result = lf.select(exprs).collect()
