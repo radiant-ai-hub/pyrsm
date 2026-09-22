@@ -374,6 +374,44 @@ class compare_means:
                 pl.Series("", _sig_stars()(list(adjusted))),
             )
 
+    def summary_data(self, extra: bool = False, dec: int = 3) -> dict:
+        """Return a JSON-safe summary using the shared pyrsm document contract."""
+        from pyrsm.summary import column, document, table_rows, table_section
+
+        comparisons = self.comp_stats
+        if not extra:
+            comparisons = comparisons.select(["Null hyp.", "Alt. hyp.", "diff", "p.value", ""])
+        descriptive_columns = [
+            column(self.var1),
+            column("mean", semantic_type="number", decimals=dec),
+            column("n", semantic_type="number", decimals=0),
+            column("n_missing", semantic_type="number", decimals=0),
+            column("sd", semantic_type="number", decimals=dec),
+            column("se", semantic_type="number", decimals=dec),
+            column("me", semantic_type="number", decimals=dec),
+        ]
+        comparison_columns = [
+            column(name, semantic_type="p_value" if name == "p.value" else "number" if name in {"diff", "se", "t.value", "df"} or "%" in name else "text", decimals=dec)
+            for name in comparisons.columns
+        ]
+        return document(
+            producer="pyrsm.basics.compare_means.summary_data",
+            title=f"Pairwise mean comparisons ({self.test_type})",
+            analysis_kind="compare_means",
+            options={"extra": extra, "dec": dec},
+            metadata={
+                "Data": self.name,
+                "Variables": f"{self.var1}, {self.var2}",
+                "Samples": self.sample_type,
+                "Confidence": self.conf,
+                "Adjustment": self.adjust or "None",
+            },
+            sections=[
+                table_section("descriptive_statistics", "Descriptive statistics", table_rows(self.descriptive_stats), descriptive_columns),
+                table_section("pairwise_comparisons", "Pairwise comparisons", table_rows(comparisons), comparison_columns),
+            ],
+        )
+
     def summary(self, extra=False, dec=3, plain: bool = True) -> None:
         """
         Prints a summary of the hypothesis test.
