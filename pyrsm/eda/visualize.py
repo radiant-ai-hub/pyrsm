@@ -68,6 +68,133 @@ def _as_list(value, name: str) -> list[str]:
     return values
 
 
+#: Geoms where a group reads best as a filled area rather than a line colour.
+#: ``_apply_combine`` maps the variable name to ``fill`` for these and to
+#: ``color`` for the rest, instead of setting both the way radiant-for-r does --
+#: mapping an aesthetic a geom does not use just adds a stray legend.
+_COMBINE_FILL_GEOMS = frozenset({"dist", "hist", "density", "bar", "box", "violin"})
+
+
+def _unique_name(base: str, taken) -> str:
+    """A column name derived from *base* that does not collide with *taken*."""
+    taken = set(taken)
+    if base not in taken:
+        return base
+    i = 1
+    while f"{base}_{i}" in taken:
+        i += 1
+    return f"{base}_{i}"
+
+
+def _apply_combine(
+    df: pl.DataFrame,
+    combine: str,
+    x_vars: list[str],
+    y_vars: list[str],
+    geom: str | None,
+    color: str | None,
+    fill: str | None,
+    facet: str | None,
+    facet_row: str | None,
+    facet_col: str | None,
+):
+    """Reshape so several variables share one panel, keyed by an aesthetic.
+
+    Without ``combine`` a list of variables produces a *grid* of plots. With it
+    the variables are pivoted into a single long column and the variable name
+    becomes a colour/fill aesthetic, so they overlay in one panel: three
+    densities on shared axes, or one line per measure against a common x.
+
+    Every rule below is enforced by raising, where radiant-for-r returned an
+    error *string* that the caller had to remember to check -- a silent
+    "plot" that is really a message.
+
+    Returns
+    -------
+    tuple
+        ``(df, x_vars, y_vars, color, fill)`` with the reshaped frame and the
+        aesthetics rewired to the new columns.
+    """
+    if combine not in ("x", "y"):
+        raise ValueError(f"combine must be 'x' or 'y', got {combine!r}")
+
+    targets = x_vars if combine == "x" else y_vars
+    other = y_vars if combine == "x" else x_vars
+
+    if len(targets) < 2:
+        raise ValueError(
+            f"combine={combine!r} needs at least two {combine} variables to "
+            f"combine, got {len(targets)}"
+        )
+
+    missing = [v for v in targets if v not in df.columns]
+    if missing:
+        raise ValueError(f"unknown {combine} variable(s): {', '.join(missing)}")
+
+    # Values from every combined variable land in one column, so they have to
+    # share a scale. Mixed or non-numeric input would either fail inside polars
+    # with an opaque cast error or silently coerce.
+    non_numeric = [v for v in targets if not df.schema[v].is_numeric()]
+    if non_numeric:
+        raise ValueError(
+            f"combine={combine!r} requires numeric variables; these are not: "
+            f"{', '.join(non_numeric)}"
+        )
+
+    overlap = [v for v in targets if v in other]
+    if overlap:
+        raise ValueError(
+            f"cannot combine {combine} variables that are also used on the "
+            f"other axis: {', '.join(overlap)}"
+        )
+
+    facet_vars = [f for f in (facet, facet_row, facet_col) if f]
+    clash = [v for v in targets if v in facet_vars]
+    if clash:
+        raise ValueError(
+            f"cannot combine {combine} variables that are also facet "
+            f"variables: {', '.join(clash)}"
+        )
+
+    # combine claims colour/fill for the variable name. A literal (the
+    # "slateblue" default) is simply superseded; an explicit *column* is a real
+    # conflict and silently dropping it would be worse than saying so.
+    for name, value in (("color", color), ("fill", fill)):
+        if value and value in df.columns:
+            raise ValueError(
+                f"combine={combine!r} maps the variable name to the "
+                f"colour/fill aesthetic, so {name}={value!r} cannot also be "
+                f"mapped; drop {name}= or drop combine="
+            )
+
+    var_col = _unique_name("variable", df.columns)
+    val_col = _unique_name("value", df.columns)
+
+    long = df.unpivot(
+        index=[c for c in df.columns if c not in targets],
+        on=targets,
+        variable_name=var_col,
+        value_name=val_col,
+    )
+    # Enum, not plain strings, so legend and stacking order follow the order the
+    # caller listed the variables in rather than alphabetical order.
+    long = long.with_columns(pl.col(var_col).cast(pl.Enum(targets)))
+
+    if combine == "x":
+        x_vars = [val_col]
+    else:
+        y_vars = [val_col]
+
+    resolved = geom or ("scatter" if y_vars else "dist")
+    if resolved in _COMBINE_FILL_GEOMS:
+        fill = var_col
+        color = None
+    else:
+        color = var_col
+
+    return long, x_vars, y_vars, color, fill
+
+
 def visualize(
     df: pl.DataFrame | pl.LazyFrame,
     x: str | list[str] | tuple[str, ...],
@@ -92,6 +219,7 @@ def visualize(
     agg: str | None = None,
     ncol: int = 2,
     ret: str = "compose",
+    combine: str | None = None,
 ):
     """
     Create one or more plots using plotnine.
@@ -151,6 +279,14 @@ def visualize(
     ret : str
         Return mode for multiple plots: ``"compose"`` (default) returns a
         plotnine composition; ``"list"`` returns the individual ggplot objects.
+    combine : str | None
+        Overlay several variables in a *single* panel instead of producing a
+        grid of separate plots. ``"x"`` combines the ``x`` variables, ``"y"``
+        the ``y`` variables; the variable name becomes a colour (or fill)
+        aesthetic. The combined variables must be numeric and must not appear
+        on the other axis or as a facet variable, and ``color``/``fill`` cannot
+        also be mapped to a column. ``None`` (default) keeps the grid
+        behaviour.
 
     Returns
     -------
@@ -184,6 +320,20 @@ def visualize(
     y_vars = _as_list(y, "y")
     if not x_vars:
         raise ValueError("x is required")
+
+    if combine is not None:
+        df, x_vars, y_vars, color, fill = _apply_combine(
+            df,
+            combine,
+            x_vars,
+            y_vars,
+            geom,
+            color,
+            fill,
+            facet,
+            facet_row,
+            facet_col,
+        )
 
     plot_list = []
     for x_var in x_vars:

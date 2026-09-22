@@ -6,17 +6,18 @@ This file is the deeper reference for `pyrsm.eda.visualize`. The main `SKILL.md`
 
 1. Function signature
 2. Multiple x/y variables
-3. The 8 geoms in detail
-4. Aesthetics — column mapping vs literal values
-5. Faceting (`facet`, `facet_row`, `facet_col`)
-6. Aggregation (`agg`) and smoothing (`smooth`)
-7. The `nobs` sample cap for scatter plots
-8. The categorical-vs-numeric auto-detection
-9. Plain-English interpretation templates
-10. Extending the plot with plotnine
-11. Preprocessing the data with polars
-12. Worked examples
-13. Common pitfalls
+3. Overlaying variables in one panel (`combine`)
+4. The 8 geoms in detail
+5. Aesthetics — column mapping vs literal values
+6. Faceting (`facet`, `facet_row`, `facet_col`)
+7. Aggregation (`agg`) and smoothing (`smooth`)
+8. The `nobs` sample cap for scatter plots
+9. The categorical-vs-numeric auto-detection
+10. Plain-English interpretation templates
+11. Extending the plot with plotnine
+12. Preprocessing the data with polars
+13. Worked examples
+14. Common pitfalls
 
 ---
 
@@ -47,6 +48,7 @@ rsm.eda.visualize(
     agg=None,                 # str | None — "mean", "median", "sum", "min", "max"
     ncol=2,                   # int — columns in the composed grid for multiple plots
     ret="compose",            # "compose" or "list"
+    combine=None,             # None, "x", or "y" — overlay vars in one panel
 ) -> plotnine.ggplot | plotnine composition | list[plotnine.ggplot]
 ```
 
@@ -88,7 +90,59 @@ plots = rsm.eda.visualize(df, x=["price", "carat"], geom="hist", ret="list")
 plots[0] + labs(title="Price distribution")
 ```
 
-## 3. The 8 geoms in detail
+## 3. Overlaying variables in one panel (`combine`)
+
+Section 2 gives a *grid* — one panel per variable. `combine` instead pivots the
+variables into a single long column and maps the variable name to an aesthetic,
+so they share one set of axes.
+
+```python
+# three densities overlaid, one fill per variable
+rsm.eda.visualize(df, x=["carat", "depth", "table"], geom="density", combine="x")
+
+# one line per measure against a common x
+rsm.eda.visualize(df, x="date", y=["revenue", "cost"], geom="line", combine="y")
+```
+
+`combine="x"` combines the `x` variables, `combine="y"` the `y` variables. Only
+one axis can be combined at a time — the parameter takes an axis name rather
+than two booleans precisely so the conflicting "both at once" state cannot be
+expressed.
+
+Which aesthetic the variable name is mapped to depends on the geom:
+
+| geom | aesthetic |
+| --- | --- |
+| `dist`, `hist`, `density`, `bar`, `box`, `violin` | `fill` |
+| `scatter`, `line` | `color` |
+
+Legend and stacking order follow the order you list the variables in, not
+alphabetical order.
+
+### When `combine` is rejected
+
+All of these raise `ValueError` rather than returning a value you have to
+remember to check:
+
+- fewer than two variables on the combined axis
+- a variable that is not in the data
+- a non-numeric variable — every combined value shares one column, so they must
+  share a scale
+- a variable used on *both* axes
+- a variable that is also a `facet`, `facet_row`, or `facet_col` variable
+- `color=` or `fill=` mapped to a **column**, which `combine` needs for itself.
+  A literal such as `color="slateblue"` is fine — it is simply superseded.
+
+### Combine or facet?
+
+`combine` overlays groups on shared axes, which is best for comparing shapes or
+levels directly. `facet` gives each group its own panel, which is better when
+overlap would be unreadable. Faceting on a column that is *not* combined works
+normally alongside `combine`.
+
+---
+
+## 4. The 8 geoms in detail
 
 ```python
 GEOM_CONFIG = {
@@ -142,7 +196,7 @@ For categorical x with `agg=` set, adds a `stat_summary` crossbar at the agg per
 
 `geom_violin()`. Like box but shows the kernel-density envelope on either side. Useful when you want the full distribution shape per group, not just the summary statistics.
 
-## 4. Aesthetics — column mapping vs literal values
+## 5. Aesthetics — column mapping vs literal values
 
 The aesthetics `color`, `fill`, `shape`, `group`, `linetype` can each be:
 
@@ -170,7 +224,7 @@ Maps a categorical to point shapes (only applies to scatter). Use sparingly: mor
 
 Maps to line styles (solid, dashed, dotted, etc.). Useful for distinguishing series when you can't use color.
 
-## 5. Faceting (`facet`, `facet_row`, `facet_col`)
+## 6. Faceting (`facet`, `facet_row`, `facet_col`)
 
 Faceting splits the plot into multiple sub-plots based on a categorical variable.
 
@@ -204,7 +258,7 @@ Pass `facet_row="."` (with just `facet_col`) for column-only grids, or `facet_co
 
 Rule of thumb: ≤ 6 groups → color; > 6 groups → facet.
 
-## 6. Aggregation (`agg`) and smoothing (`smooth`)
+## 7. Aggregation (`agg`) and smoothing (`smooth`)
 
 ### `agg`
 
@@ -223,7 +277,7 @@ Adds a `geom_smooth()` to scatter plots:
 
 If a `color=` mapping is also set, the smoother is fit *per color group* (one smooth per group).
 
-## 7. The `nobs` sample cap for scatter plots
+## 8. The `nobs` sample cap for scatter plots
 
 For large datasets, plotting every scatter point hurts readability and rendering performance. `visualize` samples down to `nobs` points (default 1000) using `df.sample(n=nobs, seed=1234)` for reproducibility.
 
@@ -235,7 +289,7 @@ Set `nobs=-1` to use all points (no sampling).
 
 `nobs` only applies to `geom="scatter"`. Other geoms always use all data.
 
-## 8. The categorical-vs-numeric auto-detection
+## 9. The categorical-vs-numeric auto-detection
 
 The internal `_is_categorical(df, col)` function:
 
@@ -247,7 +301,7 @@ This drives the `dist` / `hist` auto-switch (histogram for numeric x, bar for ca
 
 The threshold is hardcoded at 20 (unlike `distr` where it's the `nint` parameter). If you have an integer column with 21-25 unique values that you want treated as categorical, cast to string first: `df.with_columns(pl.col("rating").cast(pl.Utf8))`.
 
-## 9. Plain-English interpretation templates
+## 10. Plain-English interpretation templates
 
 ### Spec announcement
 
@@ -265,7 +319,7 @@ The threshold is hardcoded at 20 (unlike `distr` where it's the `nint` parameter
 
 > For a quantitative confirmation of this visual pattern, use `<pyrsm-correlation>` (scatter), `<pyrsm-distr>` (histogram), `<pyrsm-compare-means>` (box), `<pyrsm-pivot>` (bar), etc.
 
-## 10. Extending the plot with plotnine
+## 11. Extending the plot with plotnine
 
 `visualize` returns a `plotnine.ggplot`. **Anything plotnine supports can be added.**
 
@@ -355,7 +409,7 @@ composed = p1 / p2     # stacked vertically
 composed = (p1 | p2) / p3   # mixed
 ```
 
-## 11. Preprocessing the data with polars
+## 12. Preprocessing the data with polars
 
 `visualize` doesn't transform data — it expects the right shape. Preprocess with polars first:
 
@@ -392,7 +446,7 @@ long = rsm.eda.unpivot(wide, on=["Q1","Q2","Q3","Q4"], id_vars="region",
 rsm.eda.visualize(long, x="quarter", y="sales", color="region", geom="line")
 ```
 
-## 12. Worked examples
+## 13. Worked examples
 
 ### Histogram of a numeric column
 
@@ -542,7 +596,7 @@ p_layered = (
 p_layered.save("price_vs_carat.png", width=10, height=6, dpi=150)
 ```
 
-## 13. Common pitfalls
+## 14. Common pitfalls
 
 - **Wrong geom for the question.** `scatter` with two categoricals, `line` with unordered categorical x, `hist` of a string column (auto-switches to bar but is confusing). Pick the geom from the data types.
 - **Passing a literal color where you meant a column mapping (or vice versa).** If `df` has a column called `"red"`, `color="red"` maps to that column, not the literal color red. Renaming or pre-checking helps.

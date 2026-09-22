@@ -185,23 +185,26 @@ class TestExplore:
         assert not any("region" in v for v in variables)
 
     def test_to_dummies_with_by_excludes_grouping_column(self, sample_data):
-        """The by column is NOT dummy-encoded; other categoricals still are."""
+        """The by column is NOT dummy-encoded; other categoricals still are.
+
+        Grouped output is tidy (``by..., variable, <fun>...``), so the
+        summarized columns are values of ``variable``, not column names.
+        """
         result = explore(sample_data, by="category")
-        cols = result.columns
-        # category is the grouping column, not dummified
-        assert "category" in cols
-        assert not any(c.startswith("category_") for c in cols)
+        assert "category" in result.columns
+        assert not any(c.startswith("category_") for c in result.columns)
+        variables = set(result["variable"].to_list())
+        assert not any(v.startswith("category_") for v in variables)
         # region dummies should appear in the grouped output
-        assert any("region_" in c for c in cols)
+        assert any(v.startswith("region_") for v in variables)
 
     def test_to_dummies_false_with_by(self, sample_data):
         """Grouped + to_dummies=False: only numeric columns aggregated, no dummies."""
         result = explore(sample_data, by="category", to_dummies=False)
-        cols = result.columns
-        assert "category" in cols
-        assert any("price_" in c for c in cols)
-        assert any("quantity_" in c for c in cols)
-        assert not any("region" in c for c in cols if c != "category")
+        assert "category" in result.columns
+        variables = set(result["variable"].to_list())
+        assert {"price", "quantity"} <= variables
+        assert not any("region" in v for v in variables)
 
     def test_to_dummies_with_multiple_categoricals(self, sample_data):
         """Both categoricals produce dummies with correct count after drop_first."""
@@ -253,12 +256,68 @@ class TestExplore:
         qty_median_var = r_var.filter(pl.col("statistic") == "median")["quantity"][0]
         assert qty_median_func == qty_median_var
 
-    def test_header_ignored_when_grouped(self, sample_data):
-        """When by is set, header has no effect on the output."""
-        r1 = explore(sample_data, cols=["price"], by="category", header="function").sort("category")
-        r2 = explore(sample_data, cols=["price"], by="category", header="variable").sort("category")
-        assert r1.columns == r2.columns
-        assert r1.equals(r2)
+    def test_header_applies_when_grouped(self, sample_data):
+        """``header`` must flip the grouped layout too.
+
+        Regression: the grouped branch returned one wide row per group with
+        ``{col}_{func}`` columns, which honours neither ``header`` option —
+        so the Radiant "Column headers" dropdown appeared to do nothing
+        whenever a Group by variable was set. The previous version of this
+        test asserted that broken behaviour.
+        """
+        by_fun = explore(
+            sample_data, cols=["price"], agg=["mean", "max"],
+            by="category", header="function",
+        )
+        by_var = explore(
+            sample_data, cols=["price"], agg=["mean", "max"],
+            by="category", header="variable",
+        )
+        assert by_fun.columns != by_var.columns
+
+        # header="function": functions across the top, one row per variable.
+        assert by_fun.columns == ["category", "variable", "mean", "max"]
+        # header="variable": variables across the top, one row per statistic.
+        assert by_var.columns == ["category", "statistic", "price"]
+        assert by_var["statistic"].to_list()[:2] == ["mean", "max"]
+
+    def test_grouped_header_layouts_carry_the_same_numbers(self, sample_data):
+        """Flipping the layout must not change any value."""
+        by_fun = explore(
+            sample_data, cols=["price", "quantity"], agg=["mean", "max"],
+            by="category", header="function",
+        )
+        by_var = explore(
+            sample_data, cols=["price", "quantity"], agg=["mean", "max"],
+            by="category", header="variable",
+        )
+        for row in by_fun.iter_rows(named=True):
+            for func in ("mean", "max"):
+                flipped = by_var.filter(
+                    (pl.col("category") == row["category"])
+                    & (pl.col("statistic") == func)
+                )[row["variable"]].to_list()[0]
+                assert flipped == pytest.approx(row[func])
+
+    def test_grouped_output_is_deterministically_ordered(self, sample_data):
+        """Repeated runs must not shuffle groups (group_by order is arbitrary)."""
+        kwargs = dict(cols=["price"], agg=["mean"], by="category")
+        first = explore(sample_data, **kwargs)
+        for _ in range(3):
+            assert explore(sample_data, **kwargs).equals(first)
+        assert first["category"].to_list() == sorted(first["category"].to_list())
+
+    def test_grouped_header_handles_underscored_variable_names(self):
+        """A column called ``unit_price`` must not be mis-split on "_"."""
+        df = pl.DataFrame(
+            {"g": ["a", "a", "b"], "unit_price": [1.0, 3.0, 5.0]}
+        )
+        result = explore(
+            df, cols=["unit_price"], agg=["mean", "max"], by="g", header="function"
+        )
+        assert result.columns == ["g", "variable", "mean", "max"]
+        assert set(result["variable"].to_list()) == {"unit_price"}
+        assert result.filter(pl.col("g") == "a")["mean"].to_list() == [2.0]
 
     # --- Combined / edge-case tests ---
 
@@ -905,4 +964,220 @@ class TestVisualize:
     def test_visualize_violin(self, sample_data):
         """Test violin plot."""
         p = visualize(sample_data, x="category", y="price", geom="violin")
+        assert p is not None
+
+
+class TestVisualizeCombine:
+    """Tests for visualize(combine=...) -- overlaying variables in one panel.
+
+    Ports the comby/combx behaviour of radiant-for-r's visualize(). Note this
+    is unrelated to TestCombine above, which covers the row/column combine
+    (join) helper.
+    """
+
+    @pytest.fixture
+    def numeric_data(self):
+        """Three numeric columns, so x- and y-combine cases need not overlap."""
+        np.random.seed(7)
+        return pl.DataFrame(
+            {
+                "price": np.random.uniform(100, 1000, 60).tolist(),
+                "quantity": np.random.randint(1, 20, 60).tolist(),
+                "cost": np.random.uniform(50, 500, 60).tolist(),
+                "category": np.random.choice(["A", "B", "C"], 60).tolist(),
+            }
+        )
+
+    # --- shape of the result -------------------------------------------
+
+    def test_combine_x_returns_single_plot_not_a_grid(self, sample_data):
+        """Without combine three variables are a grid; with it, one panel."""
+        from plotnine import ggplot
+        from plotnine.composition import Compose
+
+        grid = visualize(sample_data, x=["price", "quantity"], geom="density")
+        assert isinstance(grid, Compose)
+
+        one = visualize(
+            sample_data, x=["price", "quantity"], geom="density", combine="x"
+        )
+        assert isinstance(one, ggplot)
+        assert not isinstance(one, Compose)
+
+    def test_combine_y_returns_single_plot(self, numeric_data):
+        from plotnine import ggplot
+
+        p = visualize(
+            numeric_data,
+            x="price",
+            y=["quantity", "cost"],
+            geom="scatter",
+            combine="y",
+        )
+        assert isinstance(p, ggplot)
+
+    def test_combine_none_leaves_grid_behaviour_untouched(self, sample_data):
+        """The default path must be unchanged by the feature."""
+        from plotnine.composition import Compose
+
+        p = visualize(sample_data, x=["price", "quantity"], geom="hist")
+        assert isinstance(p, Compose)
+
+    # --- the reshape ----------------------------------------------------
+
+    def test_combine_reshapes_to_long_with_variable_and_value(self, sample_data):
+        p = visualize(
+            sample_data, x=["price", "quantity"], geom="density", combine="x"
+        )
+        assert "variable" in p.data.columns
+        assert "value" in p.data.columns
+        # one row per (row, combined variable)
+        assert p.data.height == sample_data.height * 2
+
+    def test_combine_preserves_caller_order_not_alphabetical(self, sample_data):
+        """Legend/stack order follows the order given, via a polars Enum.
+
+        radiant-for-r needed factor_key=TRUE for this; getting it wrong sorts
+        the legend alphabetically and silently reorders stacked bars.
+        """
+        p = visualize(
+            sample_data, x=["quantity", "price"], geom="density", combine="x"
+        )
+        order = list(p.data["variable"].unique(maintain_order=True))
+        assert order == ["quantity", "price"]
+        assert isinstance(p.data.schema["variable"], pl.Enum)
+
+    def test_combine_avoids_collision_with_existing_columns(self):
+        """A frame that already has variable/value must not be clobbered."""
+        df = pl.DataFrame(
+            {
+                "a": [1.0, 2.0],
+                "b": [3.0, 4.0],
+                "variable": ["keep", "keep"],
+                "value": [9.0, 9.0],
+            }
+        )
+        p = visualize(df, x=["a", "b"], geom="density", combine="x")
+        assert "variable_1" in p.data.columns
+        assert "value_1" in p.data.columns
+        # originals survive untouched
+        assert p.data["variable"].unique().to_list() == ["keep"]
+
+    # --- which aesthetic gets used --------------------------------------
+
+    def test_combine_maps_fill_for_fill_geoms(self, sample_data):
+        p = visualize(
+            sample_data, x=["price", "quantity"], geom="density", combine="x"
+        )
+        assert p.mapping.get("fill") == "variable"
+        assert "color" not in p.mapping
+
+    def test_combine_maps_color_for_line_geoms(self, numeric_data):
+        p = visualize(
+            numeric_data,
+            x="price",
+            y=["quantity", "cost"],
+            geom="line",
+            combine="y",
+        )
+        assert p.mapping.get("color") == "variable"
+
+    # --- it actually renders --------------------------------------------
+
+    @pytest.mark.parametrize("geom", ["density", "dist", "hist"])
+    def test_combine_x_renders(self, sample_data, geom):
+        """draw() forces plotnine to evaluate; a bad mapping fails here."""
+        import matplotlib.pyplot as plt
+
+        p = visualize(sample_data, x=["price", "quantity"], geom=geom, combine="x")
+        fig = p.draw()
+        plt.close(fig)
+
+    @pytest.mark.parametrize("geom", ["scatter", "line"])
+    def test_combine_y_renders(self, numeric_data, geom):
+        import matplotlib.pyplot as plt
+
+        p = visualize(
+            numeric_data,
+            x="price",
+            y=["quantity", "cost"],
+            geom=geom,
+            combine="y",
+        )
+        fig = p.draw()
+        plt.close(fig)
+
+    def test_combine_works_with_faceting_on_an_uncombined_column(self, sample_data):
+        import matplotlib.pyplot as plt
+
+        p = visualize(
+            sample_data,
+            x=["price", "quantity"],
+            geom="density",
+            combine="x",
+            facet="category",
+        )
+        fig = p.draw()
+        plt.close(fig)
+
+    # --- validation ------------------------------------------------------
+
+    def test_combine_rejects_unknown_axis(self, sample_data):
+        with pytest.raises(ValueError, match="combine must be 'x' or 'y'"):
+            visualize(sample_data, x=["price", "quantity"], combine="z")
+
+    def test_combine_requires_at_least_two_variables(self, sample_data):
+        with pytest.raises(ValueError, match="at least two"):
+            visualize(sample_data, x="price", combine="x")
+
+    def test_combine_rejects_unknown_variable(self, sample_data):
+        with pytest.raises(ValueError, match="unknown x variable"):
+            visualize(sample_data, x=["price", "nope"], combine="x")
+
+    def test_combine_rejects_non_numeric(self, sample_data):
+        """Values share one column, so they must share a scale."""
+        with pytest.raises(ValueError, match="requires numeric"):
+            visualize(sample_data, x=["price", "category"], combine="x")
+
+    def test_combine_rejects_variable_used_on_both_axes(self, numeric_data):
+        with pytest.raises(ValueError, match="other axis"):
+            visualize(
+                numeric_data,
+                x=["price", "quantity"],
+                y=["quantity", "cost"],
+                geom="line",
+                combine="y",
+            )
+
+    def test_combine_rejects_facet_variable(self, sample_data):
+        with pytest.raises(ValueError, match="facet variable"):
+            visualize(
+                sample_data,
+                x=["price", "quantity"],
+                geom="density",
+                combine="x",
+                facet="price",
+            )
+
+    @pytest.mark.parametrize("aes", ["color", "fill"])
+    def test_combine_rejects_conflicting_aesthetic_column(self, sample_data, aes):
+        """combine claims colour/fill; a mapped column would be dropped."""
+        with pytest.raises(ValueError, match="cannot also be"):
+            visualize(
+                sample_data,
+                x=["price", "quantity"],
+                geom="density",
+                combine="x",
+                **{aes: "category"},
+            )
+
+    def test_combine_allows_literal_colour(self, sample_data):
+        """A literal is superseded, not a conflict -- it is the default value."""
+        p = visualize(
+            sample_data,
+            x=["price", "quantity"],
+            geom="density",
+            combine="x",
+            color="slateblue",
+        )
         assert p is not None

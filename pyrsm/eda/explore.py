@@ -31,6 +31,58 @@ NUMERIC_DTYPES = (
 CATEGORICAL_DTYPES = (pl.Categorical, pl.Enum, pl.String, pl.Utf8)
 
 
+def _grouped_result(
+    lf: pl.LazyFrame,
+    by_cols: list[str],
+    cols: list[str],
+    agg: list[str],
+    exprs: list[pl.Expr],
+    header: str,
+) -> pl.DataFrame:
+    """Summarize by group, laid out according to ``header``.
+
+    ``group_by().agg()`` gives one wide row per group with ``{col}_{func}``
+    columns — a shape that honours neither ``header`` option. Reshape it the
+    way radiant.data does: a tidy ``by..., variable, <fun>...`` table for
+    ``header="function"``, flipped to ``by..., statistic, <variable>...``
+    for ``header="variable"``.
+    """
+    wide = lf.group_by(by_cols).agg(exprs).collect()
+
+    # Map each generated column back to its (variable, function) pair rather
+    # than parsing the name — a column called "unit_price" would make
+    # "unit_price_mean" ambiguous to split on "_".
+    keys = [f"{col}_{func}" for col in cols for func in agg]
+    to_variable = {f"{col}_{func}": col for col in cols for func in agg}
+    to_statistic = {f"{col}_{func}": func for col in cols for func in agg}
+    var_order = {col: i for i, col in enumerate(cols)}
+    fun_order = {func: i for i, func in enumerate(agg)}
+
+    long = wide.unpivot(
+        index=by_cols, on=keys, variable_name="_key", value_name="_value"
+    ).with_columns(
+        pl.col("_key").replace_strict(to_variable).alias("variable"),
+        pl.col("_key").replace_strict(to_statistic).alias("statistic"),
+        pl.col("_key")
+        .replace_strict({k: var_order[v] for k, v in to_variable.items()})
+        .alias("_var_ord"),
+        pl.col("_key")
+        .replace_strict({k: fun_order[v] for k, v in to_statistic.items()})
+        .alias("_fun_ord"),
+    )
+
+    # ``pivot`` keeps first-appearance order, so sort first to get stable
+    # groups and to keep variables / statistics in the order requested
+    # rather than alphabetical.
+    if header == "variable":
+        long = long.sort([*by_cols, "_fun_ord", "_var_ord"])
+        return long.pivot(
+            on="variable", index=[*by_cols, "statistic"], values="_value"
+        )
+    long = long.sort([*by_cols, "_var_ord", "_fun_ord"])
+    return long.pivot(on="statistic", index=[*by_cols, "variable"], values="_value")
+
+
 def explore(
     df: pl.DataFrame | pl.LazyFrame,
     cols: list[str] | None = None,
@@ -100,34 +152,54 @@ def explore(
     │ mean      ┆ 20.0  │
     │ max       ┆ 30.0  │
     └───────────┴───────┘
+
+    Grouped output is tidy, and ``header`` flips it just like it does for
+    an ungrouped summary.
+
     >>> df2 = pl.DataFrame({"g": ["a", "a", "b"], "x": [1.0, 2.0, 3.0]})
-    >>> print(rsm.eda.explore(df2, cols=["x"], by="g", agg=["mean"]).sort("g"))
-    shape: (2, 2)
-    ┌─────┬────────┐
-    │ g   ┆ x_mean │
-    │ --- ┆ ---    │
-    │ str ┆ f64    │
-    ╞═════╪════════╡
-    │ a   ┆ 1.5    │
-    │ b   ┆ 3.0    │
-    └─────┴────────┘
+    >>> print(rsm.eda.explore(df2, cols=["x"], by="g", agg=["mean", "max"]))
+    shape: (2, 4)
+    ┌─────┬──────────┬──────┬─────┐
+    │ g   ┆ variable ┆ mean ┆ max │
+    │ --- ┆ ---      ┆ ---  ┆ --- │
+    │ str ┆ str      ┆ f64  ┆ f64 │
+    ╞═════╪══════════╪══════╪═════╡
+    │ a   ┆ x        ┆ 1.5  ┆ 2.0 │
+    │ b   ┆ x        ┆ 3.0  ┆ 3.0 │
+    └─────┴──────────┴──────┴─────┘
+    >>> print(
+    ...     rsm.eda.explore(
+    ...         df2, cols=["x"], by="g", agg=["mean", "max"], header="variable"
+    ...     )
+    ... )
+    shape: (4, 3)
+    ┌─────┬───────────┬─────┐
+    │ g   ┆ statistic ┆ x   │
+    │ --- ┆ ---       ┆ --- │
+    │ str ┆ str       ┆ f64 │
+    ╞═════╪═══════════╪═════╡
+    │ a   ┆ mean      ┆ 1.5 │
+    │ a   ┆ max       ┆ 2.0 │
+    │ b   ┆ mean      ┆ 3.0 │
+    │ b   ┆ max       ┆ 3.0 │
+    └─────┴───────────┴─────┘
 
     ``by`` also accepts several grouping variables.
 
     >>> df3 = pl.DataFrame(
     ...     {"g": ["a", "a", "b"], "h": ["x", "y", "x"], "v": [1.0, 2.0, 3.0]}
     ... )
-    >>> print(rsm.eda.explore(df3, cols=["v"], by=["g", "h"], agg=["mean"]).sort(["g", "h"]))
-    shape: (3, 3)
-    ┌─────┬─────┬────────┐
-    │ g   ┆ h   ┆ v_mean │
-    │ --- ┆ --- ┆ ---    │
-    │ str ┆ str ┆ f64    │
-    ╞═════╪═════╪════════╡
-    │ a   ┆ x   ┆ 1.0    │
-    │ a   ┆ y   ┆ 2.0    │
-    │ b   ┆ x   ┆ 3.0    │
-    └─────┴─────┴────────┘
+    >>> print(rsm.eda.explore(df3, cols=["v"], by=["g", "h"], agg=["mean"]))
+    shape: (3, 4)
+    ┌─────┬─────┬──────────┬──────┐
+    │ g   ┆ h   ┆ variable ┆ mean │
+    │ --- ┆ --- ┆ ---      ┆ ---  │
+    │ str ┆ str ┆ str      ┆ f64  │
+    ╞═════╪═════╪══════════╪══════╡
+    │ a   ┆ x   ┆ v        ┆ 1.0  │
+    │ a   ┆ y   ┆ v        ┆ 2.0  │
+    │ b   ┆ x   ┆ v        ┆ 3.0  │
+    └─────┴─────┴──────────┴──────┘
     """
     # Normalize ``by`` to a list so one and many grouping variables follow
     # the same path.
@@ -193,7 +265,7 @@ def explore(
 
     # Execute with or without grouping
     if by_cols:
-        result = lf.group_by(by_cols).agg(exprs).collect()
+        result = _grouped_result(lf, by_cols, cols, agg, exprs, header)
     elif header == "variable":
         # Statistics as rows, variables as columns
         wide_result = lf.select(exprs).collect()
