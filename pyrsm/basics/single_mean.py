@@ -7,6 +7,7 @@ import polars as pl
 import pyrsm.basics.display_utils as du
 import pyrsm.basics.utils as bu
 from pyrsm.utils import check_dataframe, ifelse, sig_stars
+from pyrsm.data_scope import apply_scope, print_scope
 
 
 @lru_cache(maxsize=1)
@@ -93,6 +94,9 @@ class single_mean:
         alt_hyp: str = "two-sided",
         conf: float = 0.95,
         comp_value: float = 0,
+        data_filter: str = "",
+        sort: str = "",
+        slice: str = "",
     ):
         """
         Constructs all the necessary attributes for the single_mean object.
@@ -118,6 +122,15 @@ class single_mean:
             self.name = "Not provided"
 
         self.data = check_dataframe(incoming)
+
+        # The data scope, applied before anything is measured: filter, then
+        # sort, then slice. Kept on the object so ``summary`` can say which
+        # rows the numbers describe -- a reader who cannot see the filter has
+        # no way to know the n is not the whole dataset.
+        self.data_filter = data_filter
+        self.sort = sort
+        self.slice = slice
+        self.data = apply_scope(self.data, data_filter, sort, slice)
         self.var = var
         self.alt_hyp = alt_hyp
         self.conf = conf
@@ -173,6 +186,7 @@ class single_mean:
         """Print the summary header."""
         print("Single mean test")
         print(f"Data      : {self.name}")
+        print_scope(self, 10)
         print(f"Variables : {self.var}")
         print(f"Confidence: {self.conf}")
         print(f"Comparison: {self.comp_value}\n")

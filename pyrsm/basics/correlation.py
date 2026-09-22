@@ -5,6 +5,7 @@ import polars as pl
 
 import pyrsm.basics.display_utils as du
 from pyrsm.utils import check_dataframe, sig_stars
+from pyrsm.data_scope import apply_scope, scope_lines
 
 
 @lru_cache(maxsize=1)
@@ -59,6 +60,9 @@ class correlation:
         data: pl.DataFrame | dict[str, pl.DataFrame],
         vars: list[str] | None = [],
         method: str = "pearson",
+        data_filter: str = "",
+        sort: str = "",
+        slice: str = "",
     ) -> None:
         if isinstance(data, dict):
             self.name = list(data.keys())[0]
@@ -68,6 +72,15 @@ class correlation:
             self.name = "Not provided"
 
         self.data = check_dataframe(self.data)
+
+        # The data scope, applied before anything is measured: filter, then
+        # sort, then slice. Kept on the object so ``summary`` can say which
+        # rows the numbers describe -- a reader who cannot see the filter has
+        # no way to know the n is not the whole dataset.
+        self.data_filter = data_filter
+        self.sort = sort
+        self.slice = slice
+        self.data = apply_scope(self.data, data_filter, sort, slice)
         self.vars = vars
         if len(self.vars) == 0:
             self.vars = [
@@ -190,6 +203,8 @@ class correlation:
         """Print the summary header."""
         prn = "Correlation\n"
         prn += f"Data     : {self.name}\n"
+        for line in scope_lines(self, 9):
+            prn += f"{line}\n"
         prn += f"Method   : {self.method}"
         print(prn)
 

@@ -6,6 +6,7 @@ import polars as pl
 
 from pyrsm.basics import display_utils as du
 from pyrsm.utils import check_dataframe, format_nr, ifelse, setdiff
+from pyrsm.data_scope import apply_scope, print_scope
 
 
 @lru_cache(maxsize=1)
@@ -73,6 +74,9 @@ class regress:
         evar: list[str] | None = None,
         ivar: list[str] | None = None,
         formula: str | None = None,
+        data_filter: str = "",
+        sort: str = "",
+        slice: str = "",
     ) -> None:
         """
         Initialize the regress class to build a linear regression model with the provided data and parameters.
@@ -99,6 +103,15 @@ class regress:
 
         # Store as polars internally
         self.data = check_dataframe(self.data)
+
+        # The data scope, applied before anything is measured: filter, then
+        # sort, then slice. Kept on the object so ``summary`` can say which
+        # rows the numbers describe -- a reader who cannot see the filter has
+        # no way to know the n is not the whole dataset.
+        self.data_filter = data_filter
+        self.sort = sort
+        self.slice = slice
+        self.data = apply_scope(self.data, data_filter, sort, slice)
         self.rvar = rvar
         model_utils = _model_utils()
         self.evar = model_utils.convert_to_list(evar)
@@ -242,6 +255,7 @@ class regress:
         """Print the summary header."""
         print("Linear regression (OLS)")
         print("Data                 :", self.name)
+        print_scope(self, 21)
         print("Response variable    :", self.rvar)
         print("Explanatory variables:", ", ".join(self.evar))
         print(f"Null hyp.: the effect of x on {self.rvar} is zero")

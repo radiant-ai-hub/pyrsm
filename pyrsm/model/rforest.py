@@ -17,6 +17,7 @@ from pyrsm.model.model import (
 )
 from pyrsm.model.perf import auc
 from pyrsm.utils import check_dataframe, ifelse
+from pyrsm.data_scope import apply_scope, print_scope
 
 
 @lru_cache(maxsize=1)
@@ -62,6 +63,9 @@ class rforest:
         random_state: int = 1234,
         mod_type: Literal["regression", "classification"] = "classification",
         cv=None,
+        data_filter: str = "",
+        sort: str = "",
+        slice: str = "",
         **kwargs,
     ) -> None:
         # Apply best_params_ from cross-validation if provided
@@ -85,6 +89,15 @@ class rforest:
 
         # Store as polars internally
         self.data = check_dataframe(self.data)
+
+        # The data scope, applied before anything is measured: filter, then
+        # sort, then slice. Kept on the object so ``summary`` can say which
+        # rows the numbers describe -- a reader who cannot see the filter has
+        # no way to know the n is not the whole dataset.
+        self.data_filter = data_filter
+        self.sort = sort
+        self.slice = slice
+        self.data = apply_scope(self.data, data_filter, sort, slice)
         self.rvar = rvar
         self.lev = lev
         self.evar = convert_to_list(evar)
@@ -166,6 +179,7 @@ class rforest:
         """
         print("Random Forest")
         print(f"Data                 : {self.name}")
+        print_scope(self, 21)
         print(f"Response variable    : {self.rvar}")
         if self.mod_type == "classification":
             print(f"Level                : {self.lev}")

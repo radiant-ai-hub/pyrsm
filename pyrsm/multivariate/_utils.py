@@ -11,6 +11,7 @@ from __future__ import annotations
 import numpy as np
 import polars as pl
 
+from pyrsm.data_scope import apply_scope
 from pyrsm.utils import check_dataframe
 
 __all__ = [
@@ -32,19 +33,15 @@ __all__ = [
 
 
 def apply_filter(df: pl.DataFrame, data_filter: str = "") -> pl.DataFrame:
-    """Apply a Radiant-style string filter to a Polars DataFrame.
+    """Apply a ``data_filter`` expression to a Polars DataFrame.
 
-    The expression uses pandas/`query`-style syntax (e.g. ``"price > 10000"``).
-    An empty filter returns the frame unchanged.
+    Kept as a name because the multivariate modules call it; the language and
+    the evaluation live in :mod:`pyrsm.data_scope`, so every class filters the
+    same way. This used to convert to pandas and call ``query``, which meant
+    the multivariate tools understood a different dialect than everything
+    else and paid a full copy to do it.
     """
-    if data_filter is None or str(data_filter).strip() == "":
-        return df
-    pdf = df.to_pandas()
-    try:
-        filtered = pdf.query(data_filter)
-    except Exception as e:  # pragma: no cover - surfaced to the user
-        raise ValueError(f"Could not apply data_filter '{data_filter}': {e}") from e
-    return pl.from_pandas(filtered)
+    return apply_scope(df, data_filter)
 
 
 def is_date(series: pl.Series) -> bool:

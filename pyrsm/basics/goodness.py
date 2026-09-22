@@ -7,6 +7,7 @@ import polars as pl
 import pyrsm.basics.display_utils as du
 from pyrsm.plot_utils import compose_plots
 from pyrsm.utils import check_dataframe, ifelse
+from pyrsm.data_scope import apply_scope, print_scope
 
 
 @lru_cache(maxsize=1)
@@ -78,6 +79,9 @@ class goodness:
         var: str,
         probs: tuple[float, ...] | None = None,
         figsize: tuple[float, float] = None,
+        data_filter: str = "",
+        sort: str = "",
+        slice: str = "",
     ) -> None:
         if isinstance(data, dict):
             self.name = list(data.keys())[0]
@@ -87,6 +91,15 @@ class goodness:
             self.name = "Not provided"
 
         self.data = check_dataframe(self.data)
+
+        # The data scope, applied before anything is measured: filter, then
+        # sort, then slice. Kept on the object so ``summary`` can say which
+        # rows the numbers describe -- a reader who cannot see the filter has
+        # no way to know the n is not the whole dataset.
+        self.data_filter = data_filter
+        self.sort = sort
+        self.slice = slice
+        self.data = apply_scope(self.data, data_filter, sort, slice)
         self.var = var
         self.figsize = figsize
         self.probs = probs
@@ -164,6 +177,7 @@ class goodness:
         """Validate inputs and print the summary header."""
         print("Goodness of fit test")
         print(f"Data         : {self.name}")
+        print_scope(self, 13)
         if self.var not in self.data.columns:
             raise ValueError(f"{self.var} does not exist in chosen dataset")
 

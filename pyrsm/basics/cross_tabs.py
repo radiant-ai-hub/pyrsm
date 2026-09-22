@@ -6,6 +6,7 @@ import polars as pl
 import pyrsm.basics.display_utils as du
 from pyrsm.plot_utils import compose_plots
 from pyrsm.utils import check_dataframe, ifelse
+from pyrsm.data_scope import apply_scope, scope_lines
 
 
 @lru_cache(maxsize=1)
@@ -80,6 +81,9 @@ class cross_tabs:
         data: pl.DataFrame | dict[str, pl.DataFrame],
         var1: str,
         var2: str,
+        data_filter: str = "",
+        sort: str = "",
+        slice: str = "",
     ) -> None:
         if isinstance(data, dict):
             self.name = list(data.keys())[0]
@@ -89,6 +93,15 @@ class cross_tabs:
             self.name = "Not provided"
 
         self.data = check_dataframe(self.data)
+
+        # The data scope, applied before anything is measured: filter, then
+        # sort, then slice. Kept on the object so ``summary`` can say which
+        # rows the numbers describe -- a reader who cannot see the filter has
+        # no way to know the n is not the whole dataset.
+        self.data_filter = data_filter
+        self.sort = sort
+        self.slice = slice
+        self.data = apply_scope(self.data, data_filter, sort, slice)
         self.var1 = var1
         self.var2 = var2
 
@@ -288,10 +301,11 @@ class cross_tabs:
 
     def _summary_header(self) -> None:
         """Print the summary header."""
+        scope = "".join(f"{line}\n" for line in scope_lines(self, 9))
         print(f"""
 Cross-tabs
 Data     : {self.name}
-Variables: {self.var1}, {self.var2}
+{scope}Variables: {self.var1}, {self.var2}
 Null hyp : There is no association between {self.var1} and {self.var2}
 Alt. hyp : There is an association between {self.var1} and {self.var2}""")
 
