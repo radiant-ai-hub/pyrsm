@@ -46,6 +46,17 @@ class xgboost:
     random_state: Random seed used when bootstrapping data samples
     mod_type: String; type of model to be used (classification or regression)
     **kwargs : Named arguments to be passed to the XGBoost functions
+    data_filter : str, default ""
+        Expression used to filter the data before the analysis, e.g.,
+        "price > 5000 and cut in ['Ideal', 'Premium']". A bare name is a column
+        and a call is an operation on one (``is_null(price)``). See
+        ``pyrsm.data_scope`` for the full list.
+    sort : str, default ""
+        Column(s) to sort on, "-" in front for descending, e.g.,
+        "clarity -price". Applied after the filter.
+    slice : str, default ""
+        Rows to keep, counting from 1, e.g., "1:100". Applied after the filter
+        and the sort.
     """
 
     def __init__(

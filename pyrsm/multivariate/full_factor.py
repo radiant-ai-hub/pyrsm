@@ -29,6 +29,7 @@ from ._utils import (
     principal,
     standardize,
 )
+from pyrsm.data_scope import apply_scope, print_scope
 
 __all__ = ["full_factor", "clean_loadings"]
 
@@ -114,7 +115,6 @@ class full_factor:
     rotation : str, default "varimax"
         ``"none"``, ``"varimax"``, ``"quartimax"``, ``"oblimin"`` or
         ``"simplimax"``.
-    data_filter : str, default ""
 
     Attributes
     ----------
@@ -123,6 +123,17 @@ class full_factor:
     communality, uniqueness, eigen, scores : np.ndarray
     fnames : list[str]
         Factor column names (``RC*`` when rotated, ``PC*``/``ML*`` otherwise).
+    data_filter : str, default ""
+        Expression used to filter the data before the analysis, e.g.,
+        "price > 5000 and cut in ['Ideal', 'Premium']". A bare name is a column
+        and a call is an operation on one (``is_null(price)``). See
+        ``pyrsm.data_scope`` for the full list.
+    sort : str, default ""
+        Column(s) to sort on, "-" in front for descending, e.g.,
+        "clarity -price". Applied after the filter.
+    slice : str, default ""
+        Rows to keep, counting from 1, e.g., "1:100". Applied after the filter
+        and the sort.
     """
 
     def __init__(
@@ -134,6 +145,8 @@ class full_factor:
         nr_fact: int = 1,
         rotation: str = "varimax",
         data_filter: str = "",
+        sort: str = "",
+        slice: str = "",
     ) -> None:
         _method_aliases = {
             "pca": "PCA",
@@ -155,20 +168,34 @@ class full_factor:
                 f"Unknown rotation '{rotation}'. Choose one of {valid_rotations}."
             )
         self.name, self.data = get_data(data)
+
+        # The data scope, applied before anything is measured: filter, then
+        # sort, then slice. Kept on the object so ``summary`` can say which
+        # rows the numbers describe.
+        #
+        # ``store`` writes a score per analysed row back onto the *original*
+        # rows, padding the ones the scope dropped, so the row index has to be
+        # taken before the scope narrows anything -- see below.
+        self.data_filter = data_filter
+        self.sort = sort
+        self.slice = slice
+        unscoped = self.data
+        self.data = apply_scope(self.data, data_filter, sort, slice)
         self.vars = get_vars(self.data.columns, vars)
         p = len(self.vars)
         self.nr_fact = int(max(1, min(nr_fact, p)))
         self.rotation = rotation
         self.method = method
         self.hcor = hcor
-        self.data_filter = data_filter
 
         # Track original row positions so stored scores can be aligned back
-        # (filtered / null rows get a missing value).
-        work = apply_filter(
-            self.data.with_row_index("__row_idx__"), data_filter
+        # (filtered / null rows get a missing value). The index is numbered on
+        # the unscoped frame and then scoped, so a row that survives the scope
+        # still knows where it came from.
+        work = apply_scope(
+            unscoped.with_row_index("__row_idx__"), data_filter, sort, slice
         ).select(["__row_idx__", *self.vars]).drop_nulls()
-        self._orig_height = self.data.height
+        self._orig_height = unscoped.height
         self._row_idx = work["__row_idx__"].to_numpy()
         sub = work.select(self.vars)
         self.nobs = sub.height
@@ -221,6 +248,7 @@ class full_factor:
         """Print Radiant-style factor-analysis output."""
         print("Factor analysis")
         print(f"Data        : {self.name}")
+        print_scope(self, 12)
         print(f"Variables   : {', '.join(self.vars)}")
         print(f"Factors     : {self.nr_fact}")
         print(f"Method      : {self.method}")

@@ -1,6 +1,7 @@
 import numpy as np
 import polars as pl
 
+from pyrsm.data_scope import apply_scope
 from pyrsm.utils import check_dataframe
 
 
@@ -37,6 +38,17 @@ class randomizer:
         Block variable name
     probs : list[float]
         Assignment probabilities
+    data_filter : str, default ""
+        Expression used to filter the data before the analysis, e.g.,
+        "price > 5000 and cut in ['Ideal', 'Premium']". A bare name is a column
+        and a call is an operation on one (``is_null(price)``). See
+        ``pyrsm.data_scope`` for the full list.
+    sort : str, default ""
+        Column(s) to sort on, "-" in front for descending, e.g.,
+        "clarity -price". Applied after the filter.
+    slice : str, default ""
+        Rows to keep, counting from 1, e.g., "1:100". Applied after the filter
+        and the sort.
 
     Examples
     --------
@@ -56,6 +68,9 @@ class randomizer:
         probs: list[float] | None = None,
         label: str = ".conditions",
         seed: int = 1234,
+        data_filter: str = "",
+        sort: str = "",
+        slice: str = "",
     ):
         if conditions is None:
             conditions = ["A", "B"]
@@ -67,6 +82,14 @@ class randomizer:
             self.name = "data"
 
         data = check_dataframe(data)
+
+        # The data scope, applied before anything is measured: filter, then
+        # sort, then slice. Kept on the object so the output can say which
+        # rows the numbers describe.
+        self.data_filter = data_filter
+        self.sort = sort
+        self.slice = slice
+        data = apply_scope(data, data_filter, sort, slice)
 
         # Include blocks in vars if specified
         all_vars = list(vars) if vars is not None else list(data.columns)

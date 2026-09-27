@@ -21,6 +21,7 @@ from pyrsm.utils import format_nr
 from ._labels import label_positions, text_repel_kwargs
 from ._plotting import as_plot_result, symmetric_limit
 from ._utils import apply_filter, get_data
+from pyrsm.data_scope import apply_scope, print_scope
 
 __all__ = ["mds"]
 
@@ -65,7 +66,6 @@ class mds:
         match to ``MASS::isoMDS``).
     nr_dim : int, default 2
     seed : int, default 1234
-    data_filter : str, default ""
 
     Attributes
     ----------
@@ -75,6 +75,17 @@ class mds:
     labels : list[str]
     dis_mat : np.ndarray
         Symmetric dissimilarity matrix used.
+    data_filter : str, default ""
+        Expression used to filter the data before the analysis, e.g.,
+        "price > 5000 and cut in ['Ideal', 'Premium']". A bare name is a column
+        and a call is an operation on one (``is_null(price)``). See
+        ``pyrsm.data_scope`` for the full list.
+    sort : str, default ""
+        Column(s) to sort on, "-" in front for descending, e.g.,
+        "clarity -price". Applied after the filter.
+    slice : str, default ""
+        Rows to keep, counting from 1, e.g., "1:100". Applied after the filter
+        and the sort.
     """
 
     def __init__(
@@ -87,6 +98,8 @@ class mds:
         nr_dim: int = 2,
         seed: int = 1234,
         data_filter: str = "",
+        sort: str = "",
+        slice: str = "",
     ) -> None:
         _method_aliases = {
             "metric": "metric",
@@ -101,13 +114,20 @@ class mds:
             )
         method = _method_aliases[key]
         self.name, self.data = get_data(data)
+
+        # The data scope, applied before anything is measured: filter, then
+        # sort, then slice. Kept on the object so ``summary`` can say which
+        # rows the numbers describe.
+        self.data_filter = data_filter
+        self.sort = sort
+        self.slice = slice
+        self.data = apply_scope(self.data, data_filter, sort, slice)
         self.id1, self.id2, self.dis = id1, id2, dis
         self.method = method
         self.nr_dim = int(nr_dim)
         self.seed = seed
-        self.data_filter = data_filter
 
-        sub = apply_filter(self.data, data_filter).select([id1, id2, dis]).drop_nulls()
+        sub = self.data.select([id1, id2, dis]).drop_nulls()
         D, self.labels = _build_dist_matrix(
             sub[id1].cast(pl.Utf8).to_list(),
             sub[id2].cast(pl.Utf8).to_list(),
@@ -209,6 +229,7 @@ class mds:
     def summary(self, dec: int = 2) -> None:
         print("(Dis)similarity based brand map (MDS)")
         print(f"Data        : {self.name}")
+        print_scope(self, 12)
         print(f"Variables   : {self.id1}, {self.id2}, {self.dis}")
         print(f"Dimensions  : {self.nr_dim}")
         print(f"Method      : {'Non-metric' if self.method == 'non-metric' else 'Metric'}")

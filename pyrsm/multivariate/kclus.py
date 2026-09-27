@@ -20,6 +20,7 @@ from pyrsm.utils import format_nr
 
 from ._plotting import as_plot_result
 from ._utils import does_vary, get_data, get_vars, is_categorical
+from pyrsm.data_scope import apply_scope, print_scope
 from ._utils import standardize as _standardize
 
 __all__ = ["kclus"]
@@ -79,6 +80,17 @@ class kclus:
         1-based cluster assignment per observation.
     sizes, withinss : np.ndarray
     tot_withinss, betweenss, totss : float
+    data_filter : str, default ""
+        Expression used to filter the data before the analysis, e.g.,
+        "price > 5000 and cut in ['Ideal', 'Premium']". A bare name is a column
+        and a call is an operation on one (``is_null(price)``). See
+        ``pyrsm.data_scope`` for the full list.
+    sort : str, default ""
+        Column(s) to sort on, "-" in front for descending, e.g.,
+        "clarity -price". Applied after the filter.
+    slice : str, default ""
+        Rows to keep, counting from 1, e.g., "1:100". Applied after the filter
+        and the sort.
     """
 
     def __init__(
@@ -93,8 +105,19 @@ class kclus:
         nr_clus: int = 2,
         standardize: bool = True,
         lambda_: float | None = None,
+        data_filter: str = "",
+        sort: str = "",
+        slice: str = "",
     ) -> None:
         self.name, self.data = get_data(data)
+
+        # The data scope, applied before anything is measured: filter, then
+        # sort, then slice. Kept on the object so ``summary`` can say which
+        # rows the numbers describe.
+        self.data_filter = data_filter
+        self.sort = sort
+        self.slice = slice
+        self.data = apply_scope(self.data, data_filter, sort, slice)
         self.vars = get_vars(self.data.columns, vars)
         self.nr_clus = nr_clus
         self.hc_init = hc_init
@@ -392,6 +415,7 @@ class kclus:
         kind = "means" if self.fun == "kmeans" else "prototypes"
         print(f"K-{self.fun[1:]} cluster analysis")
         print(f"Data         : {self.name}")
+        print_scope(self, 13)
         print(f"Variables    : {', '.join(self.vars)}")
         print(f"Clustering by: K-{self.fun[1:]}")
         if self.fun == "kproto":

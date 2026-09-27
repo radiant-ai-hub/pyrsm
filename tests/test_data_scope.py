@@ -216,6 +216,36 @@ def test_the_summary_says_it_was_filtered(build, kwargs, df):
     assert "Sort" in out and "-carat" in out
 
 
+def test_every_class_that_takes_data_takes_the_scope():
+    """The three arguments are the contract, so a class that reads a dataset
+    and cannot be scoped is the odd one out -- and the one a student will
+    hit when their filter silently does not apply."""
+    import ast
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parents[1] / "pyrsm"
+    missing = []
+    for path in sorted(root.rglob("*.py")):
+        if path.name.startswith("_"):
+            continue
+        for node in ast.parse(path.read_text()).body:
+            if not (isinstance(node, ast.ClassDef) and node.name[0].islower()):
+                continue
+            for item in node.body:
+                if not (isinstance(item, ast.FunctionDef) and item.name == "__init__"):
+                    continue
+                args = {a.arg for a in item.args.args}
+                if "data" not in args:
+                    continue
+                doc = ast.get_docstring(node) or ""
+                if not {"data_filter", "sort", "slice"} <= args:
+                    missing.append(f"{path.name}:{node.name} (arguments)")
+                elif "data_filter : str" not in doc or "sort : str" not in doc:
+                    missing.append(f"{path.name}:{node.name} (docstring)")
+
+    assert not missing, "not scoped: " + ", ".join(missing)
+
+
 @pytest.mark.parametrize(("build", "kwargs"), CLASSES)
 def test_no_scope_means_no_extra_lines(build, kwargs, df):
     plain = build({"d": df}, **kwargs)

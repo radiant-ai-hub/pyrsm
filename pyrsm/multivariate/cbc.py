@@ -24,6 +24,7 @@ from pyrsm.utils import format_nr
 
 from ._plotting import as_plot_result
 from ._utils import apply_filter, get_data, get_vars
+from pyrsm.data_scope import apply_scope, print_scope
 
 __all__ = ["cbc"]
 
@@ -131,7 +132,6 @@ class cbc:
         Optional alternative identifier (used to label predictions).
     int : str | list[str], default ""
         Interaction terms, e.g. ``"brand:price"``.
-    data_filter : str, default ""
 
     Attributes
     ----------
@@ -142,6 +142,17 @@ class cbc:
         Part-worth table (Attributes, Levels, PW); base level = 0.
     IW : pl.DataFrame
         Importance weights (per-attribute part-worth range / total range).
+    data_filter : str, default ""
+        Expression used to filter the data before the analysis, e.g.,
+        "price > 5000 and cut in ['Ideal', 'Premium']". A bare name is a column
+        and a call is an operation on one (``is_null(price)``). See
+        ``pyrsm.data_scope`` for the full list.
+    sort : str, default ""
+        Column(s) to sort on, "-" in front for descending, e.g.,
+        "clarity -price". Applied after the filter.
+    slice : str, default ""
+        Rows to keep, counting from 1, e.g., "1:100". Applied after the filter
+        and the sort.
     """
 
     def __init__(
@@ -153,17 +164,26 @@ class cbc:
         alt: str = "none",
         int="",
         data_filter: str = "",
+        sort: str = "",
+        slice: str = "",
     ) -> None:
         self.name, self.data = get_data(data)
+
+        # The data scope, applied before anything is measured: filter, then
+        # sort, then slice. Kept on the object so ``summary`` can say which
+        # rows the numbers describe.
+        self.data_filter = data_filter
+        self.sort = sort
+        self.slice = slice
+        self.data = apply_scope(self.data, data_filter, sort, slice)
         self.rvar = rvar
         self.evar = get_vars(self.data.columns, evar)
         self.id = id
         self.alt = alt
         self.int = _to_list(int)
-        self.data_filter = data_filter
 
         sel = [rvar, id] + self.evar + ([alt] if alt != "none" else [])
-        sub = apply_filter(self.data, data_filter).select(sel).drop_nulls()
+        sub = self.data.select(sel).drop_nulls()
         self.nobs = sub.height
         self.ntasks = sub[id].n_unique()
 
@@ -280,6 +300,7 @@ class cbc:
     def summary(self, dec: int = 3) -> None:
         print("Choice-based conjoint analysis")
         print(f"Data                 : {self.name}")
+        print_scope(self, 21)
         if self.data_filter:
             print(f"Filter               : {self.data_filter}")
         print(f"Response variable    : {self.rvar}")

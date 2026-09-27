@@ -49,6 +49,68 @@ Internally:
 
 The fit call passes `eval_set=[(X_train, y_train)]` to enable early stopping if the user wants to pass `early_stopping_rounds` via `**kwargs`. By default, no early stopping is used and all `n_estimators` rounds run.
 
+## Filtering, sorting and slicing the data
+
+Every pyrsm class that takes `data` also takes three strings that decide
+*which rows* it analyses. They are applied in that order — filter, then sort,
+then slice — and the class remembers them, so the printed summary says which
+rows the numbers describe:
+
+```python
+xgb = rsm.model.xgboost(
+    {"titanic": titanic}, rvar="survived", lev="Yes", evar=["pclass", "sex"],
+    data_filter="age > 18",
+)
+```
+
+```
+Data                 : diamonds
+Filter               : price > 5000 and cut in ['Ideal', 'Premium']
+Sort                 : clarity -price
+Slice                : 1:100
+```
+
+That last part matters: an `n` with no filter beside it is an `n` a reader
+will take for the whole dataset.
+
+### `data_filter`
+
+A Python expression evaluated with polars. A bare name is a column, and a
+call is an operation on one — `is_null(price)`, not `price.is_null()`:
+
+| Write | To keep rows where |
+| --- | --- |
+| `price > 5000` | a comparison holds (`<`, `>=`, `<=`, `==`, `!=`) |
+| `carat < 2 and cut == 'Ideal'` | both hold; `or` for either, `not` to invert |
+| `cut in ['Ideal', 'Premium']` | the value is one of a list; `not in` excludes |
+| `is_null(price)` | the value is missing; `is_not_null(price)` for present |
+| `contains(cut, 'ood')` | text contains something; also `starts_with`, `ends_with` |
+| `price > mean(price)` | the row beats a column statistic (`median`, `min`, `max`, `std`) |
+| `year(date) == 2024` | part of a date (`month`, `day`, `weekday`) |
+| `date < '2024-06-01'` | a date column is before a date, written `YYYY-MM-DD` |
+| `log(price) > 9` | a calculation holds (`sqrt`, `exp`, `abs`, `round`) |
+
+Use `==` for equality, never `=`. Write a range as two comparisons joined by
+`and`: `price > 1000 and price < 5000`.
+
+### `sort`
+
+Column names separated by spaces, `-` in front for descending.
+`"clarity -price"` sorts by clarity ascending, then price descending.
+
+### `slice`
+
+Row numbers, counting from 1, taken *after* the filter and the sort.
+`"1:100"` keeps the first hundred, `"100"` does the same, `"-100"` keeps the
+last hundred, and `"1 5 10"` keeps those three rows.
+
+### Why not filter the DataFrame yourself
+
+You can, and for a one-off it is fine. Passing the scope instead keeps the
+analysis and the rows it ran on in a single call, which is what makes a
+result reproducible when it is copied into a report or handed to someone
+else — and it is what puts the filter into the printed output.
+
 ## 2. `summary()` — what each block prints (and the in-sample trap)
 
 ```python

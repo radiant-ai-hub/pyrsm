@@ -54,6 +54,17 @@ class regress:
         The fitted model.
     coef : pd.DataFrame
         The estimated model coefficients with standard errors, p-values, etc.
+    data_filter : str, default ""
+        Expression used to filter the data before the analysis, e.g.,
+        "price > 5000 and cut in ['Ideal', 'Premium']". A bare name is a column
+        and a call is an operation on one (``is_null(price)``). See
+        ``pyrsm.data_scope`` for the full list.
+    sort : str, default ""
+        Column(s) to sort on, "-" in front for descending, e.g.,
+        "clarity -price". Applied after the filter.
+    slice : str, default ""
+        Rows to keep, counting from 1, e.g., "1:100". Applied after the filter
+        and the sort.
 
     Methods
     -------
@@ -93,6 +104,17 @@ class regress:
             List of interactions to add to the model as explanatory variables (e.g., ["x1:x2", "x3:x4])
         formula : str, optional
             Optional formula to use if rvar and evar are not provided.
+        data_filter : str, default ""
+            Expression used to filter the data before the analysis, e.g.,
+            "price > 5000 and cut in ['Ideal', 'Premium']". A bare name is a
+            column and a call is an operation on one (``is_null(price)``). See
+            ``pyrsm.data_scope`` for the full list.
+        sort : str, default ""
+            Column(s) to sort on, "-" in front for descending, e.g.,
+            "clarity -price". Applied after the filter.
+        slice : str, default ""
+            Rows to keep, counting from 1, e.g., "1:100". Applied after the
+            filter and the sort.
         """
         if isinstance(data, dict):
             self.name = list(data.keys())[0]

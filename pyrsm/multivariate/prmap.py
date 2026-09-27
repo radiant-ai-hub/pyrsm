@@ -26,6 +26,7 @@ from ._utils import (
     principal,
     standardize,
 )
+from pyrsm.data_scope import apply_scope, print_scope
 
 __all__ = ["prmap"]
 
@@ -46,7 +47,6 @@ class prmap:
     hcor : bool, default False
         Treat categorical attributes/preferences as ordinal (heterogeneous
         correlations).
-    data_filter : str, default ""
 
     Attributes
     ----------
@@ -57,6 +57,17 @@ class prmap:
     communality, eigen : np.ndarray
     pref_cor : pl.DataFrame | None
         Preference correlations with communalities.
+    data_filter : str, default ""
+        Expression used to filter the data before the analysis, e.g.,
+        "price > 5000 and cut in ['Ideal', 'Premium']". A bare name is a column
+        and a call is an operation on one (``is_null(price)``). See
+        ``pyrsm.data_scope`` for the full list.
+    sort : str, default ""
+        Column(s) to sort on, "-" in front for descending, e.g.,
+        "clarity -price". Applied after the filter.
+    slice : str, default ""
+        Rows to keep, counting from 1, e.g., "1:100". Applied after the filter
+        and the sort.
     """
 
     def __init__(
@@ -68,8 +79,18 @@ class prmap:
         nr_dim: int = 2,
         hcor: bool = False,
         data_filter: str = "",
+        sort: str = "",
+        slice: str = "",
     ) -> None:
         self.name, self.data = get_data(data)
+
+        # The data scope, applied before anything is measured: filter, then
+        # sort, then slice. Kept on the object so ``summary`` can say which
+        # rows the numbers describe.
+        self.data_filter = data_filter
+        self.sort = sort
+        self.slice = slice
+        self.data = apply_scope(self.data, data_filter, sort, slice)
         self.brand = brand
         self.attr = get_vars(self.data.columns, attr)
         self.pref = (
@@ -77,10 +98,9 @@ class prmap:
         )
         self.nr_dim = int(nr_dim)
         self.hcor = hcor
-        self.data_filter = data_filter
 
         sel = [brand] + self.attr + self.pref
-        sub = apply_filter(self.data, data_filter).select(sel).drop_nulls()
+        sub = self.data.select(sel).drop_nulls()
         brands = [str(x).strip() for x in sub[brand].to_list()]
         self.nobs = sub.height
 
@@ -155,6 +175,7 @@ class prmap:
     def summary(self, cutoff: float = 0.0, dec: int = 2) -> None:
         print("Attribute based brand map")
         print(f"Data        : {self.name}")
+        print_scope(self, 12)
         print(f"Attributes  : {', '.join(self.attr)}")
         if self.pref:
             print(f"Preferences : {', '.join(self.pref)}")

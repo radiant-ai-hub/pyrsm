@@ -19,6 +19,7 @@ from pyrsm.utils import format_nr
 
 from ._plotting import as_plot_result
 from ._utils import get_data, get_vars, gower_dist, is_categorical
+from pyrsm.data_scope import apply_scope, print_scope
 from ._utils import standardize as _standardize
 
 __all__ = ["hclus"]
@@ -105,6 +106,17 @@ class hclus:
         SciPy linkage matrix.
     height : np.ndarray
         Merge heights on the Radiant scale (squared for ``sq.euclidian``).
+    data_filter : str, default ""
+        Expression used to filter the data before the analysis, e.g.,
+        "price > 5000 and cut in ['Ideal', 'Premium']". A bare name is a column
+        and a call is an operation on one (``is_null(price)``). See
+        ``pyrsm.data_scope`` for the full list.
+    sort : str, default ""
+        Column(s) to sort on, "-" in front for descending, e.g.,
+        "clarity -price". Applied after the filter.
+    slice : str, default ""
+        Rows to keep, counting from 1, e.g., "1:100". Applied after the filter
+        and the sort.
     """
 
     def __init__(
@@ -116,8 +128,19 @@ class hclus:
         method: str = "ward.D",
         max_cases: int = 5000,
         standardize: bool = True,
+        data_filter: str = "",
+        sort: str = "",
+        slice: str = "",
     ) -> None:
         self.name, self.data = get_data(data)
+
+        # The data scope, applied before anything is measured: filter, then
+        # sort, then slice. Kept on the object so ``summary`` can say which
+        # rows the numbers describe.
+        self.data_filter = data_filter
+        self.sort = sort
+        self.slice = slice
+        self.data = apply_scope(self.data, data_filter, sort, slice)
         self.vars = get_vars(self.data.columns, vars)
         self.labels = labels
         self.method = method
@@ -191,6 +214,7 @@ class hclus:
     def summary(self, dec: int = 2) -> None:
         print("Hierarchical cluster analysis")
         print(f"Data        : {self.name}")
+        print_scope(self, 12)
         print(f"Variables   : {', '.join(self.vars)}")
         print(f"Method      : {self.method}")
         print(f"Distance    : {self.distance}")

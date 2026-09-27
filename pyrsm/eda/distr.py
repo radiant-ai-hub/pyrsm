@@ -3,6 +3,8 @@
 from math import ceil
 
 import polars as pl
+
+from pyrsm.data_scope import apply_scope
 from plotnine import (
     aes,
     element_text,
@@ -104,6 +106,17 @@ class distr:
         Dataset name for display
     nint : int, default 25
         Number of unique values below which integers are treated as categorical
+    data_filter : str, default ""
+        Expression used to filter the data before the analysis, e.g.,
+        "price > 5000 and cut in ['Ideal', 'Premium']". A bare name is a column
+        and a call is an operation on one (``is_null(price)``). See
+        ``pyrsm.data_scope`` for the full list.
+    sort : str, default ""
+        Column(s) to sort on, "-" in front for descending, e.g.,
+        "clarity -price". Applied after the filter.
+    slice : str, default ""
+        Rows to keep, counting from 1, e.g., "1:100". Applied after the filter
+        and the sort.
 
     Examples
     --------
@@ -124,6 +137,9 @@ class distr:
         by: str | None = None,
         name: str = "Not provided",
         nint: int = 25,
+        data_filter: str = "",
+        sort: str = "",
+        slice: str = "",
     ):
         # Convert pandas to polars if needed
         if not isinstance(data, pl.DataFrame):
@@ -134,7 +150,15 @@ class distr:
             else:
                 data = pl.DataFrame(data)
 
-        self.data = data
+
+        # The data scope, applied before anything is measured: filter, then
+        # sort, then slice. Kept on the object so the output can say which
+        # rows the numbers describe.
+        self.data_filter = data_filter
+        self.sort = sort
+        self.slice = slice
+        self.data = apply_scope(data, data_filter, sort, slice)
+        data = self.data
         self.name = name
         self.by = by
         self.nint = nint

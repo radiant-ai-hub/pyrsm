@@ -15,6 +15,7 @@ import polars as pl
 
 from ._plotting import as_plot_result
 from ._utils import get_data, get_vars
+from pyrsm.data_scope import apply_scope, print_scope
 
 __all__ = ["conjoint", "store_predictions"]
 
@@ -130,6 +131,17 @@ class conjoint:
         Regression coefficients with radiant labels.
     model_list : dict
         Per-group results (``"full"`` when ``by == "none"``).
+    data_filter : str, default ""
+        Expression used to filter the data before the analysis, e.g.,
+        "price > 5000 and cut in ['Ideal', 'Premium']". A bare name is a column
+        and a call is an operation on one (``is_null(price)``). See
+        ``pyrsm.data_scope`` for the full list.
+    sort : str, default ""
+        Column(s) to sort on, "-" in front for descending, e.g.,
+        "clarity -price". Applied after the filter.
+    slice : str, default ""
+        Rows to keep, counting from 1, e.g., "1:100". Applied after the filter
+        and the sort.
     """
 
     def __init__(
@@ -140,8 +152,19 @@ class conjoint:
         int="",
         by: str = "none",
         reverse: bool = False,
+        data_filter: str = "",
+        sort: str = "",
+        slice: str = "",
     ) -> None:
         self.name, self.data = get_data(data)
+
+        # The data scope, applied before anything is measured: filter, then
+        # sort, then slice. Kept on the object so ``summary`` can say which
+        # rows the numbers describe.
+        self.data_filter = data_filter
+        self.sort = sort
+        self.slice = slice
+        self.data = apply_scope(self.data, data_filter, sort, slice)
         self.rvar = rvar
         self.evar = get_vars(self.data.columns, evar)
         self.int = _to_list(int)
@@ -274,6 +297,7 @@ class conjoint:
         show, m = self._active(show)
         print("Conjoint analysis")
         print(f"Data                 : {self.name}")
+        print_scope(self, 21)
         if self.by != "none":
             print(f"Show                 : {self.by} == {show}")
         rv = f"{self.rvar} (reversed)" if self.reverse else self.rvar
