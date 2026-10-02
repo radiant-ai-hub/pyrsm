@@ -383,7 +383,7 @@ class logistic:
 
     def plot(
         self,
-        plots: Literal["pred", "pdp", "pip", "or"] = "pred",
+        plots: Literal["pred", "pdp", "pip", "or", "dashboard"] = "pred",
         data=None,
         incl=None,
         excl=None,
@@ -403,6 +403,10 @@ class logistic:
     ) -> None:
         """
         Plots for a logistic regression model
+
+        ``"dashboard"`` shows the diagnostics applied work uses for a binary
+        classifier: calibration, ROC curve (AUC), cumulative gains and the
+        distribution of predicted probabilities by outcome.
         """
         plots = convert_to_list(plots)
         excl = convert_to_list(excl)
@@ -423,6 +427,11 @@ class logistic:
         # Apply stored Enum types to ensure consistent categorical levels
         if self._enum_types:
             data = apply_enum_types(data, self._enum_types)
+
+        if "dashboard" in plots:
+            from pyrsm.model.model import logit_dashboard
+
+            return logit_dashboard(self.fitted, lev=self.lev, figsize=figsize or (10, 9))
 
         if "dist" in plots:
             (

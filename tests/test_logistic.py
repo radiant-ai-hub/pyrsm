@@ -376,3 +376,49 @@ class TestLogisticModelQuality:
         auc_score = auc(lr.data["survived"].to_list(), pred_df["prediction"].to_list())
         # AUC should be between 0.5 (random) and 1 (perfect)
         assert 0.5 <= auc_score <= 1
+
+
+class TestLogisticDashboard:
+    """plot("dashboard"): calibration, ROC/AUC, cumulative gains, separation."""
+
+    @pytest.fixture(scope="class")
+    def model(self, titanic_data):
+        return logistic(
+            {"titanic": titanic_data}, rvar="survived", lev="Yes", evar=["pclass", "sex", "age"]
+        )
+
+    def test_dashboard_numbers(self, model):
+        from sklearn.metrics import roc_auc_score
+
+        from pyrsm.model.model import logit_dashboard_data
+
+        d = logit_dashboard_data(model.fitted, qnt=10)
+        cal = d["calibration"]
+        assert cal.height == 10
+        # Equal-size bins, ordered by predicted probability.
+        assert cal["n"].max() - cal["n"].min() <= 1
+        assert cal["predicted"].is_sorted()
+        assert ((cal["observed"] >= 0) & (cal["observed"] <= 1)).all()
+        # The bin rates average back to the overall response rate.
+        overall = float(d["predictions"]["actual"].mean())
+        weighted = float((cal["observed"] * cal["n"]).sum() / cal["n"].sum())
+        assert weighted == pytest.approx(overall)
+
+        assert d["auc"] == pytest.approx(
+            roc_auc_score(d["predictions"]["actual"], d["predictions"]["pred"])
+        )
+        assert 0.5 < d["auc"] <= 1
+
+        gains = d["gains"]
+        assert gains.row(0) == (0.0, 0.0)
+        assert gains["cum_gains"][-1] == pytest.approx(1.0)
+        assert gains["cum_gains"].is_sorted()
+        # A model better than random captures more than its share early on.
+        assert gains["cum_gains"][1] > gains["cum_prop"][1]
+
+    def test_dashboard_plot_renders(self, model):
+        p = model.plot("dashboard")
+        buf = io.BytesIO()
+        p.save(buf, format="png", dpi=50, verbose=False)
+        assert buf.getbuffer().nbytes > 10_000
+        plt.close("all")

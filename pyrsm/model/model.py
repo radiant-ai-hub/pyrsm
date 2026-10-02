@@ -8,6 +8,7 @@ import statsmodels as sm
 import statsmodels.formula.api as smf
 from plotnine import (
     aes,
+    geom_abline,
     geom_density,
     geom_errorbarh,
     geom_histogram,
@@ -20,7 +21,9 @@ from plotnine import (
     ggplot,
     ggtitle,
     labs,
+    scale_x_continuous,
     scale_x_log10,
+    scale_y_continuous,
     stat_function,
     stat_qq,
     stat_qq_line,
@@ -1144,6 +1147,149 @@ def reg_dashboard(fitted, nobs: int = 1000):
     # Compose into 3x2 grid and set figure size
     dashboard = (p1 | p2) / (p3 | p4) / (p5 | p6) + theme(figure_size=(10, 12))
     return dashboard
+
+
+def logit_dashboard_data(fitted, qnt: int = 10) -> dict[str, pl.DataFrame | float]:
+    """
+    The numbers behind ``logit_dashboard``.
+
+    Parameters
+    ----------
+    fitted : statsmodels GLM (Binomial) results, as stored on ``pyrsm.model.logistic``
+    qnt : int
+        Number of predicted-probability bins for the calibration and gains views.
+
+    Returns
+    -------
+    dict with
+        calibration : per bin, mean predicted probability, observed rate and n
+        roc : false and true positive rates per threshold
+        gains : cumulative share of observations vs cumulative share of positives
+        predictions : predicted probability and actual outcome per observation
+        auc : area under the ROC curve
+    """
+    if hasattr(fitted.model, "endog"):
+        actual = np.asarray(fitted.model.endog, dtype=float)
+    else:
+        actual = np.asarray(fitted.model["endog"], dtype=float)
+    pred = np.asarray(fitted.fittedvalues, dtype=float)
+    df = pl.DataFrame({"pred": pred, "actual": actual})
+
+    # Calibration: bins of (roughly) equal size by predicted probability.
+    ranks = df["pred"].rank(method="ordinal").to_numpy()
+    bins = np.minimum((ranks - 1) * qnt // len(ranks), qnt - 1).astype(int) + 1
+    calibration = (
+        df.with_columns(pl.Series("bin", bins))
+        .group_by("bin")
+        .agg(
+            pl.col("pred").mean().alias("predicted"),
+            pl.col("actual").mean().alias("observed"),
+            pl.len().alias("n"),
+        )
+        .sort("bin")
+    )
+
+    fpr, tpr, _ = metrics.roc_curve(actual, pred)
+    roc = pl.DataFrame({"fpr": fpr, "tpr": tpr})
+    auc_value = float(metrics.roc_auc_score(actual, pred))
+
+    # Cumulative gains: contact the highest predicted probabilities first.
+    order = np.argsort(-pred, kind="stable")
+    cum_pos = np.cumsum(actual[order])
+    cuts = np.ceil(np.arange(1, qnt + 1) * len(order) / qnt).astype(int) - 1
+    gains = pl.concat(
+        [
+            pl.DataFrame({"cum_prop": [0.0], "cum_gains": [0.0]}),
+            pl.DataFrame(
+                {
+                    "cum_prop": (cuts + 1) / len(order),
+                    "cum_gains": cum_pos[cuts] / max(cum_pos[-1], 1.0),
+                }
+            ),
+        ]
+    )
+    return {
+        "calibration": calibration,
+        "roc": roc,
+        "gains": gains,
+        "predictions": df,
+        "auc": auc_value,
+    }
+
+
+def logit_dashboard(fitted, lev: str | None = None, qnt: int = 10, figsize=(10, 9)):
+    """
+    Diagnostic dashboard for a binary classifier (logistic regression)
+
+    The four views applied analytics uses to decide whether a classifier can be
+    relied on: are the probabilities calibrated, does the model rank well
+    (ROC/AUC), how much of the response does targeting the top of the list
+    capture (cumulative gains), and how well do the predicted probabilities
+    separate the two outcomes.
+
+    Parameters
+    ----------
+    fitted : statsmodels GLM (Binomial) results
+    lev : str, optional
+        Label for the positive outcome in the legend.
+    qnt : int
+        Number of predicted-probability bins for the calibration and gains views.
+    figsize : tuple
+        Figure size of the composed dashboard.
+    """
+    d = logit_dashboard_data(fitted, qnt=qnt)
+    positive = str(lev) if lev is not None else "1"
+    unit = scale_x_continuous(limits=(0, 1))
+    unit_y = scale_y_continuous(limits=(0, 1))
+
+    p1 = (
+        ggplot(d["calibration"], aes(x="predicted", y="observed"))
+        + geom_abline(intercept=0, slope=1, linetype="dashed", color="gray")
+        + geom_line(color="slateblue")
+        + geom_point(color="slateblue", size=2.5)
+        + unit
+        + unit_y
+        + labs(x="Mean predicted probability", y="Observed rate")
+        + ggtitle(f"Calibration ({qnt} bins)")
+        + theme_bw()
+    )
+    p2 = (
+        ggplot(d["roc"], aes(x="fpr", y="tpr"))
+        + geom_abline(intercept=0, slope=1, linetype="dashed", color="gray")
+        + geom_line(color="slateblue", size=1)
+        + unit
+        + unit_y
+        + labs(x="False positive rate", y="True positive rate")
+        + ggtitle(f"ROC curve (AUC = {d['auc']:.3f})")
+        + theme_bw()
+    )
+    p3 = (
+        ggplot(d["gains"], aes(x="cum_prop", y="cum_gains"))
+        + geom_abline(intercept=0, slope=1, linetype="dashed", color="gray")
+        + geom_line(color="slateblue")
+        + geom_point(color="slateblue")
+        + unit
+        + unit_y
+        + labs(x="Share of observations targeted", y=f"Share of '{positive}' captured")
+        + ggtitle("Cumulative gains")
+        + theme_bw()
+    )
+    preds = d["predictions"].with_columns(
+        pl.when(pl.col("actual") == 1)
+        .then(pl.lit(positive))
+        .otherwise(pl.lit(f"not {positive}"))
+        .alias("outcome")
+    )
+    p4 = (
+        ggplot(preds, aes(x="pred", fill="outcome"))
+        + geom_density(alpha=0.5)
+        + unit
+        + labs(x="Predicted probability", y="Density", fill="Actual")
+        + ggtitle("Predicted probabilities by outcome")
+        + theme_bw()
+        + theme(legend_position="bottom")
+    )
+    return (p1 | p2) / (p3 | p4) + theme(figure_size=figsize)
 
 
 def sim_prediction(
