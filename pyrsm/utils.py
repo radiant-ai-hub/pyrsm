@@ -695,3 +695,18 @@ def polychoric_matrix(data_matrix):
             corr[i, j] = r
             corr[j, i] = r
     return corr
+
+
+def named_data(data):
+    """``(name, frame)`` from a frame or a one-item ``{name: frame}`` dict.
+
+    The dict form is how a call names the dataset it reads -- the same
+    convention the model and basics classes use, so output can say which data
+    it was computed from. A bare frame has no name (``None``).
+    """
+    if isinstance(data, dict):
+        if len(data) != 1:
+            raise ValueError("Pass one dataset as {name: data}.")
+        name, frame = next(iter(data.items()))
+        return str(name), frame
+    return None, data

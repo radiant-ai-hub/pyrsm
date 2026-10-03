@@ -84,7 +84,7 @@ def _grouped_result(
 
 
 def explore(
-    df: pl.DataFrame | pl.LazyFrame,
+    df: pl.DataFrame | pl.LazyFrame | dict,
     cols: list[str] | None = None,
     agg: list[str] | None = None,
     by: str | list[str] | None = None,
@@ -96,8 +96,8 @@ def explore(
 
     Parameters
     ----------
-    df : pl.DataFrame | pl.LazyFrame
-        Polars DataFrame or LazyFrame.
+    df : pl.DataFrame | pl.LazyFrame | dict
+        Polars DataFrame or LazyFrame, or ``{name: frame}`` to name the data.
     cols : list[str] | None
         Column names to summarize. If None, uses all numeric columns (and
         dummy-encoded categorical columns when ``to_dummies=True``).
@@ -201,6 +201,10 @@ def explore(
     │ b   ┆ x   ┆ v        ┆ 3.0  │
     └─────┴─────┴──────────┴──────┘
     """
+    from pyrsm.utils import named_data
+
+    _, df = named_data(df)
+
     # Normalize ``by`` to a list so one and many grouping variables follow
     # the same path.
     by_cols = [by] if isinstance(by, str) else list(by or [])
@@ -225,7 +229,19 @@ def explore(
             and name not in by_cols
         ]
         if cat_cols:
+            before = list(df.columns)
             df = df.to_dummies(columns=cat_cols, drop_first=True)
+            if cols is not None:
+                # A requested categorical now lives in its dummy columns;
+                # looking up "sex" among them raised ColumnNotFoundError.
+                created = [c for c in df.columns if c not in before]
+                expanded = []
+                for name in cols:
+                    if name in cat_cols:
+                        expanded.extend(c for c in created if c.startswith(f"{name}_"))
+                    else:
+                        expanded.append(name)
+                cols = expanded
             # Cast dummy columns (UInt8) to Float64 for consistent stats
             df = df.cast(
                 {

@@ -196,7 +196,7 @@ def _apply_combine(
 
 
 def visualize(
-    df: pl.DataFrame | pl.LazyFrame,
+    df: pl.DataFrame | pl.LazyFrame | dict,
     x: str | list[str] | tuple[str, ...],
     y: str | list[str] | tuple[str, ...] | None = None,
     geom: str | None = None,
@@ -308,6 +308,11 @@ def visualize(
     >>> type(p).__name__
     'ggplot'
     """
+    from pyrsm.utils import named_data
+
+    # ``{name: frame}`` names the dataset, as in the model and basics classes.
+    _, df = named_data(df)
+
     if ret not in ("compose", "list"):
         raise ValueError("ret must be 'compose' or 'list'")
     if ncol < 1:
@@ -473,8 +478,14 @@ def _visualize_one(
     # Build geom kwargs (non-aesthetic params)
     geom_kwargs = {}
 
-    # Apply defaults then overrides
+    # Apply defaults then overrides. A default colour or fill is a fixed
+    # parameter, and plotnine lets a fixed parameter beat a mapping -- so the
+    # slateblue default silently erased every mapped fill (``fill="sex"``, and
+    # every combined plot, which maps the variable name to fill). Skip the
+    # default for an aesthetic that is mapped to a column.
     for key, default in config["defaults"].items():
+        if key in ("fill", "color") and key in aes_kwargs:
+            continue
         geom_kwargs[key] = default
 
     if bins is not None:
@@ -508,7 +519,10 @@ def _visualize_one(
         else:
             # Numeric: use histogram
             hist_bins = geom_kwargs.pop("bins", 30)
-            p = p + geom_histogram(bins=hist_bins, **geom_kwargs)
+            # Groups (a mapped fill, e.g. combined variables) overlap rather
+            # than stack: stacked histograms hide each group's own shape.
+            hist_pos = position or ("identity" if "fill" in aes_kwargs else "stack")
+            p = p + geom_histogram(bins=hist_bins, position=hist_pos, **geom_kwargs)
 
     elif geom == "density":
         p = p + geom_density(**geom_kwargs)
