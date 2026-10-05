@@ -196,8 +196,17 @@ def _line_plot(df, x, y, ylab, single: bool, ref=None, percent_y=False, comma_y=
     """A cumulative curve per predictor, in the pyrsm style."""
     from mizani.formatters import comma_format, percent_format
     from plotnine import (
-        aes, geom_hline, geom_line, geom_point, geom_segment, geom_vline, ggplot,
-        labs, scale_x_continuous, scale_y_continuous, theme,
+        aes,
+        geom_hline,
+        geom_line,
+        geom_point,
+        geom_segment,
+        geom_vline,
+        ggplot,
+        labs,
+        scale_x_continuous,
+        scale_y_continuous,
+        theme,
     )
 
     pdf = df.to_pandas()
@@ -682,9 +691,17 @@ class uplift(_Evaluation):
 
     def plot(self, plots=("inc_uplift", "uplift")):
         """Incremental uplift, uplift per bin and/or incremental profit."""
-        from plotnine import aes, geom_col, ggplot, labs, position_dodge, scale_x_continuous, \
-            scale_y_continuous, theme
         from mizani.formatters import percent_format
+        from plotnine import (
+            aes,
+            geom_col,
+            ggplot,
+            labs,
+            position_dodge,
+            scale_x_continuous,
+            scale_y_continuous,
+            theme,
+        )
 
         plots = _as_list(plots)
         unknown = [p for p in plots if p not in UPLIFT_PLOTS]
