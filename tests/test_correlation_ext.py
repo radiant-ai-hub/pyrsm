@@ -50,26 +50,24 @@ class TestCorrelationBaseline:
 
     def test_baseline_plot_correlation_matrix(self, salary_data, baseline_plot_dir):
         """Save baseline correlation matrix plot."""
-        import matplotlib.pyplot as plt
-
         numeric_cols = ["salary", "yrs_since_phd", "yrs_service"]
         cr = correlation({"salary": salary_data}, vars=numeric_cols)
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
-            fig = cr.plot(nobs=200, figsize=(6, 6))
+            g = cr.plot(nobs=200, figsize=(6, 6))
 
         out_file = baseline_plot_dir / "correlation_matrix.png"
-        fig.savefig(out_file, dpi=100)
-        plt.close("all")
+        g.save(out_file, dpi=100, verbose=False)
 
         assert out_file.exists()
         assert out_file.stat().st_size > 1000
 
-    def test_plot_returns_figure(self, salary_data):
-        """Test that plot returns a Figure object."""
-        import matplotlib.pyplot as plt
-        from matplotlib.figure import Figure
+    def test_plot_returns_ggplot(self, salary_data):
+        """Test that plot returns a plotnine ggplot in the pyrsm style."""
+        from plotnine import ggplot
+
+        from pyrsm.plot_style import theme_pyrsm
 
         numeric_cols = ["salary", "yrs_since_phd", "yrs_service"]
         cr = correlation({"salary": salary_data}, vars=numeric_cols)
@@ -78,9 +76,11 @@ class TestCorrelationBaseline:
             warnings.simplefilter("ignore", UserWarning)
             fig = cr.plot()
 
-        assert fig is not None
-        assert isinstance(fig, Figure)
-        plt.close("all")
+        assert isinstance(fig, ggplot)
+        assert type(fig.theme) is type(theme_pyrsm())
+        # one row and one column of panels per variable
+        assert set(fig.data["row_var"].cat.categories) == set(numeric_cols)
+        fig.draw()
 
 
 def test_correlation_auto_vars():
@@ -115,11 +115,7 @@ def test_correlation_spearman_monotonic():
 def test_plot_handles_categorical_variables():
     """The correlation plot renders with mixed numeric + categorical variables
     (scatter / boxplot / spineplot panels), replicating radiant.basics."""
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    from matplotlib.figure import Figure
+    from plotnine import ggplot
 
     df = pl.DataFrame(
         {
@@ -133,5 +129,5 @@ def test_plot_handles_categorical_variables():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         fig = cr.plot(nobs=-1)
-    assert isinstance(fig, Figure)
-    plt.close("all")
+    assert isinstance(fig, ggplot)
+    fig.draw()

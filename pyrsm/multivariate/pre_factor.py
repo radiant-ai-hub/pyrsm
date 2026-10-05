@@ -190,59 +190,90 @@ class pre_factor:
         print(fit)
 
     def plot(self, plots=("scree", "change"), cutoff: float = 0.2, custom: bool = False):
-        """Scree and/or eigenvalue-change plots (plotnine objects).
+        """Scree and/or eigenvalue-change plots (plotnine, pyrsm plot style).
+
+        Parameters
+        ----------
+        plots : str or sequence of str
+            ``"scree"`` (eigenvalues by number of factors, with a reference
+            line at eigenvalue 1) and/or ``"change"`` (rate of change from
+            eigenvalue i to i+1, labelled ``"i-(i+1)"`` as in Radiant).
+        cutoff : float
+            Only eigenvalues above ``cutoff`` are plotted.
+        custom : bool
+            Kept for Radiant parity; plots are always returned as objects.
 
         Returns a single plot when one type is requested, otherwise a list.
         """
+        import pandas as pd
         from plotnine import (
             aes,
-            geom_bar,
+            geom_col,
             geom_hline,
             geom_line,
             geom_point,
             ggplot,
             labs,
             scale_x_continuous,
-            theme_classic,
         )
+
+        from pyrsm.plot_style import ALPHA, FILL, LINE, POINT_FILL, REF, theme_pyrsm
 
         if isinstance(plots, str):
             plots = [plots]
+        plots = list(plots)
+        valid = ("scree", "change")
+        unknown = [p for p in plots if p not in valid]
+        if unknown:
+            raise ValueError(
+                f"Unknown plot type(s) {unknown}. Choose from {list(valid)}."
+            )
 
-        ev = self.pre_eigen[self.pre_eigen > cutoff]
+        ev = np.asarray(self.pre_eigen[self.pre_eigen > cutoff], dtype=float)
         out = []
         for ptype in plots:
             if ptype == "scree":
-                dat = pl.DataFrame(
-                    {"x": list(range(1, len(ev) + 1)), "y": [float(v) for v in ev]}
-                ).to_pandas()
+                if len(ev) < 1:
+                    raise ValueError(
+                        f"No eigenvalues above cutoff={cutoff}; lower the cutoff "
+                        "to draw a scree plot."
+                    )
+                dat = pd.DataFrame({"x": np.arange(1, len(ev) + 1), "y": ev})
                 g = (
                     ggplot(dat, aes(x="x", y="y", group=1))
-                    + geom_line(color="blue", linetype="dashdot", size=0.7)
-                    + geom_point(color="blue", size=4, shape="o", fill="white")
-                    + geom_hline(yintercept=1, color="black", size=0.5)
+                    + geom_line(color=LINE, linetype="dashdot", size=0.7)
+                    + geom_point(color=LINE, size=4, shape="o", fill=POINT_FILL)
+                    + geom_hline(yintercept=1, color=REF, size=0.5)
                     + labs(title="Screeplot", x="# factors", y="Eigenvalues")
                     + scale_x_continuous(breaks=list(range(1, len(ev) + 1)))
-                    + theme_classic()
+                    + theme_pyrsm()
                 )
                 out.append(g)
             elif ptype == "change":
+                if len(ev) < 2:
+                    raise ValueError(
+                        f"The change plot needs at least 2 eigenvalues above "
+                        f"cutoff={cutoff} (found {len(ev)}); lower the cutoff."
+                    )
                 change = (ev[1:] - ev[:-1]) / ev[:-1]
                 change = change / change.min()
-                labels = [f"{i}-{i + 1}" for i in range(len(change))]
-                dat = pl.DataFrame(
-                    {"nr_fact": labels, "bump": [float(v) for v in change]}
-                ).to_pandas()
-                dat["nr_fact"] = pl.Series(labels).to_pandas().astype("category")
+                # Radiant labels the drop from eigenvalue i to i+1 as "i-(i+1)".
+                labels = [f"{i}-{i + 1}" for i in range(1, len(change) + 1)]
+                dat = pd.DataFrame(
+                    {
+                        "nr_fact": pd.Categorical(labels, categories=labels, ordered=True),
+                        "bump": change,
+                    }
+                )
                 g = (
                     ggplot(dat, aes(x="nr_fact", y="bump"))
-                    + geom_bar(stat="identity", alpha=0.5, fill="blue")
+                    + geom_col(alpha=ALPHA, fill=FILL)
                     + labs(
                         title="Change in Eigenvalues",
                         x="# factors",
                         y="Rate of change index",
                     )
-                    + theme_classic()
+                    + theme_pyrsm()
                 )
                 out.append(g)
 

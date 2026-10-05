@@ -348,12 +348,18 @@ class correlation:
 
     def plot(self, nobs: int = 1000, dec: int = 2, figsize: tuple[float, float] = None):
         """
-        Plot scatter matrix of correlations between numeric variables.
+        Plot a correlation matrix (plotnine, pyrsm plot style).
 
-        Displays a matrix with:
-        - Diagonal: variable names
-        - Lower triangle: scatter plots with regression lines
-        - Upper triangle: correlation coefficients with significance stars
+        A grid with one row and one column per variable (names in the panel
+        strips), mirroring radiant.basics ``plot.correlation``:
+
+        - Diagonal: distribution of the variable (histogram, or bars for a
+          categorical variable)
+        - Lower triangle: scatter plot with a fitted line (numeric x numeric),
+          boxplots (categorical x numeric) or a spineplot (categorical x
+          categorical)
+        - Upper triangle: correlation coefficient, sized by its absolute
+          value, with significance stars
 
         Parameters
         ----------
@@ -364,12 +370,11 @@ class correlation:
             Number of decimal places to use in rounding
         figsize : tuple
             A tuple that determines the figure size. If None, size is
-            determined based on the number of numeric variables in the data
+            determined based on the number of variables in the data
 
         Returns
         -------
-        tuple
-            (Figure, Axes) matplotlib objects
+        plotnine.ggplot
 
         Examples
         --------
@@ -378,178 +383,280 @@ class correlation:
         cr = rsm.correlation(salary.select(["salary", "yrs_since_phd", "yrs_service"]))
         cr.plot(figsize=(7, 7))
         """
-        import matplotlib.pyplot as plt
-
-        # Turn off interactive mode to prevent double display in Jupyter
-        was_interactive = plt.isinteractive()
-        plt.ioff()
-
-        if figsize is None:
-            figsize = (max(5, self.cr.shape[0]), max(self.cr.shape[0], 5))
-
-        def cor_label(label, longest, ax_sub):
-            ax_sub.axes.xaxis.set_visible(False)
-            ax_sub.axes.yaxis.set_visible(False)
-            fs = min(figsize[0], figsize[1])
-            font = (80 * fs) / (len(longest) * self.cr.shape[0])
-            ax_sub.text(
-                0.5,
-                0.5,
-                label,
-                horizontalalignment="center",
-                verticalalignment="center",
-                fontsize=font,
-            )
-
-        def cor_text(r, p, ax_sub, dec=2):
-            if self.method == "polychoric" or np.isnan(p):
-                p = 1  # polychoric correlations do not provide p-values
-            p = round(p, dec)
-            rt = round(r, dec)
-            p_star = sig_stars([p])[0]
-
-            fs = min(figsize[0], figsize[1])
-            font = (50 * fs) / (len(str(rt)) * len(self.data.columns))
-            font_star = (12 * fs) / len(self.data.columns)
-
-            ax_sub.axes.xaxis.set_visible(False)
-            ax_sub.axes.yaxis.set_visible(False)
-            ax_sub.text(
-                0.5,
-                0.5,
-                rt,
-                horizontalalignment="center",
-                verticalalignment="center",
-                fontsize=font * abs(r),
-            )
-            ax_sub.text(
-                0.8,
-                0.8,
-                p_star,
-                horizontalalignment="center",
-                verticalalignment="center",
-                fontsize=font_star,
-                color="blue",
-            )
-
-        def _as_str(arr):
-            return np.array(["" if v is None else str(v) for v in arr], dtype=object)
-
-        def _box_groups(cat_data, num_data):
-            """Numeric values grouped by category level (order preserved)."""
-            cats = _as_str(cat_data)
-            levels = list(dict.fromkeys(cats))
-            groups, kept = [], []
-            for lev in levels:
-                vals = num_data[cats == lev].astype(float)
-                vals = vals[~np.isnan(vals)]
-                if len(vals) > 0:
-                    groups.append(vals)
-                    kept.append(lev)
-            return kept, groups
-
-        _box_style = dict(
-            patch_artist=True,
-            widths=0.6,
-            boxprops=dict(facecolor="slateblue", alpha=0.4),
-            medianprops=dict(color="blue"),
-            flierprops=dict(marker="o", markersize=2, alpha=0.3),
+        import pandas as pd
+        from plotnine import (
+            aes,
+            element_blank,
+            element_text,
+            facet_grid,
+            geom_blank,
+            geom_point,
+            geom_rect,
+            geom_segment,
+            geom_text,
+            ggplot,
+            labs,
+            scale_alpha_identity,
+            scale_size_identity,
+            theme,
         )
 
-        def cor_plot(x_data, y_data, x_num, y_num, ax_sub, s_size):
-            # Mixed-type panels, mirroring radiant.basics plot.correlation:
-            #  numeric x numeric -> scatter + fitted line
-            #  factor  x numeric -> boxplots
-            #  factor  x factor  -> spineplot (proportional stacked bars)
-            ax_sub.axes.xaxis.set_visible(False)
-            ax_sub.axes.yaxis.set_visible(False)
+        from pyrsm.plot_style import ALPHA, FILL, LINE, REF, theme_pyrsm
 
-            if x_num and y_num:
-                x = x_data.astype(float)
-                y = y_data.astype(float)
-                mask = ~(np.isnan(x) | np.isnan(y))
-                x, y = x[mask], y[mask]
-                ax_sub.scatter(x, y, alpha=0.3, color="slateblue", s=s_size)
-                if len(x) > 1:
-                    coeffs = np.polyfit(x, y, 1)
-                    x_line = np.linspace(x.min(), x.max(), 100)
-                    ax_sub.plot(x_line, np.polyval(coeffs, x_line), color="blue")
-            elif y_num and not x_num:
-                _, groups = _box_groups(x_data, y_data)
-                if groups:
-                    ax_sub.boxplot(groups, vert=True, **_box_style)
-            elif x_num and not y_num:
-                _, groups = _box_groups(y_data, x_data)
-                if groups:
-                    ax_sub.boxplot(groups, vert=False, **_box_style)
-            else:
-                # Both categorical: spineplot — bar width ∝ x-level share,
-                # stacked height = conditional share of each y level.
-                xc = _as_str(x_data)
-                yc = _as_str(y_data)
-                xlevels = list(dict.fromkeys(xc))
-                ylevels = list(dict.fromkeys(yc))
-                n = len(xc)
-                shades = np.linspace(0.35, 0.85, max(len(ylevels), 1))
-                left = 0.0
-                for xl in xlevels:
-                    sub = yc[xc == xl]
-                    total = len(sub)
-                    width = total / n if n else 0
-                    bottom = 0.0
-                    for yi, yl in enumerate(ylevels):
-                        frac = (np.sum(sub == yl) / total) if total else 0
-                        ax_sub.bar(
-                            left, frac, width=width, bottom=bottom, align="edge",
-                            color=plt.cm.Blues(shades[yi]),
-                            edgecolor="white", linewidth=0.5,
-                        )
-                        bottom += frac
-                    left += width
-                ax_sub.set_xlim(0, 1)
-                ax_sub.set_ylim(0, 1)
-
-        # data = self.data.to_pandas()
         data = self.data
         cn = list(data.columns)
         ncol = len(cn)
-        longest = max(cn, key=len)
-        # Per-column type so the lower triangle can pick scatter / boxplot /
-        # spineplot (mirrors radiant.basics handling of factor variables).
-        is_num = {c: bool(data.schema[c].is_numeric()) for c in cn}
+        if figsize is None:
+            figsize = (max(5, ncol), max(ncol, 5))
 
-        fs = min(figsize[0], figsize[1])
-        s_size = (5 * fs) / len(data.columns)
-
-        fig, axes = plt.subplots(ncol, ncol, figsize=figsize)
-
-        # Sample data if needed
+        # Sample data if needed (correlations themselves use all rows)
         nrows = data.shape[0]
-        if nobs < nrows and nobs != np.inf and nobs != -1:
+        if nobs is not None and nobs < nrows and nobs != np.inf and nobs != -1:
             indices = np.random.choice(nrows, size=nobs, replace=False)
-            data_np = {col: data[col].to_numpy()[indices] for col in cn}
         else:
-            data_np = {col: data[col].to_numpy() for col in cn}
+            indices = None
 
-        for i in range(ncol):
-            for j in range(ncol):
-                if i == j:
-                    cor_label(cn[i], longest, axes[i, j])
-                elif i > j:
-                    cor_plot(
-                        data_np[cn[i]],
-                        data_np[cn[j]],
-                        is_num[cn[i]],
-                        is_num[cn[j]],
-                        axes[i, j],
-                        s_size,
-                    )
+        # Every panel is drawn on continuous positions: a numeric variable
+        # uses its values, a categorical one the codes 1..k of its levels.
+        # facet_grid(scales="free") then shares the x range down a column and
+        # the y range across a row, so all panels line up like a pairs plot.
+        is_num = {c: bool(data.schema[c].is_numeric()) for c in cn}
+        pos, rng, levels = {}, {}, {}
+        for c in cn:
+            col = data[c]
+            if is_num[c]:
+                v = col.cast(pl.Float64).to_numpy()
+                if indices is not None:
+                    v = v[indices]
+                pos[c] = v
+                ok = v[~np.isnan(v)]
+                lo, hi = (float(ok.min()), float(ok.max())) if ok.size else (0.0, 1.0)
+                if hi <= lo:
+                    lo, hi = lo - 0.5, hi + 0.5
+                rng[c] = (lo, hi)
+            else:
+                if isinstance(col.dtype, pl.Enum):
+                    levs = [str(x) for x in col.dtype.categories.to_list()]
                 else:
-                    cor_text(self.cr[j, i], self.cp[j, i], axes[i, j], dec=dec)
+                    levs = [
+                        str(x)
+                        for x in col.drop_nulls().cast(pl.Utf8).unique(maintain_order=True).to_list()
+                    ]
+                code = {lev: i + 1 for i, lev in enumerate(levs)}
+                raw = col.cast(pl.Utf8).to_list()
+                v = np.array(
+                    [np.nan if x is None else code.get(x, np.nan) for x in raw], dtype=float
+                )
+                if indices is not None:
+                    v = v[indices]
+                pos[c] = v
+                levels[c] = levs
+                rng[c] = (0.5, max(len(levs), 1) + 0.5)
 
-        plt.subplots_adjust(wspace=0.04, hspace=0.04)
+        def panel(df, row, col):
+            df["row_var"] = row
+            df["col_var"] = col
+            return df
 
-        if was_interactive:
-            plt.ion()
+        def box_stats(vals):
+            q1, med, q3 = np.percentile(vals, [25, 50, 75])
+            iqr = q3 - q1
+            lo_w = vals[vals >= q1 - 1.5 * iqr].min()
+            hi_w = vals[vals <= q3 + 1.5 * iqr].max()
+            out = vals[(vals < lo_w) | (vals > hi_w)]
+            return q1, med, q3, lo_w, hi_w, out
 
-        return fig
+        blank, rects, segs, points, fits, texts, stars = [], [], [], [], [], [], []
+        # text size (points) that makes "0.00" about half a panel wide
+        size_base = 0.9 * 72 * min(figsize) / ncol / 4
+
+        for i, rv in enumerate(cn):  # rows: y = rv
+            ylo, yhi = rng[rv]
+            for j, cv in enumerate(cn):  # columns: x = cv
+                xlo, xhi = rng[cv]
+                blank.append(panel(pd.DataFrame({"x": [xlo, xhi], "y": [ylo, yhi]}), rv, cv))
+                if i == j:
+                    # distribution of the variable, scaled to the row's range
+                    v = pos[rv][~np.isnan(pos[rv])]
+                    if v.size == 0:
+                        continue
+                    if is_num[rv]:
+                        counts, edges = np.histogram(v, bins=min(20, max(5, int(np.sqrt(v.size)))))
+                        x0, x1 = edges[:-1], edges[1:]
+                    else:
+                        k = len(levels[rv])
+                        counts = np.array([np.sum(v == c) for c in range(1, k + 1)])
+                        x0 = np.arange(1, k + 1) - 0.4
+                        x1 = np.arange(1, k + 1) + 0.4
+                    top = ylo + 0.95 * (yhi - ylo) * counts / max(counts.max(), 1)
+                    rects.append(
+                        panel(
+                            pd.DataFrame(
+                                {"xmin": x0, "xmax": x1, "ymin": ylo, "ymax": top, "alpha": ALPHA}
+                            ),
+                            rv,
+                            cv,
+                        )
+                    )
+                elif i > j:
+                    x, y = pos[cv], pos[rv]
+                    keep = ~(np.isnan(x) | np.isnan(y))
+                    x, y = x[keep], y[keep]
+                    if x.size == 0:
+                        continue
+                    if is_num[cv] and is_num[rv]:
+                        points.append(panel(pd.DataFrame({"x": x, "y": y}), rv, cv))
+                        if x.size > 1 and np.ptp(x) > 0:
+                            b1, b0 = np.polyfit(x, y, 1)
+                            fits.append(
+                                panel(
+                                    pd.DataFrame(
+                                        {
+                                            "x": [x.min()],
+                                            "y": [b0 + b1 * x.min()],
+                                            "xend": [x.max()],
+                                            "yend": [b0 + b1 * x.max()],
+                                        }
+                                    ),
+                                    rv,
+                                    cv,
+                                )
+                            )
+                    elif is_num[cv] != is_num[rv]:
+                        # boxplots of the numeric variable per level of the other
+                        vertical = not is_num[cv]  # categories along x
+                        cat, num = (x, y) if vertical else (y, x)
+                        for lev in np.unique(cat):
+                            vals = num[cat == lev]
+                            q1, med, q3, lo_w, hi_w, out = box_stats(vals)
+                            if vertical:
+                                r = dict(xmin=lev - 0.3, xmax=lev + 0.3, ymin=q1, ymax=q3)
+                                sg = [
+                                    (lev - 0.3, med, lev + 0.3, med),
+                                    (lev, q3, lev, hi_w),
+                                    (lev, lo_w, lev, q1),
+                                ]
+                                pts = pd.DataFrame({"x": lev, "y": out})
+                            else:
+                                r = dict(xmin=q1, xmax=q3, ymin=lev - 0.3, ymax=lev + 0.3)
+                                sg = [
+                                    (med, lev - 0.3, med, lev + 0.3),
+                                    (q3, lev, hi_w, lev),
+                                    (lo_w, lev, q1, lev),
+                                ]
+                                pts = pd.DataFrame({"x": out, "y": lev})
+                            rects.append(panel(pd.DataFrame({**{k: [v] for k, v in r.items()}, "alpha": [ALPHA]}), rv, cv))
+                            segs.append(panel(pd.DataFrame(sg, columns=["x", "y", "xend", "yend"]), rv, cv))
+                            if len(pts):
+                                points.append(panel(pts, rv, cv))
+                    else:
+                        # spineplot: column width = share of the x level, stacked
+                        # height = share of each y level within it
+                        kx, ky = len(levels[cv]), len(levels[rv])
+                        left = 0.5
+                        for xl in range(1, kx + 1):
+                            sub = y[x == xl]
+                            width = kx * sub.size / x.size
+                            bottom = 0.5
+                            for yl in range(1, ky + 1):
+                                h = ky * (np.sum(sub == yl) / sub.size) if sub.size else 0.0
+                                rects.append(
+                                    panel(
+                                        pd.DataFrame(
+                                            {
+                                                "xmin": [left],
+                                                "xmax": [left + width],
+                                                "ymin": [bottom],
+                                                "ymax": [bottom + h],
+                                                "alpha": [0.25 + 0.6 * yl / ky],
+                                            }
+                                        ),
+                                        rv,
+                                        cv,
+                                    )
+                                )
+                                bottom += h
+                            left += width
+                else:
+                    r = float(self.cr[j, i])
+                    p = self.cp[j, i] if self.cp is not None else np.nan
+                    if self.method == "polychoric" or p is None or np.isnan(p):
+                        p = 1  # polychoric correlations do not provide p-values
+                    rt = f"{round(r, dec):.{dec}f}" if np.isfinite(r) else "NA"
+                    ar = abs(r) if np.isfinite(r) else 0.0
+                    texts.append(
+                        panel(
+                            pd.DataFrame(
+                                {
+                                    "x": [(xlo + xhi) / 2],
+                                    "y": [(ylo + yhi) / 2],
+                                    "label": [rt],
+                                    "size": [max(6.0, size_base * ar * 4 / max(len(rt), 4))],
+                                }
+                            ),
+                            rv,
+                            cv,
+                        )
+                    )
+                    star = sig_stars([round(p, dec)])[0]
+                    if star.strip():
+                        stars.append(
+                            panel(
+                                pd.DataFrame(
+                                    {
+                                        "x": [xlo + 0.85 * (xhi - xlo)],
+                                        "y": [ylo + 0.85 * (yhi - ylo)],
+                                        "label": [star],
+                                        "size": [max(7.0, size_base * 0.7)],
+                                    }
+                                ),
+                                rv,
+                                cv,
+                            )
+                        )
+
+        def frame(parts):
+            if not parts:
+                return None
+            df = pd.concat(parts, ignore_index=True)
+            df["row_var"] = pd.Categorical(df["row_var"], categories=cn, ordered=True)
+            df["col_var"] = pd.Categorical(df["col_var"], categories=cn, ordered=True)
+            return df
+
+        g = ggplot(frame(blank), aes(x="x", y="y")) + geom_blank()
+        if (df := frame(rects)) is not None:
+            g = g + geom_rect(
+                df,
+                aes(xmin="xmin", xmax="xmax", ymin="ymin", ymax="ymax", alpha="alpha"),
+                inherit_aes=False,
+                fill=FILL,
+                color="white",
+                size=0.2,
+            )
+        if (df := frame(points)) is not None:
+            g = g + geom_point(df, alpha=ALPHA, color=FILL, size=max(0.5, 6 / ncol), stroke=0)
+        if (df := frame(fits)) is not None:
+            g = g + geom_segment(df, aes(xend="xend", yend="yend"), color=REF, size=0.6)
+        if (df := frame(segs)) is not None:
+            g = g + geom_segment(df, aes(xend="xend", yend="yend"), color=REF, size=0.4)
+        if (df := frame(texts)) is not None:
+            g = g + geom_text(df, aes(label="label", size="size"))
+        if (df := frame(stars)) is not None:
+            g = g + geom_text(df, aes(label="label", size="size"), color=LINE)
+
+        return (
+            g
+            + facet_grid("row_var ~ col_var", scales="free")
+            + scale_size_identity()
+            + scale_alpha_identity()
+            + labs(x="", y="")
+            + theme_pyrsm()
+            + theme(
+                figure_size=figsize,
+                axis_text=element_blank(),
+                axis_ticks=element_blank(),
+                panel_grid=element_blank(),
+                panel_spacing=0.01,
+                strip_text=element_text(size=9),
+            )
+        )

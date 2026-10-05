@@ -9,6 +9,7 @@ import pyrsm.basics.display_utils as du
 import pyrsm.basics.utils as bu
 from pyrsm.utils import check_dataframe, ifelse
 from pyrsm.data_scope import apply_scope, print_scope
+from pyrsm.plot_style import ALPHA, FILL, REF, theme_pyrsm
 
 
 @lru_cache(maxsize=1)
@@ -575,7 +576,6 @@ class compare_means:
             geom_jitter,
             ggplot,
             labs,
-            theme_bw,
         )
 
         data = self.data.drop_nulls(subset=[self.var2])
@@ -589,29 +589,29 @@ class compare_means:
             p = (
                 ggplot(data, aes(x=self.var1, y=self.var2))
                 + geom_jitter(
-                    width=0.2, alpha=0.5, color=_get_plotting_utils().PlotConfig.FILL
+                    width=0.2, alpha=ALPHA, color=FILL
                 )
                 + stat_summary(
                     fun_y=pl_mean,
                     fun_ymin=pl_mean,
                     fun_ymax=pl_mean,
                     geom="crossbar",
-                    color="blue",
+                    color=REF,
                     linetype="solid",
                     width=0.5,
                     size=0.8,
                     fatten=0,
                 )
                 + labs(x=self.var1, y=self.var2)
-                + theme_bw()
+                + theme_pyrsm()
             )
 
         elif plots == "box":
             p = (
                 ggplot(data, aes(x=self.var1, y=self.var2))
-                + geom_boxplot(fill=_get_plotting_utils().PlotConfig.FILL, alpha=0.7)
+                + geom_boxplot(fill=FILL, alpha=ALPHA)
                 + labs(x=self.var1, y=self.var2)
-                + theme_bw()
+                + theme_pyrsm()
             )
 
         elif plots == "density":
@@ -619,7 +619,7 @@ class compare_means:
                 ggplot(data, aes(x=self.var2, color=self.var1, fill=self.var1))
                 + geom_density(alpha=0.3)
                 + labs(x=self.var2, y="Density", color=self.var1, fill=self.var1)
-                + theme_bw()
+                + theme_pyrsm()
             )
 
         elif plots == "bar":
@@ -627,9 +627,9 @@ class compare_means:
             means = data.group_by(self.var1).agg(pl.col(self.var2).mean().alias("mean"))
             p = (
                 ggplot(means, aes(x=self.var1, y="mean"))
-                + geom_col(fill=_get_plotting_utils().PlotConfig.FILL, alpha=0.8)
+                + geom_col(fill=FILL, alpha=ALPHA)
                 + labs(x=self.var1, y=f"Mean {self.var2}")
-                + theme_bw()
+                + theme_pyrsm()
             )
 
         else:

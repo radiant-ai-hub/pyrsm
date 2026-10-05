@@ -222,48 +222,119 @@ class hclus:
         print(f"Observations: {format_nr(self.nobs, dec=0)}")
 
     def plot(self, plots="dendro", dec: int = 2, cutoff: float = 0.05):
-        """Cluster plots.
+        """Cluster plots (plotnine, pyrsm plot style).
 
-        ``"dendro"`` returns a matplotlib figure (SciPy dendrogram); ``"scree"``
-        and ``"change"`` return plotnine objects of within-cluster
-        heterogeneity vs. number of clusters. Heights are normalized to ``[0, 1]``
-        by ``max(height)`` (matching Radiant).
+        ``"dendro"`` draws the dendrogram from SciPy's dendrogram coordinates.
+        As in Radiant, a ``cutoff`` above 0 gives a "cutoff dendrogram" that
+        shows only the merges with a (normalized) height of at least
+        ``cutoff`` and no leaf labels; ``cutoff=0`` shows the full tree with
+        a label per case. ``"scree"`` and ``"change"`` plot within-cluster
+        heterogeneity vs. number of clusters. Heights are normalized to
+        ``[0, 1]`` by ``max(height)`` (matching Radiant).
         """
         if isinstance(plots, str):
             plots = [plots]
+        valid = ("dendro", "scree", "change")
+        unknown = [p for p in plots if p not in valid]
+        if unknown:
+            raise ValueError(
+                f"Unknown plot type(s) {unknown}. Choose from {list(valid)}."
+            )
         out = []
         for ptype in plots:
             if ptype == "dendro":
-                import matplotlib.pyplot as plt
-                from scipy.cluster.hierarchy import dendrogram
-
-                fig, ax = plt.subplots()
-                # Heights are already on R's scale; normalize for display.
-                lk = self.linkage.copy()
-                hmax = lk[:, 2].max()
-                if hmax > 0:
-                    lk[:, 2] = lk[:, 2] / hmax
-                dendrogram(lk, labels=self.row_labels, ax=ax)
-                ax.set_title("Dendrogram")
-                ax.set_ylabel("Within-cluster heterogeneity")
-                if cutoff:
-                    ax.axhline(cutoff, color="red", linestyle="dashed", linewidth=0.5)
-                out.append(fig)
+                out.append(self._dendro(cutoff))
             elif ptype in ("scree", "change"):
                 out.append(self._scree_change(ptype, cutoff))
         return as_plot_result(out)
 
-    def _scree_change(self, ptype: str, cutoff: float):
+    def _dendro(self, cutoff: float):
+        import pandas as pd
         from plotnine import (
             aes,
-            geom_bar,
+            coord_cartesian,
+            element_blank,
+            element_text,
+            geom_segment,
+            ggplot,
+            labs,
+            scale_x_continuous,
+            scale_y_continuous,
+            theme,
+        )
+        from scipy.cluster.hierarchy import dendrogram
+
+        from pyrsm.plot_style import LINE, theme_pyrsm
+
+        # Heights are already on R's scale; normalize for display.
+        lk = self.linkage.copy()
+        hmax = lk[:, 2].max()
+        if hmax > 0:
+            lk[:, 2] = lk[:, 2] / hmax
+        dd = dendrogram(lk, labels=self.row_labels, no_plot=True)
+
+        # Each merge is an inverted "U": left leg, crossbar, right leg.
+        rows = []
+        for xs, ys in zip(dd["icoord"], dd["dcoord"]):
+            for k in range(3):
+                rows.append((xs[k], ys[k], xs[k + 1], ys[k + 1]))
+        segs = pd.DataFrame(rows, columns=["x", "y", "xend", "yend"])
+
+        n = len(dd["ivl"])
+        leaf_x = [5 + 10 * i for i in range(n)]
+        cutoff = 0.0 if not cutoff else float(cutoff)
+        g = (
+            ggplot(segs, aes(x="x", y="y", xend="xend", yend="yend"))
+            + geom_segment(color=LINE, size=0.7)
+            + labs(x="", y="Within-cluster heterogeneity")
+            + theme_pyrsm()
+            + theme(
+                panel_grid_major_x=element_blank(),
+                panel_grid_minor_x=element_blank(),
+            )
+        )
+        if cutoff > 0:
+            # Radiant: plot(hc, ylim = c(cutoff, 1), leaflab = "none")
+            g = (
+                g
+                + labs(title="Cutoff dendrogram")
+                + scale_x_continuous(breaks=[])
+                # no expansion: the panel starts exactly at the cutoff
+                + coord_cartesian(xlim=(0, 10 * n), ylim=(cutoff, 1.02), expand=False)
+                + theme(axis_ticks_major_x=element_blank())
+            )
+        else:
+            size = max(4.0, min(9.0, 360 / max(n, 1)))
+            rotate = n > 25
+            g = (
+                g
+                + labs(title="Dendrogram")
+                + scale_x_continuous(breaks=leaf_x, labels=list(dd["ivl"]), expand=(0, 5))
+                + scale_y_continuous(expand=(0, 0.02))
+                + theme(
+                    axis_text_x=element_text(
+                        size=size,
+                        rotation=90 if rotate else 0,
+                        va="top",
+                        ha="center",
+                    )
+                )
+            )
+        return g
+
+    def _scree_change(self, ptype: str, cutoff: float):
+        import pandas as pd
+        from plotnine import (
+            aes,
+            geom_col,
             geom_line,
             geom_point,
             ggplot,
             labs,
             scale_x_continuous,
-            theme_classic,
         )
+
+        from pyrsm.plot_style import ALPHA, FILL, LINE, POINT_FILL, theme_pyrsm
 
         # normalize all merge heights to [0, 1] (Radiant divides by max), then
         # drop the earliest merges below the cutoff so dense trees stay readable.
@@ -284,15 +355,15 @@ class hclus:
             ).to_pandas()
             return (
                 ggplot(dat, aes(x="x", y="y", group=1))
-                + geom_line(color="blue", linetype="dashdot", size=0.7)
-                + geom_point(color="blue", size=4, shape="o", fill="white")
+                + geom_line(color=LINE, linetype="dashdot", size=0.7)
+                + geom_point(color=LINE, size=4, shape="o", fill=POINT_FILL)
                 + labs(
                     title="Screeplot",
                     x="# clusters",
                     y="Within-cluster heterogeneity",
                 )
                 + scale_x_continuous(breaks=list(range(1, n + 1)))
-                + theme_classic()
+                + theme_pyrsm()
             )
         else:  # change
             change = np.abs((heights_norm[1:] - heights_norm[:-1]) / heights_norm[:-1])
@@ -300,13 +371,15 @@ class hclus:
             dat = pl.DataFrame(
                 {"nr_clus": labels, "bump": [float(v) for v in change]}
             ).to_pandas()
+            # keep the order of the labels ("10-11" must not sort before "2-3")
+            dat["nr_clus"] = pd.Categorical(labels, categories=labels, ordered=True)
             return (
                 ggplot(dat, aes(x="nr_clus", y="bump"))
-                + geom_bar(stat="identity", alpha=0.5, fill="blue")
+                + geom_col(alpha=ALPHA, fill=FILL)
                 + labs(
                     title="Change in heterogeneity",
                     x="# clusters",
                     y="Rate of change",
                 )
-                + theme_classic()
+                + theme_pyrsm()
             )

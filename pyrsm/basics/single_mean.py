@@ -8,6 +8,7 @@ import pyrsm.basics.display_utils as du
 import pyrsm.basics.utils as bu
 from pyrsm.utils import check_dataframe, ifelse, sig_stars
 from pyrsm.data_scope import apply_scope, print_scope
+from pyrsm.plot_style import COMP, FILL, REF, theme_pyrsm
 
 
 @lru_cache(maxsize=1)
@@ -348,7 +349,7 @@ class single_mean:
         self,
         plots: Literal["hist", "sim"] = "hist",
         theme: Literal["modern", "publication", "minimal", "classic"] = "modern",
-        backend: Literal["plotnine", "plotly"] = "plotnine",
+        backend: Literal["plotnine"] = "plotnine",
     ):
         """
         Plots the results of the hypothesis test. If the 'hist' is selected a histogram
@@ -364,17 +365,26 @@ class single_mean:
         plots : str
             The type of plot to generate (default is 'hist').
         theme : str
-            The plotnine theme to use ('modern', 'publication', 'minimal', 'classic').
+            Kept for backward compatibility; every pyrsm plot uses the one
+            pyrsm style (``pyrsm.plot_style.theme_pyrsm``).
         backend : str
-            Plotting backend to use ('plotnine' or 'plotly').
+            Kept for backward compatibility; pyrsm plots are always plotnine.
+            ``"plotly"`` is no longer supported and falls back to plotnine
+            with a warning.
 
         Returns
         -------
-        plotnine.ggplot or plotly.graph_objects.Figure
-            The plot object (if backend is specified).
+        plotnine.ggplot
+            The plot object.
         """
-        if backend == "plotly":
-            return self._plot_plotly(plots)
+        if backend != "plotnine":
+            import warnings
+
+            warnings.warn(
+                f"backend={backend!r} is not supported; pyrsm plots are plotnine only.",
+                UserWarning,
+                stacklevel=2,
+            )
 
         if plots == "hist":
             from plotnine import aes, geom_histogram, ggplot, labs
@@ -387,9 +397,9 @@ class single_mean:
             # Create plotnine histogram
             p = (
                 ggplot(data, aes(x=self.var))
-                + geom_histogram(bins=10, fill=pu.PlotConfig.FILL)
+                + geom_histogram(bins=10, fill=FILL)
                 + labs(x="", y="Frequency")
-                + pu.PlotConfig.theme()
+                + theme_pyrsm()
             )
 
             # Add reference lines
@@ -413,9 +423,9 @@ class single_mean:
             bw = spread / 20 if spread > 0 else None
 
             hist = (
-                geom_histogram(binwidth=bw, fill=pu.PlotConfig.FILL)
+                geom_histogram(binwidth=bw, fill=FILL)
                 if bw
-                else geom_histogram(bins=20, fill=pu.PlotConfig.FILL)
+                else geom_histogram(bins=20, fill=FILL)
             )
             p = (
                 ggplot(data, aes(x=self.var))
@@ -425,136 +435,18 @@ class single_mean:
                     y="Frequency",
                     title=f"Simulated means if null hyp. is true ({self.var})",
                 )
-                + pu.PlotConfig.theme()
+                + theme_pyrsm()
             )
 
             # red solid = comparison value (H0); black solid = observed mean;
             # red dashed = simulated cutoffs under the null.
-            p = p + pu.ReferenceLine.vline(
-                self.comp_value, color="red", linetype="solid"
-            )
-            p = p + pu.ReferenceLine.vline(
-                float(self.mean), color="black", linetype="solid"
-            )
+            p = p + pu.ReferenceLine.vline(self.comp_value, color=COMP, linetype="solid")
+            p = p + pu.ReferenceLine.vline(float(self.mean), color=REF, linetype="solid")
             for cut in cutoffs:
-                p = p + pu.ReferenceLine.vline(
-                    float(cut), color="red", linetype="dashed"
-                )
+                p = p + pu.ReferenceLine.vline(float(cut), color=COMP, linetype="dashed")
             return p
         else:
             print("Invalid plot type")
-            return None
-
-    def _plot_plotly(self, plot_type: str):
-        """
-        Generate interactive plotly version of the plot.
-
-        Parameters
-        ----------
-        plot_type : str
-            The type of plot to generate.
-
-        Returns
-        -------
-        plotly.graph_objects.Figure
-            Interactive plotly figure.
-        """
-        try:
-            import plotly.graph_objects as go
-        except ImportError:
-            print("Plotly not installed. Install with: uv add plotly")
-            return None
-
-        if plot_type == "hist":
-            # Create histogram data - convert polars to numpy for plotly
-            data_values = self.data.select(self.var).drop_nulls().to_series().to_numpy()
-
-            fig = go.Figure()
-
-            # Add histogram
-            fig.add_trace(
-                go.Histogram(
-                    x=data_values,
-                    nbinsx=30,
-                    marker_color="slateblue",
-                    opacity=0.7,
-                    name=self.var,
-                )
-            )
-
-            # Add reference lines
-            fig.add_vline(
-                x=self.comp_value,
-                line_dash="solid",
-                line_color="red",
-                annotation_text=f"H₀: {self.comp_value}",
-                annotation_position="top",
-            )
-            fig.add_vline(
-                x=self.mean,
-                line_dash="solid",
-                line_color="black",
-                annotation_text=f"Mean: {self.mean:.2f}",
-                annotation_position="top",
-            )
-            fig.add_vline(
-                x=self.ci[0], line_dash="dash", line_color="black", opacity=0.7
-            )
-            fig.add_vline(
-                x=self.ci[1], line_dash="dash", line_color="black", opacity=0.7
-            )
-
-            # Update layout
-            fig.update_layout(
-                title=f"Distribution of {self.var}",
-                xaxis_title=self.var,
-                yaxis_title="Count",
-                showlegend=False,
-                hovermode="x unified",
-            )
-
-            return fig
-        elif plot_type == "sim":
-            sims, cutoffs = self._simulate_means()
-
-            fig = go.Figure()
-            fig.add_trace(
-                go.Histogram(
-                    x=sims,
-                    nbinsx=20,
-                    marker_color="slateblue",
-                    opacity=0.7,
-                    name=self.var,
-                )
-            )
-            fig.add_vline(
-                x=self.comp_value,
-                line_dash="solid",
-                line_color="red",
-                annotation_text=f"H₀: {self.comp_value}",
-                annotation_position="top",
-            )
-            fig.add_vline(
-                x=float(self.mean),
-                line_dash="solid",
-                line_color="black",
-                annotation_text=f"Mean: {self.mean:.2f}",
-                annotation_position="top",
-            )
-            for cut in cutoffs:
-                fig.add_vline(
-                    x=float(cut), line_dash="dash", line_color="red", opacity=0.7
-                )
-            fig.update_layout(
-                title=f"Simulated means if null hyp. is true ({self.var})",
-                xaxis_title=self.var,
-                yaxis_title="Count",
-                showlegend=False,
-                hovermode="x unified",
-            )
-            return fig
-        else:
-            print(f"Plotly backend does not support plot type: {plot_type}")
             return None
 
 

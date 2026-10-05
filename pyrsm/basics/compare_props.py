@@ -9,6 +9,7 @@ import pyrsm.basics.display_utils as du
 import pyrsm.basics.utils as bu
 from pyrsm.utils import check_dataframe, ifelse, sig_stars
 from pyrsm.data_scope import apply_scope, print_scope
+from pyrsm.plot_style import ALPHA, FILL, theme_pyrsm
 
 
 @lru_cache(maxsize=1)
@@ -405,10 +406,8 @@ class compare_props:
             ggtitle,
             labs,
             position_dodge,
-            theme_bw,
         )
 
-        pu = _get_plotting_utils()
 
         if plots == "bar":
             # Compute mean proportions by var1
@@ -423,10 +422,10 @@ class compare_props:
             )
             p = (
                 ggplot(means, aes(x=self.var1, y="mean_prop"))
-                + geom_col(fill=pu.PlotConfig.FILL, alpha=0.7)
+                + geom_col(fill=FILL, alpha=ALPHA)
                 + labs(x=self.var1, y=f"Proportion ({self.lev})")
                 + ggtitle(f'Proportion comparison: "{self.lev}" in {self.var2}')
-                + theme_bw()
+                + theme_pyrsm()
             )
             return p
 
@@ -446,7 +445,7 @@ class compare_props:
                 + geom_col(position=position_dodge(), alpha=0.8)
                 + labs(x=self.var1, y="Proportion", fill=self.var2)
                 + ggtitle(f"Proportion comparison by {self.var1}")
-                + theme_bw()
+                + theme_pyrsm()
             )
             return p
 

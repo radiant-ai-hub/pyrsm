@@ -7,6 +7,7 @@ import pyrsm.basics.display_utils as du
 from pyrsm.plot_utils import compose_plots
 from pyrsm.utils import check_dataframe, ifelse
 from pyrsm.data_scope import apply_scope, scope_lines
+from pyrsm.plot_style import theme_pyrsm
 
 
 @lru_cache(maxsize=1)
@@ -545,7 +546,6 @@ Chi-squared: {round(self.chisq_test[0], dec)} df({int(self.chisq_test[2])}), p.v
             labs,
             position_dodge,
             position_stack,
-            theme_bw,
         )
 
         pu = _get_plotting_utils()
@@ -584,7 +584,7 @@ Chi-squared: {round(self.chisq_test[0], dec)} df({int(self.chisq_test[2])}), p.v
                 + geom_col(position=position_stack(), alpha=0.8)
                 + labs(x=self.var2, y="Percentage", fill=self.var1)
                 + ggtitle(title)
-                + theme_bw()
+                + theme_pyrsm()
             )
             return p
 
@@ -596,7 +596,7 @@ Chi-squared: {round(self.chisq_test[0], dec)} df({int(self.chisq_test[2])}), p.v
                 + geom_col(position=position_dodge(), alpha=0.8)
                 + labs(x=self.var2, y=value_name, fill=self.var1)
                 + ggtitle(title)
-                + theme_bw()
+                + theme_pyrsm()
             )
             return p
 
@@ -624,7 +624,7 @@ Chi-squared: {round(self.chisq_test[0], dec)} df({int(self.chisq_test[2])}), p.v
                 + geom_col(position=position_dodge(), alpha=0.8)
                 + labs(x=self.var2, y="Std. Deviation", fill=self.var1)
                 + ggtitle("Deviation standardized")
-                + theme_bw()
+                + theme_pyrsm()
             )
             for line in pu.ReferenceLine.significance_levels():
                 p = p + line
@@ -638,7 +638,7 @@ Chi-squared: {round(self.chisq_test[0], dec)} df({int(self.chisq_test[2])}), p.v
                 + geom_col(position=position_dodge(), alpha=0.8)
                 + labs(x=self.var2, y="Column %", fill=self.var1)
                 + ggtitle("Column percentages")
-                + theme_bw()
+                + theme_pyrsm()
             )
 
         if "perc_row" in plots:
@@ -649,7 +649,7 @@ Chi-squared: {round(self.chisq_test[0], dec)} df({int(self.chisq_test[2])}), p.v
                 + geom_col(position=position_dodge(), alpha=0.8)
                 + labs(x=self.var2, y="Row %", fill=self.var1)
                 + ggtitle("Row percentages")
-                + theme_bw()
+                + theme_pyrsm()
             )
 
         if "perc" in plots:
@@ -660,7 +660,7 @@ Chi-squared: {round(self.chisq_test[0], dec)} df({int(self.chisq_test[2])}), p.v
                 + geom_col(position=position_dodge(), alpha=0.8)
                 + labs(x=self.var2, y="Table %", fill=self.var1)
                 + ggtitle("Table percentages")
-                + theme_bw()
+                + theme_pyrsm()
             )
 
         return compose_plots(plot_list)

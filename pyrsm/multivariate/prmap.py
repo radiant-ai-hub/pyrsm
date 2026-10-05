@@ -298,12 +298,14 @@ class prmap:
             labs,
             scale_color_manual,
             theme,
-            theme_classic,
         )
+
+        from pyrsm.plot_style import COMP, LINE, MUTED, REF, theme_pyrsm
 
         from ._plotting import add_square_axes
 
-        colors = {"brand": "black", "attr": "darkblue", "pref": "red"}
+        # Radiant: brand black, attr darkblue, pref red -> REF / LINE / COMP
+        colors = {"brand": REF, "attr": LINE, "pref": COMP}
         g = ggplot()
         g = add_square_axes(g, lim)
 
@@ -329,7 +331,7 @@ class prmap:
             bdat = pl.DataFrame(
                 {"x": brand[:, i], "y": brand[:, j]}
             ).to_pandas()
-            g = g + geom_point(bdat, aes(x="x", y="y"), color="black")
+            g = g + geom_point(bdat, aes(x="x", y="y"), color=REF)
 
         # arrows for attr/pref (shortened to 0.9, closed arrowheads)
         arr_rows = []
@@ -376,7 +378,7 @@ class prmap:
                 g = g + geom_segment(
                     ldat,
                     aes(x="ax", y="ay", xend="lx", yend="ly"),
-                    color="grey",
+                    color=MUTED,
                     size=0.2,
                 )
             g = g + geom_text(
@@ -390,7 +392,7 @@ class prmap:
             g
             + scale_color_manual(values=colors)
             + labs(x=f"Dimension {i + 1}", y=f"Dimension {j + 1}")
-            + theme_classic()
+            + theme_pyrsm()
             + theme(legend_position="none")
         )
         return g

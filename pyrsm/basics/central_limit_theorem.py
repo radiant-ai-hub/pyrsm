@@ -7,10 +7,9 @@ from plotnine import (
     ggplot,
     ggtitle,
     labs,
-    theme_bw,
 )
 
-import pyrsm.basics.plotting_utils as pu
+from pyrsm.plot_style import ALPHA, FILL, theme_pyrsm
 
 
 class central_limit_theorem:
@@ -153,18 +152,18 @@ class central_limit_theorem:
         if density_plot:
             p = (
                 ggplot(data, aes(x="value"))
-                + geom_density(fill=pu.PlotConfig.FILL, alpha=0.5)
+                + geom_density(fill=FILL, alpha=ALPHA)
                 + labs(x="Value", y="Density")
                 + ggtitle(title)
-                + theme_bw()
+                + theme_pyrsm()
             )
         else:
             p = (
                 ggplot(data, aes(x="value"))
-                + geom_histogram(bins=self.num_bins, fill=pu.PlotConfig.FILL, alpha=0.7)
+                + geom_histogram(bins=self.num_bins, fill=FILL, alpha=ALPHA)
                 + labs(x="Value", y="Count")
                 + ggtitle(title)
-                + theme_bw()
+                + theme_pyrsm()
             )
         return p
 

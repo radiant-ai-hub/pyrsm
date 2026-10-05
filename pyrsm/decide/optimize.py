@@ -872,6 +872,8 @@ class optimize:
         import numpy as np
         import plotnine as p9
 
+        from pyrsm.plot_style import ALPHA, COMP, FILL, REF, theme_pyrsm
+
         xv, yv = list(self.variables.values())
 
         # Determine a sensible plotting window from bounds + constraint intercepts.
@@ -913,7 +915,7 @@ class optimize:
         plot = (
             p9.ggplot()
             + p9.geom_raster(
-                region, p9.aes(x="x", y="y"), fill="#4c78a8", alpha=0.25
+                region, p9.aes(x="x", y="y"), fill=FILL, alpha=ALPHA
             )
             + p9.labs(
                 x=xv.label or xv.name,
@@ -931,11 +933,11 @@ class optimize:
                     {"x": xs, "y": (c.rhs - a * xs) / b}
                 ).to_pandas()
                 plot = plot + p9.geom_line(
-                    line, p9.aes(x="x", y="y"), color="#555555", size=0.4
+                    line, p9.aes(x="x", y="y"), color=REF, size=0.4
                 )
             elif a != 0:
                 plot = plot + p9.geom_vline(
-                    xintercept=c.rhs / a, color="#555555", size=0.4
+                    xintercept=c.rhs / a, color=REF, size=0.4
                 )
 
         # Optimum point.
@@ -944,13 +946,13 @@ class optimize:
                 {"x": [self.solution[xv.name]], "y": [self.solution[yv.name]]}
             ).to_pandas()
             plot = plot + p9.geom_point(
-                opt_df, p9.aes(x="x", y="y"), color="#e45756", size=3
+                opt_df, p9.aes(x="x", y="y"), color=COMP, size=3
             )
 
         return (
             plot
             + p9.coord_cartesian(xlim=(x_lo, x_hi), ylim=(y_lo, y_hi))
-            + p9.theme_minimal()
+            + theme_pyrsm()
         )
 
     # ------------------------------------------------------------------
@@ -1057,16 +1059,18 @@ class RobustnessResult:
         """Histogram of the objective value across solved trials (ggplot)."""
         import plotnine as p9
 
+        from pyrsm.plot_style import COMP, FILL, theme_pyrsm
+
         data = self.solved.select("objective").drop_nulls().to_pandas()
         plot = (
             p9.ggplot(data, p9.aes(x="objective"))
-            + p9.geom_histogram(bins=bins, fill="#4c78a8", color="white")
+            + p9.geom_histogram(bins=bins, fill=FILL, color="white")
             + p9.labs(x="Objective value", y="Count", title="Robustness of the optimum")
-            + p9.theme_minimal()
+            + theme_pyrsm()
         )
         if self.base_objective is not None:
             plot = plot + p9.geom_vline(
-                xintercept=self.base_objective, color="#e45756", size=0.8
+                xintercept=self.base_objective, color=COMP, size=0.8
             )
         return plot
 

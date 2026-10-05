@@ -460,18 +460,20 @@ class conjoint:
         (Radiant's ``plot_ylim`` logic). Returns a single plot when exactly one
         is produced, otherwise a list (part-worths first, then importance).
         """
+        import pandas as pd
         from plotnine import (
             aes,
             coord_cartesian,
             element_text,
-            geom_bar,
+            geom_col,
             geom_line,
             geom_point,
             ggplot,
             labs,
             theme,
-            theme_classic,
         )
+
+        from pyrsm.plot_style import ALPHA, LINE, POINT_FILL, theme_pyrsm
 
         if isinstance(plots, str):
             plots = [plots]
@@ -488,13 +490,14 @@ class conjoint:
                     .to_pandas()
                 )
                 # preserve level order on the x axis
-                dat["Levels"] = pl.Series(dat["Levels"]).to_pandas()
+                levs = list(dict.fromkeys(dat["Levels"]))
+                dat["Levels"] = pd.Categorical(dat["Levels"], categories=levs, ordered=True)
                 g = (
                     ggplot(dat, aes(x="Levels", y="PW", group=1))
-                    + geom_line(color="blue", linetype="dashdot", size=0.7)
-                    + geom_point(color="blue", size=4, fill="white")
+                    + geom_line(color=LINE, linetype="dashdot", size=0.7)
+                    + geom_point(color=LINE, size=4, fill=POINT_FILL)
                     + labs(title=f"Part-worths for {v}", x="", y="PW")
-                    + theme_classic()
+                    + theme_pyrsm()
                     + theme(axis_text_x=element_text(angle=45, hjust=1))
                 )
                 if scale_plot:
@@ -505,9 +508,9 @@ class conjoint:
             dat = m["IW"].to_pandas()
             out.append(
                 ggplot(dat, aes(x="Attributes", y="IW", fill="Attributes"))
-                + geom_bar(stat="identity", alpha=0.5)
+                + geom_col(alpha=ALPHA)
                 + labs(title="Importance weights", x="", y="IW")
-                + theme_classic()
+                + theme_pyrsm()
                 + theme(legend_position="none")
             )
 

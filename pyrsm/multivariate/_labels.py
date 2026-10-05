@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from pyrsm.plot_style import MUTED
+
 __all__ = ["label_positions", "arrow_label_positions", "text_repel_kwargs"]
 
 
@@ -99,13 +101,13 @@ def arrow_label_positions(x, y, scale: float = 1.08):
 
 def text_repel_kwargs(
     anchors,
-    arrow_color: str = "grey",
+    arrow_color: str = MUTED,
     arrow_lw: float = 0.4,
     iter_lim: int = 800,
 ):
     """Keyword arguments for plotnine's ``geom_text(adjust_text=...)``.
 
-    ``adjustText`` is plotnine's Matplotlib-side equivalent of the behavior we
+    ``adjustText`` (used by plotnine's geom_text) is the equivalent of the behavior we
     relied on from R's ``ggrepel``. Passing the anchor coordinates as both
     avoidance points and arrow targets keeps labels visible inside the panel and
     connects them back to the correct point/arrow endpoint.

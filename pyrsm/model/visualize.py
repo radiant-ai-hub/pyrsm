@@ -21,10 +21,10 @@ from plotnine import (
     scale_x_discrete,
     scale_y_continuous,
     theme,
-    theme_bw,
 )
 from sklearn.inspection import permutation_importance
 
+from pyrsm.plot_style import FILL, LINE, MUTED, REF, theme_pyrsm
 from pyrsm.utils import expand_grid, ifelse, intersect, setdiff
 
 # Suppress plotnine warnings about missing values in ICE lines
@@ -154,61 +154,14 @@ def _extract_model_and_scaling(model, data, rvar=None):
 
 def _compose_plots(plot_list: list, ncol: int = 2):
     """
-    Compose a list of plots into a grid.
+    Compose a list of plots into a plotnine grid (see ``pyrsm.plot_utils.compose_plots``).
 
-    Renders each row independently and stitches the resulting images together.
-    This keeps plot spacing consistent regardless of the total number of plots.
+    Each cell is 4 x 3 inches and an incomplete last row is padded, so plot
+    spacing is the same regardless of the total number of plots.
     """
-    import matplotlib.pyplot as plt
+    from pyrsm.plot_utils import compose_plots
 
-    if len(plot_list) == 0:
-        return None
-    if len(plot_list) == 1:
-        return plot_list[0]
-
-    cell_w = 4
-    cell_h = 3
-    nrow = math.ceil(len(plot_list) / ncol)
-
-    images = []
-    for r in range(nrow):
-        rp = plot_list[r * ncol : (r + 1) * ncol]
-
-        # Compose row with |
-        row = rp[0]
-        for p in rp[1:]:
-            row = row | p
-        row = row + theme(figure_size=(cell_w * len(rp), cell_h))
-
-        # Render and grab pixels from canvas
-        fig = row.draw()
-        fig.canvas.draw()
-        img = np.frombuffer(fig.canvas.buffer_rgba(), dtype=np.uint8)
-        img = img.reshape(fig.canvas.get_width_height()[::-1] + (4,))
-        plt.close(fig)
-        images.append(img)
-
-    # Normalize widths (pad incomplete last row with white)
-    max_w = max(img.shape[1] for img in images)
-    padded = []
-    for img in images:
-        if img.shape[1] < max_w:
-            pad = np.full(
-                (img.shape[0], max_w - img.shape[1], img.shape[2]), 255, dtype=np.uint8
-            )
-            img = np.hstack([img, pad])
-        padded.append(img)
-
-    combined_img = np.vstack(padded)
-
-    # Return as a matplotlib figure for notebook display
-    fig_out, ax = plt.subplots(
-        figsize=(8, combined_img.shape[0] / combined_img.shape[1] * 8)
-    )
-    ax.imshow(combined_img)
-    ax.axis("off")
-    fig_out.tight_layout(pad=0)
-    return fig_out
+    return compose_plots(plot_list, ncol=ncol)
 
 
 def _tranformation_info(fn, col_names, transformed):
@@ -498,7 +451,7 @@ def _create_single_var_plot(
                 ice_layer = geom_line(
                     data=ice_df,
                     mapping=aes(x=var, y="prediction", group="obs"),
-                    color="gray",
+                    color=MUTED,
                     alpha=0.2,
                     size=0.3,
                 )
@@ -506,7 +459,7 @@ def _create_single_var_plot(
                 ice_layer = geom_line(
                     data=ice_df,
                     mapping=aes(x=var, y="prediction", group="obs"),
-                    color="gray",
+                    color=MUTED,
                     alpha=0.2,
                     size=0.3,
                 )
@@ -515,27 +468,27 @@ def _create_single_var_plot(
         p = ggplot(data, aes(x=var, y="prediction"))
         if ice_layer is not None:
             p = p + ice_layer
-        p = p + geom_line(color="steelblue", size=1)
+        p = p + geom_line(color=LINE, size=1)
     else:
         p = ggplot(data, aes(x=var, y="prediction"))
         if ice_layer is not None:
             p = p + ice_layer
         p = (
             p
-            + geom_line(color="steelblue", group=1, size=1)
-            + geom_point(color="steelblue", size=3)
+            + geom_line(color=LINE, group=1, size=1)
+            + geom_point(color=LINE, size=3)
         )
         # Preserve category order for categorical variables
         if cat_order is not None:
             p = p + scale_x_discrete(limits=cat_order)
 
-    p = p + labs(x="", y="Prediction") + ggtitle(var) + theme_bw()
+    p = p + labs(x="", y="Prediction") + ggtitle(var) + theme_pyrsm()
 
     if isinstance(min_max, tuple) and min_max[0] != float("inf"):
         p = p + scale_y_continuous(limits=min_max)
 
     if hline_val is not None:
-        p = p + geom_hline(yintercept=hline_val, linetype="dashed", color="gray")
+        p = p + geom_hline(yintercept=hline_val, linetype="dashed", color=REF)
 
     return p
 
@@ -584,7 +537,7 @@ def _create_interaction_plot(
                 + geom_line()
                 + labs(x=vl[0], y="Prediction", color=vl[1])
                 + ggtitle(var)
-                + theme_bw()
+                + theme_pyrsm()
             )
         else:
             # pred_plot: Heatmap for two numeric variables
@@ -594,7 +547,7 @@ def _create_interaction_plot(
                 + scale_fill_gradient2(low="blue", mid="white", high="red")
                 + labs(x=vl[0], y=vl[1], fill="Prediction")
                 + ggtitle(var)
-                + theme_bw()
+                + theme_pyrsm()
             )
         # No y-limit or hline for heatmaps and 2-numeric PDP lines
         return p
@@ -609,7 +562,7 @@ def _create_interaction_plot(
             + geom_line()
             + labs(x=vl[0], y="Prediction", color=vl[1])
             + ggtitle(var)
-            + theme_bw()
+            + theme_pyrsm()
         )
     else:
         # Both categorical
@@ -620,14 +573,14 @@ def _create_interaction_plot(
             + geom_point(size=3)
             + labs(x=vl[0], y="Prediction", color=vl[1])
             + ggtitle(var)
-            + theme_bw()
+            + theme_pyrsm()
         )
 
     # Apply y-axis limits and hline for non-heatmap plots
     if isinstance(min_max, tuple) and min_max[0] != float("inf"):
         p = p + scale_y_continuous(limits=min_max)
     if hline_val is not None:
-        p = p + geom_hline(yintercept=hline_val, linetype="dashed", color="gray")
+        p = p + geom_hline(yintercept=hline_val, linetype="dashed", color=REF)
 
     return p
 
@@ -1514,12 +1467,12 @@ def pip_plot_sm(fitted, data: pl.DataFrame | pd.DataFrame, rep=10, ret=False):
     # Create horizontal bar plot
     p = (
         ggplot(imp_df, aes(x="variable", y="importance"))
-        + geom_bar(stat="identity", fill="slateblue")
+        + geom_bar(stat="identity", fill=FILL)
         + coord_flip()
         + scale_x_discrete(limits=imp_df["variable"].to_list())
         + labs(x="", y=xlab)
         + ggtitle("Permutation Importance")
-        + theme_bw()
+        + theme_pyrsm()
         + theme(figure_size=(6, max(5, len(imp_df) * 0.4)))
     )
 
@@ -1598,12 +1551,12 @@ def pip_plot_sk(model, rep=5, ret=False):
     # Create horizontal bar plot
     p = (
         ggplot(imp_df, aes(x="variable", y="importance"))
-        + geom_bar(stat="identity", fill="slateblue")
+        + geom_bar(stat="identity", fill=FILL)
         + coord_flip()
         + scale_x_discrete(limits=imp_df["variable"].to_list())
         + labs(x="", y=xlab)
         + ggtitle("Permutation Importance")
-        + theme_bw()
+        + theme_pyrsm()
         + theme(figure_size=(6, max(5, len(imp_df) * 0.4)))
     )
 
@@ -1658,12 +1611,12 @@ def pip_plot_sklearn(fitted, X: pl.DataFrame, y, rep=5, ret=False):
     # Create horizontal bar plot
     p = (
         ggplot(imp_df, aes(x="variable", y="importance"))
-        + geom_bar(stat="identity", fill="slateblue")
+        + geom_bar(stat="identity", fill=FILL)
         + coord_flip()
         + scale_x_discrete(limits=imp_df["variable"].to_list())
         + labs(x="", y=xlab)
         + ggtitle("Permutation Importance")
-        + theme_bw()
+        + theme_pyrsm()
         + theme(figure_size=(6, max(5, len(imp_df) * 0.4)))
     )
 

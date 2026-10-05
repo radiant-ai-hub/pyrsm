@@ -2,88 +2,65 @@
 
 from typing import Literal
 
+from pyrsm import plot_style as ps
+
 
 class PlotConfig:
-    """Default configuration for pyrsm plots."""
+    """Backward-compatible view of :mod:`pyrsm.plot_style` (the one pyrsm style)."""
 
     # Primary fill colors
-    FILL = "slateblue"
+    FILL = ps.FILL
 
     # Reference line colors
-    COMP_COLOR = "red"  # Null hypothesis / comparison value
-    STAT_COLOR = "black"  # Sample statistics (mean, CI bounds)
+    COMP_COLOR = ps.COMP  # Null hypothesis / comparison value
+    STAT_COLOR = ps.REF  # Sample statistics (mean, CI bounds)
 
     @staticmethod
     def theme():
-        """Default pyrsm theme with white background and grid lines."""
-        from plotnine import theme_bw
-
-        return theme_bw()
+        """The pyrsm theme (:func:`pyrsm.plot_style.theme_pyrsm`)."""
+        return ps.theme_pyrsm()
 
 
 class PlotTheme:
-    """Manage consistent theming across pyrsm plots."""
+    """Backward-compatible theme accessor.
+
+    pyrsm has one plot style, so every name returns
+    :func:`pyrsm.plot_style.theme_pyrsm`. The ``theme_name`` argument is kept
+    so existing calls keep working.
+    """
 
     @staticmethod
     def get_theme(
         theme_name: Literal["modern", "publication", "minimal", "classic"] = "modern",
     ):
         """
-        Get a predefined plotnine theme.
+        Return the pyrsm theme.
 
         Parameters
         ----------
         theme_name : str
-            Theme name: 'modern', 'publication', 'minimal', or 'classic'
+            Ignored; kept for backward compatibility.
 
         Returns
         -------
         theme
-            A plotnine theme object
+            ``pyrsm.plot_style.theme_pyrsm()``
         """
-        from plotnine import (
-            element_blank,
-            element_rect,
-            element_text,
-            theme,
-            theme_bw,
-            theme_classic,
-            theme_minimal,
-        )
-
-        themes = {
-            "modern": theme_minimal()
-            + theme(
-                panel_grid_major=element_blank(),
-                panel_grid_minor=element_blank(),
-                axis_line=element_rect(color="black", size=0.5),
-                plot_title=element_text(size=12, weight="bold"),
-            ),
-            "publication": theme_bw()
-            + theme(
-                panel_grid_major=element_blank(),
-                panel_grid_minor=element_blank(),
-                plot_title=element_text(size=11, weight="bold"),
-                axis_text=element_text(size=9),
-            ),
-            "minimal": theme_minimal(),
-            "classic": theme_classic(),
-        }
-        return themes.get(theme_name, themes["modern"])
+        return ps.theme_pyrsm()
 
 
 class ReferenceLine:
     """Helper class for adding reference lines to plots."""
 
     @staticmethod
-    def vline(x, color="black", linetype="solid", alpha=1.0):
+    def vline(x, color=ps.REF, linetype="solid", alpha=1.0):
         """Add vertical reference line."""
         from plotnine import geom_vline
 
         return geom_vline(xintercept=x, color=color, linetype=linetype, alpha=alpha)
 
     @staticmethod
-    def hline(y, color="black", linetype="solid", alpha=1.0):
+    def hline(y, color=ps.REF, linetype="solid", alpha=1.0):
         """Add horizontal reference line."""
         from plotnine import geom_hline
 
@@ -111,13 +88,13 @@ class ReferenceLine:
             List of geom_vline objects
         """
         lines = [
-            ReferenceLine.vline(mean, color="black", linetype="solid"),
-            ReferenceLine.vline(ci_lower, color="black", linetype="dashed"),
-            ReferenceLine.vline(ci_upper, color="black", linetype="dashed"),
+            ReferenceLine.vline(mean, color=ps.REF, linetype="solid"),
+            ReferenceLine.vline(ci_lower, color=ps.REF, linetype="dashed"),
+            ReferenceLine.vline(ci_upper, color=ps.REF, linetype="dashed"),
         ]
         if comp_value is not None:
             lines.insert(
-                0, ReferenceLine.vline(comp_value, color="red", linetype="solid")
+                0, ReferenceLine.vline(comp_value, color=ps.COMP, linetype="solid")
             )
         return lines
 
@@ -143,13 +120,13 @@ class ReferenceLine:
             List of geom_hline objects
         """
         lines = [
-            ReferenceLine.hline(mean, color="black", linetype="solid"),
-            ReferenceLine.hline(ci_lower, color="black", linetype="dashed"),
-            ReferenceLine.hline(ci_upper, color="black", linetype="dashed"),
+            ReferenceLine.hline(mean, color=ps.REF, linetype="solid"),
+            ReferenceLine.hline(ci_lower, color=ps.REF, linetype="dashed"),
+            ReferenceLine.hline(ci_upper, color=ps.REF, linetype="dashed"),
         ]
         if comp_value is not None:
             lines.insert(
-                0, ReferenceLine.hline(comp_value, color="red", linetype="solid")
+                0, ReferenceLine.hline(comp_value, color=ps.COMP, linetype="solid")
             )
         return lines
 
@@ -157,11 +134,11 @@ class ReferenceLine:
     def significance_levels():
         """Add standard significance level reference lines."""
         return [
-            ReferenceLine.hline(1.96, color="blue", linetype="dotted", alpha=0.5),
-            ReferenceLine.hline(-1.96, color="blue", linetype="dotted", alpha=0.5),
-            ReferenceLine.hline(1.64, color="blue", linetype="dotted", alpha=0.3),
-            ReferenceLine.hline(-1.64, color="blue", linetype="dotted", alpha=0.3),
-            ReferenceLine.hline(0, color="blue", linetype="solid", alpha=0.7),
+            ReferenceLine.hline(1.96, color=ps.REF, linetype="dotted", alpha=0.5),
+            ReferenceLine.hline(-1.96, color=ps.REF, linetype="dotted", alpha=0.5),
+            ReferenceLine.hline(1.64, color=ps.REF, linetype="dotted", alpha=0.3),
+            ReferenceLine.hline(-1.64, color=ps.REF, linetype="dotted", alpha=0.3),
+            ReferenceLine.hline(0, color=ps.REF, linetype="solid", alpha=0.7),
         ]
 
 

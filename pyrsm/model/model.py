@@ -29,9 +29,10 @@ from plotnine import (
     stat_qq_line,
     stat_summary,
     theme,
-    theme_bw,
 )
 from scipy import stats
+
+from pyrsm.plot_style import ALPHA, FILL, LINE, REF, theme_pyrsm
 from scipy.special import expit
 from sklearn import metrics
 from sklearn.model_selection import (
@@ -636,7 +637,7 @@ def or_plot(fitted, alpha=0.05, intercept=False, incl=None, excl=None, figsize=N
 
     Returns
     -------
-    Matplotlit object
+    plotnine.ggplot
         Plot of Odds ratios
     """
 
@@ -673,12 +674,12 @@ def or_plot(fitted, alpha=0.05, intercept=False, incl=None, excl=None, figsize=N
 
     return (
         ggplot(df, aes(x="OR", y="index"))
-        + geom_vline(xintercept=1, linetype="dashdot", color="slateblue")
-        + geom_errorbarh(aes(xmin="xmin", xmax="xmax"), height=0.2, color="slateblue")
-        + geom_point(color="slateblue")
+        + geom_vline(xintercept=1, linetype="dashdot", color=REF)
+        + geom_errorbarh(aes(xmin="xmin", xmax="xmax"), height=0.2, color=LINE)
+        + geom_point(color=LINE)
         + scale_x_log10()
         + labs(x="Odds-ratio", y="")
-        + theme_bw()
+        + theme_pyrsm()
     )
 
 
@@ -788,11 +789,14 @@ def predict_ci(fitted, df, conf=0.95, alpha=None):
     model.summary()
     pred = predict_ci(model, df)
 
-    plt.clf()
-    plt.plot(x1, pred["prediction"])
-    plt.plot(x1, pred["2.5%"], color='black', linestyle="--", linewidth=0.5)
-    plt.plot(x1, pred["97.5%"], color='black', linestyle="--", linewidth=0.5)
-    plt.show()
+    from plotnine import aes, geom_line, ggplot
+    pdat = pred.assign(x1=x1)
+    (
+        ggplot(pdat, aes(x="x1"))
+        + geom_line(aes(y="prediction"))
+        + geom_line(aes(y="2.5%"), linetype="dashed")
+        + geom_line(aes(y="97.5%"), linetype="dashed")
+    )
     """
 
     if conf < 0 or conf > 1:
@@ -918,8 +922,8 @@ def coef_plot(
 
     Returns
     -------
-    Matplotlib object
-        Plot of Odds ratios
+    plotnine.ggplot
+        Coefficient plot
     """
     df = fitted.conf_int(alpha=alpha).reset_index().iloc[::-1]
     df["coefficient"] = fitted.params[df["index"]].dropna().values
@@ -958,11 +962,11 @@ def coef_plot(
 
     return (
         ggplot(df, aes(x="coefficient", y="index"))
-        + geom_vline(xintercept=0, linetype="dashdot", color="slateblue")
-        + geom_errorbarh(aes(xmin="xmin", xmax="xmax"), height=0.2, color="slateblue")
-        + geom_point(color="slateblue")
+        + geom_vline(xintercept=0, linetype="dashdot", color=REF)
+        + geom_errorbarh(aes(xmin="xmin", xmax="xmax"), height=0.2, color=LINE)
+        + geom_point(color=LINE)
         + labs(x="Coefficient", y="")
-        + theme_bw()
+        + theme_pyrsm()
     )
 
 
@@ -1087,61 +1091,61 @@ def reg_dashboard(fitted, nobs: int = 1000):
     # Plot 1: Actual vs Fitted values
     p1 = (
         ggplot(data, aes(x="fitted", y="actual"))
-        + geom_point(alpha=0.5, color="slateblue")
-        + geom_smooth(method="lm", color="blue")
+        + geom_point(alpha=ALPHA, color=FILL)
+        + geom_smooth(method="lm", color=REF)
         + labs(x="Fitted values", y="Actual values")
         + ggtitle("Actual vs Fitted values")
-        + theme_bw()
+        + theme_pyrsm()
     )
 
     # Plot 2: Residuals vs Fitted values
     p2 = (
         ggplot(data, aes(x="fitted", y="resid"))
-        + geom_point(alpha=0.5, color="slateblue")
-        + geom_smooth(method="lm", color="blue")
-        + geom_hline(yintercept=0, linetype="dashed", color="gray")
+        + geom_point(alpha=ALPHA, color=FILL)
+        + geom_smooth(method="lm", color=REF)
+        + geom_hline(yintercept=0, linetype="dashed", color=REF)
         + labs(x="Fitted values", y="Residuals")
         + ggtitle("Residuals vs Fitted values")
-        + theme_bw()
+        + theme_pyrsm()
     )
 
     # Plot 3: Residuals vs Row order
     p3 = (
         ggplot(data, aes(x="order", y="resid"))
-        + geom_line()
-        + geom_hline(yintercept=0, linetype="dashed", color="gray")
+        + geom_line(color=LINE)
+        + geom_hline(yintercept=0, linetype="dashed", color=REF)
         + labs(x="Row order", y="Residuals")
         + ggtitle("Residuals vs Row order")
-        + theme_bw()
+        + theme_pyrsm()
     )
 
     # Plot 4: Q-Q plot
     p4 = (
         ggplot(data, aes(sample="std_resid"))
-        + stat_qq(color="slateblue")
-        + stat_qq_line()
+        + stat_qq(color=LINE)
+        + stat_qq_line(color=REF)
         + labs(x="Theoretical quantiles", y="Sample quantiles")
         + ggtitle("Normal Q-Q plot")
-        + theme_bw()
+        + theme_pyrsm()
     )
 
     # Plot 5: Histogram of residuals
     p5 = (
         ggplot(data, aes(x="resid"))
-        + geom_histogram(fill="slateblue", color="white", bins=30)
+        + geom_histogram(fill=FILL, color="white", bins=30)
         + labs(x="Residuals", y="Count")
         + ggtitle("Histogram of residuals")
-        + theme_bw()
+        + theme_pyrsm()
     )
 
     # Plot 6: Residuals vs Normal density
     p6 = (
         ggplot(data, aes(x="std_resid"))
-        + geom_density(fill="green", alpha=0.5)
-        + stat_function(fun=stats.norm.pdf, color="black", size=1)
+        + geom_density(fill=FILL, alpha=ALPHA)
+        + stat_function(fun=stats.norm.pdf, color=REF, size=1)
         + labs(x="Standardized residuals", y="Density")
         + ggtitle("Residuals vs Normal density")
-        + theme_bw()
+        + theme_pyrsm()
     )
 
     # Compose into 3x2 grid and set figure size
@@ -1244,35 +1248,35 @@ def logit_dashboard(fitted, lev: str | None = None, qnt: int = 10, figsize=(10, 
 
     p1 = (
         ggplot(d["calibration"], aes(x="predicted", y="observed"))
-        + geom_abline(intercept=0, slope=1, linetype="dashed", color="gray")
-        + geom_line(color="slateblue")
-        + geom_point(color="slateblue", size=2.5)
+        + geom_abline(intercept=0, slope=1, linetype="dashed", color=REF)
+        + geom_line(color=LINE)
+        + geom_point(color=LINE, size=2.5)
         + unit
         + unit_y
         + labs(x="Mean predicted probability", y="Observed rate")
         + ggtitle(f"Calibration ({qnt} bins)")
-        + theme_bw()
+        + theme_pyrsm()
     )
     p2 = (
         ggplot(d["roc"], aes(x="fpr", y="tpr"))
-        + geom_abline(intercept=0, slope=1, linetype="dashed", color="gray")
-        + geom_line(color="slateblue", size=1)
+        + geom_abline(intercept=0, slope=1, linetype="dashed", color=REF)
+        + geom_line(color=LINE, size=1)
         + unit
         + unit_y
         + labs(x="False positive rate", y="True positive rate")
         + ggtitle(f"ROC curve (AUC = {d['auc']:.3f})")
-        + theme_bw()
+        + theme_pyrsm()
     )
     p3 = (
         ggplot(d["gains"], aes(x="cum_prop", y="cum_gains"))
-        + geom_abline(intercept=0, slope=1, linetype="dashed", color="gray")
-        + geom_line(color="slateblue")
-        + geom_point(color="slateblue")
+        + geom_abline(intercept=0, slope=1, linetype="dashed", color=REF)
+        + geom_line(color=LINE)
+        + geom_point(color=LINE)
         + unit
         + unit_y
         + labs(x="Share of observations targeted", y=f"Share of '{positive}' captured")
         + ggtitle("Cumulative gains")
-        + theme_bw()
+        + theme_pyrsm()
     )
     preds = d["predictions"].with_columns(
         pl.when(pl.col("actual") == 1)
@@ -1286,7 +1290,7 @@ def logit_dashboard(fitted, lev: str | None = None, qnt: int = 10, figsize=(10, 
         + unit
         + labs(x="Predicted probability", y="Density", fill="Actual")
         + ggtitle("Predicted probabilities by outcome")
-        + theme_bw()
+        + theme_pyrsm()
         + theme(legend_position="bottom")
     )
     return (p1 | p2) / (p3 | p4) + theme(figure_size=figsize)
@@ -1401,9 +1405,9 @@ def scatter_plot(
             # Scatter plot for numeric variables
             p = (
                 ggplot(df, aes(x=exog_name, y=endog_name))
-                + geom_point(alpha=0.5, color="slateblue")
+                + geom_point(alpha=ALPHA, color=FILL)
                 + labs(x=exog_name, y=endog_name)
-                + theme_bw()
+                + theme_pyrsm()
             )
         else:
             # Jitter plot for categorical variables with mean lines
@@ -1412,43 +1416,27 @@ def scatter_plot(
 
             p = (
                 ggplot(df, aes(x=exog_name, y=endog_name))
-                + geom_jitter(alpha=0.5, width=0.2, color="slateblue")
+                + geom_jitter(alpha=ALPHA, width=0.2, color=FILL)
                 + stat_summary(
                     fun_y=pl_mean,
                     fun_ymin=pl_mean,
                     fun_ymax=pl_mean,
                     geom="crossbar",
-                    color="blue",
+                    color=REF,
                     linetype="solid",
                     width=0.5,
                     size=0.8,
                     fatten=0,
                 )
                 + labs(x=exog_name, y=endog_name)
-                + theme_bw()
+                + theme_pyrsm()
             )
         plots.append(p)
 
-    # Compose plots into a grid (2 columns)
-    if len(plots) == 1:
-        result = plots[0]
-    else:
-        # Build rows of 2 plots each
-        rows = []
-        for i in range(0, len(plots), 2):
-            if i + 1 < len(plots):
-                rows.append(plots[i] | plots[i + 1])
-            else:
-                rows.append(plots[i])
+    # Compose plots into a grid (2 columns, 5 x 3 inches per plot)
+    from pyrsm.plot_utils import compose_plots
 
-        # Stack rows vertically
-        result = rows[0]
-        for row in rows[1:]:
-            result = result / row
-
-        # Set figure size for composition
-        nr_rows = len(rows)
-        result = result + theme(figure_size=(10, 3 * nr_rows))
+    result = compose_plots(plots, ncol=2, width_per_col=5, height_per_row=3)
 
     return result
 
