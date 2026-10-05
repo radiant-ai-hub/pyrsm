@@ -8,6 +8,7 @@ import pyrsm.basics.display_utils as du
 import pyrsm.basics.utils as bu
 from pyrsm.utils import check_dataframe, ifelse, sig_stars
 from pyrsm.data_scope import apply_scope, print_scope
+from pyrsm.plot_style import ALPHA, FILL, theme_pyrsm
 
 
 @lru_cache(maxsize=1)
@@ -332,10 +333,8 @@ class single_prop:
             ggtitle,
             labs,
             scale_y_continuous,
-            theme_bw,
         )
 
-        pu = _get_plotting_utils()
 
         if plots == "bar":
             # Get value counts as proportions using polars
@@ -347,11 +346,11 @@ class single_prop:
 
             p = (
                 ggplot(proportions, aes(x=self.var, y="proportion"))
-                + geom_col(fill=pu.PlotConfig.FILL, alpha=0.7)
+                + geom_col(fill=FILL, alpha=ALPHA)
                 + scale_y_continuous(labels=lambda x: [f"{v:.0%}" for v in x])
                 + labs(x=self.var, y="")
                 + ggtitle(f'Single proportion: "{self.lev}" in {self.var}')
-                + theme_bw()
+                + theme_pyrsm()
             )
             return p
 

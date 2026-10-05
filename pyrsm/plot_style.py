@@ -44,7 +44,9 @@ MUTED = "gray"
 #: probability mass outside a range (FILL is the mass inside it).
 FILL_ALT = "salmon"
 #: The one mark singled out in a series, e.g. the bar at a probability bound.
-HIGHLIGHT = "#4FEE3B"
+#: At ALPHA on a white panel it renders as ~"#84f37f", the bound green of
+#: radiant.basics ("green" at alpha 0.5 on the gray ggplot panel).
+HIGHLIGHT = "#09E700"
 #: Transparency for filled areas that may overlap.
 ALPHA = 0.5
 

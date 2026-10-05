@@ -13,8 +13,9 @@ from plotnine import (
     scale_fill_manual,
     scale_x_continuous,
     theme,
-    theme_bw,
 )
+
+from pyrsm.plot_style import ALPHA, FILL, FILL_ALT, HIGHLIGHT, REF, theme_pyrsm
 
 
 def iround(x, dec):
@@ -41,8 +42,9 @@ def plot_discrete(x_range, y_range, lb, ub, title=""):
     """
     Create a discrete distribution bar plot using plotnine.
 
-    The bar at the lower and/or upper bound is highlighted in green, bars
-    inside the bounds are slateblue, and bars outside the bounds are salmon
+    The bar at the lower and/or upper bound is highlighted in green
+    (HIGHLIGHT), bars inside the bounds are FILL, and bars outside the bounds
+    are FILL_ALT (pyrsm.plot_style)
     (see make_colors_discrete in radiant.basics). When probability bounds are
     used, lb and ub are the *values* implied by those probabilities, so the
     bar at each of those values is the one shown in green.
@@ -105,19 +107,16 @@ def plot_discrete(x_range, y_range, lb, ub, title=""):
 
     p = (
         ggplot(df, aes(x="x", y="prob", fill="fill_type"))
-        + geom_col(alpha=0.7, width=0.8)
+        + geom_col(alpha=ALPHA, width=0.8)
         + scale_fill_manual(
-            # "#4FEE3B" at alpha 0.7 on a white panel renders as "#84f376", the
-            # green used for the bound in radiant.basics (i.e., "green" at alpha
-            # 0.5 on the gray ggplot panel)
             values={
-                "at_bound": "#4FEE3B",
-                "in_range": "slateblue",
-                "out_range": "salmon",
+                "at_bound": HIGHLIGHT,
+                "in_range": FILL,
+                "out_range": FILL_ALT,
             }
         )
         + labs(title=title, x="", y="Probability")
-        + theme_bw()
+        + theme_pyrsm()
         + theme(legend_position="none")
     )
 
@@ -200,17 +199,17 @@ def plot_continuous(x_range, y_range, lb, ub, title=""):
     # Build the plot
     p = (
         ggplot(df, aes(x="x"))
-        + geom_area(aes(y="y_in"), fill="slateblue", alpha=0.6)
-        + geom_area(aes(y="y_out"), fill="salmon", alpha=0.6)
-        + geom_line(aes(y="y"), color="black", size=0.5)
+        + geom_area(aes(y="y_in"), fill=FILL, alpha=ALPHA)
+        + geom_area(aes(y="y_out"), fill=FILL_ALT, alpha=ALPHA)
+        + geom_line(aes(y="y"), color=REF, size=0.5)
         + labs(title=title, x="", y="Density")
-        + theme_bw()
+        + theme_pyrsm()
     )
 
     # Add vertical lines at bounds
     if lb is not None:
-        p = p + geom_vline(xintercept=lb, linetype="dashed", color="black", size=0.5)
+        p = p + geom_vline(xintercept=lb, linetype="dashed", color=REF, size=0.5)
     if ub is not None:
-        p = p + geom_vline(xintercept=ub, linetype="dashed", color="black", size=0.5)
+        p = p + geom_vline(xintercept=ub, linetype="dashed", color=REF, size=0.5)
 
     return p
