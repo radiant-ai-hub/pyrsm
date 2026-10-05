@@ -21,6 +21,8 @@ __all__ = [
     "REF",
     "COMP",
     "MUTED",
+    "FILL_ALT",
+    "HIGHLIGHT",
     "ALPHA",
     "theme_pyrsm",
 ]
@@ -31,12 +33,18 @@ FILL = "slateblue"
 LINE = "slateblue"
 #: Fill for hollow points drawn on a LINE-coloured outline.
 POINT_FILL = "white"
-#: Reference lines that are part of the reading (eigenvalue = 1, y = 0, diagonal).
+#: Reference lines and statistics that are part of the reading (eigenvalue = 1,
+#: y = 0, the diagonal, a sample mean or a fitted line drawn over the data).
 REF = "black"
 #: A comparison or null value the student tests against.
 COMP = "red"
 #: De-emphasised marks (individual curves behind an average, grid of references).
 MUTED = "gray"
+#: Second fill when a plot contrasts two regions of one series, e.g. the
+#: probability mass outside a range (FILL is the mass inside it).
+FILL_ALT = "salmon"
+#: The one mark singled out in a series, e.g. the bar at a probability bound.
+HIGHLIGHT = "#4FEE3B"
 #: Transparency for filled areas that may overlap.
 ALPHA = 0.5
 
