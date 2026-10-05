@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from pyrsm.plot_style import MUTED
+
 __all__ = ["label_positions", "arrow_label_positions", "text_repel_kwargs"]
 
 
@@ -99,7 +101,7 @@ def arrow_label_positions(x, y, scale: float = 1.08):
 
 def text_repel_kwargs(
     anchors,
-    arrow_color: str = "grey",
+    arrow_color: str = MUTED,
     arrow_lw: float = 0.4,
     iter_lim: int = 800,
 ):

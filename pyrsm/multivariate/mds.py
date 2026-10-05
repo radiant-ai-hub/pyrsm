@@ -289,8 +289,9 @@ class mds:
             geom_text,
             ggplot,
             labs,
-            theme_classic,
         )
+
+        from pyrsm.plot_style import LINE, MUTED, theme_pyrsm
 
         from ._plotting import add_square_axes
 
@@ -305,7 +306,7 @@ class mds:
             }
         ).to_pandas()
         repel = text_repel_kwargs(dat[["x", "y"]].to_numpy())
-        g = ggplot(dat) + geom_point(aes(x="x", y="y"), color="blue")
+        g = ggplot(dat) + geom_point(aes(x="x", y="y"), color=LINE)
         g = add_square_axes(g, lim)
         if repel:
             label_aes = aes(x="x", y="y", label="label")
@@ -313,12 +314,12 @@ class mds:
             label_aes = aes(x="lx", y="ly", label="label")
             g = g + geom_segment(
                 aes(x="x", y="y", xend="lx", yend="ly"),
-                color="grey", size=0.2,
+                color=MUTED, size=0.2,
             )
         g = (
             g
             + geom_text(label_aes, size=fontsz * 2, **repel)
             + labs(title="Brand map", x=f"Dimension {i + 1}", y=f"Dimension {j + 1}")
-            + theme_classic()
+            + theme_pyrsm()
         )
         return g

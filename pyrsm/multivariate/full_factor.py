@@ -385,8 +385,9 @@ class full_factor:
             geom_text,
             ggplot,
             labs,
-            theme_classic,
         )
+
+        from pyrsm.plot_style import ALPHA, LINE, MUTED, theme_pyrsm
 
         from ._plotting import add_square_axes
 
@@ -397,7 +398,7 @@ class full_factor:
             sdat = pl.DataFrame(
                 {"x": self.scores[:, i], "y": self.scores[:, j]}
             ).to_pandas()
-            g = g + geom_point(sdat, aes(x="x", y="y"), alpha=0.4, color="grey")
+            g = g + geom_point(sdat, aes(x="x", y="y"), alpha=ALPHA, color=MUTED)
 
         if "attr" in plots:
             lab_xy = label_positions(self.floadings[:, [i, j]], lim=lim, seed=seed)
@@ -416,17 +417,17 @@ class full_factor:
                 + geom_segment(
                     adat,
                     aes(x=0, y=0, xend="x", yend="y"),
-                    color="blue",
+                    color=LINE,
                     linetype="dashed",
-                    alpha=0.5,
+                    alpha=ALPHA,
                 )
-                + geom_point(adat, aes(x="x", y="y"), color="blue")
+                + geom_point(adat, aes(x="x", y="y"), color=LINE)
             )
             label_aes = aes(x="lx", y="ly", label="label")
             if not repel:
                 g = g + geom_segment(
                     adat, aes(x="x", y="y", xend="lx", yend="ly"),
-                    color="grey", size=0.2,
+                    color=MUTED, size=0.2,
                 )
             g = g + geom_text(
                 adat, label_aes, size=fontsz * 2, **repel
@@ -439,6 +440,6 @@ class full_factor:
                 x=self.fnames[i],
                 y=self.fnames[j],
             )
-            + theme_classic()
+            + theme_pyrsm()
         )
         return g
