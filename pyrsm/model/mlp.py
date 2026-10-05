@@ -506,7 +506,7 @@ class mlp:
             )
 
         if "pdp" in plots or "pdp_sklearn" in plots:
-            # "pdp_sklearn" (formerly a matplotlib sklearn display) is kept as an
+            # "pdp_sklearn" (formerly sklearn's PartialDependenceDisplay) is kept as an
             # alias of the plotnine "pdp" plot so existing calls keep working.
             if data is None:
                 data_dct = {

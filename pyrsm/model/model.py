@@ -922,8 +922,8 @@ def coef_plot(
 
     Returns
     -------
-    Matplotlib object
-        Plot of Odds ratios
+    plotnine.ggplot
+        Coefficient plot
     """
     df = fitted.conf_int(alpha=alpha).reset_index().iloc[::-1]
     df["coefficient"] = fitted.params[df["index"]].dropna().values

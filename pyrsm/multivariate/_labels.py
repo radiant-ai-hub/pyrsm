@@ -107,7 +107,7 @@ def text_repel_kwargs(
 ):
     """Keyword arguments for plotnine's ``geom_text(adjust_text=...)``.
 
-    ``adjustText`` is plotnine's Matplotlib-side equivalent of the behavior we
+    ``adjustText`` (used by plotnine's geom_text) is the equivalent of the behavior we
     relied on from R's ``ggrepel``. Passing the anchor coordinates as both
     avoidance points and arrow targets keeps labels visible inside the panel and
     connects them back to the correct point/arrow endpoint.
