@@ -1,0 +1,48 @@
+"""The one pyrsm plot style.
+
+Every pyrsm plot is a plotnine ``ggplot`` (or a composition / ``PlotList`` of
+them) and takes its look from here, so a scree plot, a coefficient plot and a
+histogram read as one system. Plot code imports these names instead of picking
+its own theme or colours:
+
+    from pyrsm.plot_style import FILL, LINE, REF, theme_pyrsm
+
+    ggplot(...) + geom_col(fill=FILL) + geom_hline(yintercept=1, color=REF) + theme_pyrsm()
+
+Changing the house style is a change to this file only.
+"""
+
+from __future__ import annotations
+
+__all__ = [
+    "FILL",
+    "LINE",
+    "POINT_FILL",
+    "REF",
+    "COMP",
+    "MUTED",
+    "ALPHA",
+    "theme_pyrsm",
+]
+
+#: Primary colour for bars, histograms, areas and single-series marks.
+FILL = "slateblue"
+#: Primary colour for lines and point outlines of a single series.
+LINE = "slateblue"
+#: Fill for hollow points drawn on a LINE-coloured outline.
+POINT_FILL = "white"
+#: Reference lines that are part of the reading (eigenvalue = 1, y = 0, diagonal).
+REF = "black"
+#: A comparison or null value the student tests against.
+COMP = "red"
+#: De-emphasised marks (individual curves behind an average, grid of references).
+MUTED = "gray"
+#: Transparency for filled areas that may overlap.
+ALPHA = 0.5
+
+
+def theme_pyrsm():
+    """The pyrsm plot theme: white panel, light grid, black frame (plotnine ``theme_bw``)."""
+    from plotnine import theme_bw
+
+    return theme_bw()
