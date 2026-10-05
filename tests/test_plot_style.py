@@ -186,7 +186,13 @@ def _salary():
 
 @lru_cache(maxsize=None)
 def _model(kind, mod_type="classification"):
-    from pyrsm.model import logistic, mlp, regress, rforest, xgboost
+    # import each class from its own module: once a test imports e.g.
+    # ``pyrsm.model.rforest`` the package attribute can be the submodule
+    from pyrsm.model.logistic import logistic
+    from pyrsm.model.mlp import mlp
+    from pyrsm.model.regress import regress
+    from pyrsm.model.rforest import rforest
+    from pyrsm.model.xgboost import xgboost
 
     if kind == "regress":
         return regress(
@@ -266,7 +272,7 @@ for _p in ("scatter", "box", "density", "bar"):
 
     @case(f"basics.compare_means-{_p}")
     def _cm(p=_p):
-        from pyrsm.basics import compare_means
+        from pyrsm.basics.compare_means import compare_means
 
         return compare_means({"salary": _salary()}, var1="rank", var2="salary").plot(plots=p)
 
@@ -275,7 +281,7 @@ for _p in ("bar", "dodge"):
 
     @case(f"basics.compare_props-{_p}")
     def _cp(p=_p):
-        from pyrsm.basics import compare_props
+        from pyrsm.basics.compare_props import compare_props
 
         return compare_props({"salary": _salary()}, var1="rank", var2="sex", lev="Male").plot(
             plots=p
@@ -284,7 +290,7 @@ for _p in ("bar", "dodge"):
 
 @case("basics.correlation")
 def _corr():
-    from pyrsm.basics import correlation
+    from pyrsm.basics.correlation import correlation
 
     return correlation(
         {"salary": _salary()}, vars=["salary", "yrs_since_phd", "yrs_service"]
@@ -293,7 +299,7 @@ def _corr():
 
 @case("basics.correlation-categorical")
 def _corr_cat():
-    from pyrsm.basics import correlation
+    from pyrsm.basics.correlation import correlation
 
     d = _data("data", "diamonds").select(["price", "carat", "clarity", "cut"]).head(300)
     return correlation({"d": d}, vars=["price", "carat", "clarity", "cut"], method="polychoric").plot()
@@ -303,7 +309,7 @@ for _p in ("observed", "expected", "chisq", "dev_std", "perc_col", "perc_row", "
 
     @case(f"basics.cross_tabs-{_p}")
     def _ct(p=_p):
-        from pyrsm.basics import cross_tabs
+        from pyrsm.basics.cross_tabs import cross_tabs
 
         return cross_tabs(
             {"newspaper": _data("basics", "newspaper")}, "Income", "Newspaper"
@@ -314,7 +320,7 @@ for _p in ("observed", "expected", "chisq", "dev_std"):
 
     @case(f"basics.goodness-{_p}")
     def _gd(p=_p):
-        from pyrsm.basics import goodness
+        from pyrsm.basics.goodness import goodness
 
         d = pl.DataFrame({"category": ["A"] * 10 + ["B"] * 20 + ["C"] * 30})
         return goodness(d, var="category", probs=[0.2, 0.3, 0.5]).plot(plots=p)
@@ -324,14 +330,14 @@ for _p in ("hist", "sim"):
 
     @case(f"basics.single_mean-{_p}")
     def _sm(p=_p):
-        from pyrsm.basics import single_mean
+        from pyrsm.basics.single_mean import single_mean
 
         return single_mean({"salary": _salary()}, var="salary", comp_value=100000).plot(plots=p)
 
 
 @case("basics.single_prop-bar")
 def _sp():
-    from pyrsm.basics import single_prop
+    from pyrsm.basics.single_prop import single_prop
 
     return single_prop({"salary": _salary()}, var="sex", lev="Male").plot(plots="bar")
 
@@ -439,7 +445,7 @@ for _p in ("scree", "change"):
 
     @case(f"multivariate.pre_factor-{_p}")
     def _pf(p=_p):
-        from pyrsm.multivariate import pre_factor
+        from pyrsm.multivariate.pre_factor import pre_factor
 
         return pre_factor({"shopping": _data("multivariate", "shopping")}, "v1:v6").plot(plots=p)
 
@@ -448,7 +454,7 @@ for _p in ("attr", "resp"):
 
     @case(f"multivariate.full_factor-{_p}")
     def _ff(p=_p):
-        from pyrsm.multivariate import full_factor
+        from pyrsm.multivariate.full_factor import full_factor
 
         return full_factor(
             {"shopping": _data("multivariate", "shopping")}, "v1:v6", nr_fact=2
@@ -459,7 +465,7 @@ for _p, _cut in (("dendro", 0.05), ("dendro", 0), ("scree", 0.05), ("change", 0.
 
     @case(f"multivariate.hclus-{_p}-cutoff{_cut}")
     def _hc(p=_p, cut=_cut):
-        from pyrsm.multivariate import hclus
+        from pyrsm.multivariate.hclus import hclus
 
         return hclus({"shopping": _data("multivariate", "shopping")}, "v1:v6").plot(
             plots=p, cutoff=cut
@@ -470,7 +476,7 @@ for _p in ("density", "bar", "scatter"):
 
     @case(f"multivariate.kclus-{_p}")
     def _km(p=_p):
-        from pyrsm.multivariate import kclus
+        from pyrsm.multivariate.kclus import kclus
 
         return kclus({"shopping": _data("multivariate", "shopping")}, "v1:v6", nr_clus=3).plot(
             plots=p
@@ -479,7 +485,7 @@ for _p in ("density", "bar", "scatter"):
 
 @case("multivariate.kclus-categorical")
 def _km_cat():
-    from pyrsm.multivariate import kclus
+    from pyrsm.multivariate.kclus import kclus
 
     tp = _data("multivariate", "toothpaste")
     return kclus({"toothpaste": tp}, ["v1", "v2", "gender"], nr_clus=2).plot(plots="density")
@@ -487,7 +493,7 @@ def _km_cat():
 
 @case("multivariate.mds")
 def _mds():
-    from pyrsm.multivariate import mds
+    from pyrsm.multivariate.mds import mds
 
     return mds({"city": _data("multivariate", "city")}, "from", "to", "distance").plot()
 
@@ -496,7 +502,7 @@ for _p in ("brand", "attr", "pref"):
 
     @case(f"multivariate.prmap-{_p}")
     def _pm(p=_p):
-        from pyrsm.multivariate import prmap
+        from pyrsm.multivariate.prmap import prmap
 
         pm = prmap(
             {"retailers": _data("multivariate", "retailers")},
@@ -511,7 +517,7 @@ for _p in ("pw", "iw"):
 
     @case(f"multivariate.conjoint-{_p}")
     def _cj(p=_p):
-        from pyrsm.multivariate import conjoint
+        from pyrsm.multivariate.conjoint import conjoint
 
         return conjoint({"mp3": _data("multivariate", "mp3")}, rvar="Rating", evar="Memory:Shape").plot(
             plots=p
@@ -519,7 +525,7 @@ for _p in ("pw", "iw"):
 
     @case(f"multivariate.cbc-{_p}")
     def _cbc(p=_p):
-        from pyrsm.multivariate import cbc
+        from pyrsm.multivariate.cbc import cbc
 
         return cbc(
             {"choc": _data("multivariate", "choc")},
@@ -535,7 +541,7 @@ for _p in ("pw", "iw"):
 
 @case("eda.distr")
 def _distr():
-    from pyrsm.eda import distr
+    from pyrsm.eda.distr import distr
 
     return distr(_data("data", "diamonds").select(["price", "carat", "cut"])).plot()
 
@@ -554,28 +560,28 @@ for _g in _VIS:
 
     @case(f"eda.visualize-{_g}")
     def _vis(g=_g):
-        from pyrsm.eda import visualize
+        from pyrsm.eda.visualize import visualize
 
         return visualize(_data("data", "diamonds").head(500), geom=g, **_VIS[g])
 
 
 @case("eda.visualize-combined")
 def _vis_comb():
-    from pyrsm.eda import visualize
+    from pyrsm.eda.visualize import visualize
 
     return visualize(_data("data", "diamonds").head(500), x=["price", "carat"], combine="x")
 
 
 @case("eda.visualize-scatter-categorical-agg")
 def _vis_agg():
-    from pyrsm.eda import visualize
+    from pyrsm.eda.visualize import visualize
 
     return visualize(_data("data", "diamonds").head(500), x="cut", y="price", agg="mean")
 
 
 @case("design.sample_size_comp")
 def _ssc():
-    from pyrsm.design import sample_size_comp
+    from pyrsm.design.sample_size_comp import sample_size_comp
 
     return sample_size_comp(type="mean", delta=2, sd=10, conf=0.95, power=0.8).plot()
 
