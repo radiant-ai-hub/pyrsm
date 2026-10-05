@@ -600,6 +600,50 @@ def _opt_rr():
     return optimize(_production_mix()).robustness(trials=30, coef_noise=0.2, seed=1).plot()
 
 
+# -- model > evaluate ---------------------------------------------------------
+
+
+def _eval_data(name):
+    import polars as pl
+    from pathlib import Path
+
+    return pl.read_csv(Path(__file__).parent / "data" / "evaluate" / name)
+
+
+for _p in ("lift", "gains", "profit", "expected_profit", "rome"):
+
+    @case(f"model.evaluate.evalbin-{_p}")
+    def _eb(p=_p):
+        from pyrsm.model.evaluate import evalbin
+
+        return evalbin(_eval_data("dvd_preds.csv"), ["pred_logit", "pred_rnd"], "buy",
+                       lev="yes", margin=6).plot(plots=p)
+
+
+for _p in ("inc_uplift", "uplift", "inc_profit"):
+
+    @case(f"model.evaluate.uplift-{_p}")
+    def _up(p=_p):
+        from pyrsm.model.evaluate import uplift
+
+        return uplift(_eval_data("dvd_preds.csv"), "pred_logit", "buy", tvar="treat",
+                      lev="yes", tlev="yes").plot(plots=p)
+
+
+@case("model.evaluate.confusion")
+def _cnf():
+    from pyrsm.model.evaluate import confusion
+
+    return confusion(_eval_data("dvd_preds.csv"), "pred_logit", "buy", lev="yes").plot()
+
+
+@case("model.evaluate.evalreg")
+def _er():
+    from pyrsm.model.evaluate import evalreg
+
+    return evalreg(_eval_data("diamonds_preds.csv"), ["pred_lm", "pred_rnd"], "price").plot()
+
+
 @pytest.mark.parametrize("name", sorted(CASES))
 def test_plot_is_plotnine_in_pyrsm_style(name, capsys):
     with warnings.catch_warnings():
