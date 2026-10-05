@@ -93,3 +93,25 @@ def test_hclus_plots_smoke(mv_data):
     assert hc.plot(plots="dendro") is not None
     assert hc.plot(plots="scree") is not None
     assert hc.plot(plots="change") is not None
+
+
+def test_hclus_dendro_is_plotnine(mv_data):
+    from plotnine import ggplot
+
+    hc = hclus({"shopping": mv_data("shopping")}, "v1:v6")
+    full = hc.plot(plots="dendro", cutoff=0)
+    assert isinstance(full, ggplot)
+    # one inverted "U" (3 segments) per merge, leaves labelled in tree order
+    assert full.data.shape[0] == 3 * (hc.nobs - 1)
+    cut = hc.plot(plots="dendro")
+    assert isinstance(cut, ggplot)
+    assert cut.labels.title == "Cutoff dendrogram"
+    with pytest.raises(ValueError, match="Unknown plot type"):
+        hc.plot(plots="bogus")
+
+
+def test_hclus_change_keeps_label_order(mv_data):
+    hc = hclus({"shopping": mv_data("shopping")}, "v1:v6")
+    g = hc.plot(plots="change", cutoff=0)
+    cats = list(g.data["nr_clus"].cat.categories)
+    assert cats[:3] == ["1-2", "2-3", "3-4"]
