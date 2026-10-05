@@ -15,10 +15,10 @@ from plotnine import (
     labs,
     scale_x_discrete,
     theme,
-    theme_bw,
 )
 
 from pyrsm.eda.explore import explore
+from pyrsm.plot_style import ALPHA, FILL, theme_pyrsm
 
 
 def _is_categorical(df: pl.DataFrame, col: str, nint: int = 25) -> bool:
@@ -386,10 +386,10 @@ class distr:
 
                 p = (
                     ggplot(col_data, aes(x="value"))
-                    + geom_bar(fill="slateblue", alpha=0.8)
+                    + geom_bar(fill=FILL, alpha=ALPHA)
                     + labs(x="", y="Count")
                     + ggtitle(c)
-                    + theme_bw()
+                    + theme_pyrsm()
                     + theme(
                         plot_title=element_text(size=10, weight="bold"),
                         axis_text_x=element_text(rotation=45, ha="right"),
@@ -405,10 +405,10 @@ class distr:
                 col_data = self.data.select(pl.col(c).cast(pl.Float64).alias("value"))
                 p = (
                     ggplot(col_data, aes(x="value"))
-                    + geom_histogram(bins=bins, fill="slateblue", alpha=0.8)
+                    + geom_histogram(bins=bins, fill=FILL, alpha=ALPHA)
                     + labs(x="", y="Count")
                     + ggtitle(c)
-                    + theme_bw()
+                    + theme_pyrsm()
                     + theme(plot_title=element_text(size=10, weight="bold"))
                 )
 
