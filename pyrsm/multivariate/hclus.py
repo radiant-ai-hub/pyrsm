@@ -298,9 +298,9 @@ class hclus:
             g = (
                 g
                 + labs(title="Cutoff dendrogram")
-                + scale_x_continuous(breaks=[], expand=(0, 5))
-                + scale_y_continuous(expand=(0, 0.02))
-                + coord_cartesian(ylim=(cutoff, 1))
+                + scale_x_continuous(breaks=[])
+                # no expansion: the panel starts exactly at the cutoff
+                + coord_cartesian(xlim=(0, 10 * n), ylim=(cutoff, 1.02), expand=False)
                 + theme(axis_ticks_major_x=element_blank())
             )
         else:
