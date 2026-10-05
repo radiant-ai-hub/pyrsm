@@ -195,13 +195,17 @@ class TestMLPPlot:
         plt.savefig(f"{PLOT_DIR}/mlp_pip.png", dpi=100, bbox_inches="tight")
         plt.close("all")
 
-    def test_plot_figsize(self, titanic_data, monkeypatch):
-        """plot() accepts a figsize and honors it for the pdp_sklearn plot.
+    def test_plot_figsize(self, titanic_data):
+        """plot() accepts a figsize and honors it for the pdp (and pdp_sklearn) plot.
 
         regress/rforest/xgboost already expose figsize; mlp must match so the
-        shared model UI can offer a single plot-size control.
+        shared model UI can offer a single plot-size control. "pdp_sklearn" is
+        an alias of the plotnine "pdp" plot.
         """
         import inspect
+
+        from plotnine import ggplot
+        from plotnine.composition import Compose
 
         assert "figsize" in inspect.signature(mlp.plot).parameters
 
@@ -214,14 +218,7 @@ class TestMLPPlot:
             max_iter=100,
         )
 
-        captured = {}
-        real_subplots = plt.subplots
-
-        def spy_subplots(*args, **kwargs):
-            captured["figsize"] = kwargs.get("figsize")
-            return real_subplots(*args, **kwargs)
-
-        monkeypatch.setattr(plt, "subplots", spy_subplots)
-        nn.plot(plots="pdp_sklearn", figsize=(6, 4))
-        plt.close("all")
-        assert captured["figsize"] == (6, 4)
+        p = nn.plot(plots="pdp_sklearn", figsize=(6, 4))
+        assert isinstance(p, (ggplot, Compose))
+        last = p.last_plot if isinstance(p, Compose) else p
+        assert tuple(last.theme.getp("figure_size")) == (6, 4)

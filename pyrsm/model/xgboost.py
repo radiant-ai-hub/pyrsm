@@ -340,7 +340,7 @@ class xgboost:
         Parameters
         ----------
         plots : str or list[str], default 'pred'
-            List of plot types to generate. Options include 'pred', 'pdp', 'pdp_sklearn', 'pip', 'pip_sklearn', 'dashboard'.
+            List of plot types to generate. Options include 'pred', 'pdp', 'pdp_sklearn', 'pip', 'pip_sklearn', 'dashboard'. 'pdp_sklearn' is accepted as an alias of 'pdp' (all plots are plotnine).
         nobs : int, default 1000
             Number of observations to plot. Relevant for all plots that include a scatter of data points (i.e., corr, scatter, dashboard, residual).
         incl : list[str], optional
@@ -405,9 +405,11 @@ class xgboost:
                 maxq=maxq,
             )
 
-        if "pdp" in plots:
+        if "pdp" in plots or "pdp_sklearn" in plots:
+            # "pdp_sklearn" (formerly a matplotlib sklearn display) is kept as an
+            # alias of the plotnine "pdp" plot so existing calls keep working.
             _, pdp_sk, _, _ = _get_visualize_plots()
-            return pdp_sk(
+            p = pdp_sk(
                 self.fitted,
                 data=data,
                 rvar=self.rvar,
@@ -422,26 +424,11 @@ class xgboost:
                 fix=fix,
                 hline=hline,
             )
+            if figsize is not None and p is not None:
+                from plotnine import theme
 
-        if "pdp_sklearn" in plots:
-            import matplotlib.pyplot as plt
-            from sklearn.inspection import PartialDependenceDisplay as pdp
-
-            if figsize is None:
-                figsize = (8, len(self.data_onehot.columns) * 2)
-            fig, ax = plt.subplots(figsize=figsize)
-            ax.set_title("Partial Dependence Plots")
-            pdp.from_estimator(
-                self.fitted,
-                self.data_onehot.cast(
-                    {pl.UInt8: pl.Float64, pl.Int64: pl.Float64}
-                ).to_pandas(),
-                self.data_onehot.columns,
-                ax=ax,
-                n_cols=2,
-            )
-            plt.show()
-            plt.close()
+                p = p + theme(figure_size=figsize)
+            return p
 
         if "pip" in plots or "vimp" in plots:
             _, _, pip_plot_sk, _ = _get_visualize_plots()
