@@ -319,8 +319,13 @@ class evalreg(_Evaluation):
         Numeric response variable.
     train : {"All", "Training", "Test", "Both"}, default "All"
         Which rows to evaluate (see the module docstring).
-    data_filter, sort, slice : str
-        Scope that defines the training rows (``pyrsm.data_scope``).
+    data_filter : str, default ""
+        Filter that selects the training rows, e.g. "training == 1"
+        (``pyrsm.data_scope``). Ignored when ``train="All"``.
+    sort : str, default ""
+        Column(s) to sort on before slicing.
+    slice : str, default ""
+        Rows to keep as training rows, counting from 1, e.g. "1:1000".
 
     Examples
     --------
@@ -372,6 +377,27 @@ class confusion(_Evaluation):
 
     A prediction above ``cost / margin`` (0.5 when either is missing; ``cost``
     when margin is 0) is classified as the selected level ``lev`` of ``rvar``.
+
+    Parameters
+    ----------
+    data : pl.DataFrame | pd.DataFrame | dict[str, DataFrame]
+        Dataset (or ``{name: df}``) holding the response and the predictions.
+    pred : str | list[str]
+        Numeric prediction column(s); each is one model.
+    rvar : str
+        Response variable.
+    lev : str, default ""
+        The "success" level of ``rvar`` (first level when empty).
+    cost, margin, scale : float, default 1, 2 and 1
+        Cost per contact, margin per response and a multiplier for profit.
+    train : {"All", "Training", "Test", "Both"}, default "All"
+    data_filter : str, default ""
+        Filter that selects the training rows, e.g. "training == 1"
+        (``pyrsm.data_scope``). Ignored when ``train="All"``.
+    sort : str, default ""
+        Column(s) to sort on before slicing.
+    slice : str, default ""
+        Rows to keep as training rows, counting from 1, e.g. "1:1000".
     """
 
     def __init__(self, data, pred, rvar: str, lev: str = "", cost: float = 1, margin: float = 2,
@@ -469,8 +495,13 @@ class evalbin(_Evaluation):
     scale : float, default 1
         Multiplier for counts and profit (e.g. to scale a sample up to a population).
     train : {"All", "Training", "Test", "Both"}, default "All"
-    data_filter, sort, slice : str
-        Scope that defines the training rows (``pyrsm.data_scope``).
+    data_filter : str, default ""
+        Filter that selects the training rows, e.g. "training == 1"
+        (``pyrsm.data_scope``). Ignored when ``train="All"``.
+    sort : str, default ""
+        Column(s) to sort on before slicing.
+    slice : str, default ""
+        Rows to keep as training rows, counting from 1, e.g. "1:1000".
 
     Attributes
     ----------
@@ -619,6 +650,29 @@ class uplift(_Evaluation):
     Bins are quantiles of each prediction among the treated rows (Radiant's
     ``uplift``); per bin the treated and control response counts give the
     uplift and the cumulative incremental response and profit.
+
+    Parameters
+    ----------
+    data : pl.DataFrame | pd.DataFrame | dict[str, DataFrame]
+        Dataset (or ``{name: df}``) with the response, treatment and predictions.
+    pred : str | list[str]
+        Numeric uplift prediction column(s); each is one model.
+    rvar, tvar : str
+        Response and treatment variables.
+    lev, tlev : str, default ""
+        The "success" level of ``rvar`` and the treated level of ``tvar``.
+    qnt : int, default 10
+        Number of quantile bins (computed on the treated rows).
+    cost, margin, scale : float, default 1, 2 and 1
+        Cost per treated contact, margin per response and a count multiplier.
+    train : {"All", "Training", "Test", "Both"}, default "All"
+    data_filter : str, default ""
+        Filter that selects the training rows, e.g. "training == 1"
+        (``pyrsm.data_scope``). Ignored when ``train="All"``.
+    sort : str, default ""
+        Column(s) to sort on before slicing.
+    slice : str, default ""
+        Rows to keep as training rows, counting from 1, e.g. "1:1000".
     """
 
     def __init__(self, data, pred, rvar: str, tvar: str, lev: str = "", tlev: str = "",
