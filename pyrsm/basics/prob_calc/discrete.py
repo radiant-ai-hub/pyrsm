@@ -1,10 +1,33 @@
+import re
+from fractions import Fraction
+
 from .utils import check, iround, plot_discrete
 
 
+def _as_numbers(x, what):
+    """Numbers from a list or from text such as ``"1 2 3"`` or ``"1/6, 1/3"``."""
+    if isinstance(x, str):
+        try:
+            x = [float(Fraction(t)) for t in re.split(r"[\s,;]+", x.strip()) if t]
+        except (ValueError, ZeroDivisionError):
+            raise ValueError(f"Invalid {what}: {x}") from None
+    elif isinstance(x, (int, float)):
+        x = [x]
+    out = []
+    for xi in x:
+        xi = float(xi)
+        out.append(int(xi) if xi.is_integer() else xi)
+    if not out:
+        raise ValueError(f"Please enter one or more {what}")
+    return out
+
+
 def prob_disc(v, p, lb=None, ub=None, plb=None, pub=None):
+    v = _as_numbers(v, "values")
+    p = _as_numbers(p, "probabilities")
     if len(v) != len(p):
         if len(v) % len(p) == 0:
-            p *= len(v) // len(p)
+            p = p * (len(v) // len(p))
         else:
             raise ValueError(
                 "The number of values must be the same or a multiple of the number of probabilities"
@@ -87,12 +110,12 @@ def summary_prob_disc(dct, type="values", dec=3, ret=False):
     std_dev = (sum(pi * (vi - mean) ** 2 for vi, pi in zip(v, p))) ** 0.5
     header = {
         "Distribution": "Discrete",
-        "Values": v,
-        "Probabilities": [round(i, dec) for i in p],
+        "Values": " ".join(str(vi) for vi in v),
+        "Probabilities": " ".join(str(iround(pi, dec)) for pi in p),
         "Mean": round(mean, dec),
         "St. dev": round(std_dev, dec),
-        "Lower bound": None,
-        "Upper bound": None,
+        "Lower bound": "",
+        "Upper bound": "",
     }
     summary = {}
     if type == "values":

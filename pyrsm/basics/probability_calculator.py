@@ -146,7 +146,10 @@ class prob_calc:
         nonprob = {}
         prob = {}
         for k, v in pdict.items():
-            if k.startswith("P("):
+            # print 3 rather than 3.0, as radiant.basics does
+            if isinstance(v, float) and v.is_integer():
+                v = int(v)
+            if k.startswith("P(") or k.startswith("1 - P("):
                 prob[k] = v
             else:
                 nonprob[k] = v
@@ -158,28 +161,14 @@ class prob_calc:
                 if v is not None:
                     pad = " " * (maxlen - len(k))
                     print(f"{k}{pad}: {v}")
-        # Probability section: ensure '=' is present and aligned after closing parenthesis
-        if prob:
+        # Probability section: "P(...) =" with the values in one column, as in
+        # radiant.basics
+        lines = [(f"{k} =", v) for k, v in prob.items() if v is not None]
+        if lines:
             print()
-            # Only format if there are probability keys
-            prob_keys = list(prob.keys())
-            if prob_keys:
-                # Find max length for left side (before value)
-                maxlen = max(len(k) for k in prob_keys)
-                for k, v in prob.items():
-                    if v is not None:
-                        # Find position after closing parenthesis
-                        close_paren = k.find(")")
-                        if close_paren != -1:
-                            left = k[: close_paren + 1]
-                            right = k[close_paren + 1 :].strip()
-                            # Add '=' after closing parenthesis, then right part
-                            prob_str = f"{left} = {right}" if right else f"{left} ="
-                            pad = " " * (maxlen - len(prob_str))
-                            print(f"{prob_str}{pad} {v}")
-                        else:
-                            pad = " " * (maxlen - len(k))
-                            print(f"{k}{pad} {v}")
+            width = max(len(left) for left, _ in lines)
+            for left, v in lines:
+                print(f"{left:<{width}} {v}")
 
     def plot(self):
         """

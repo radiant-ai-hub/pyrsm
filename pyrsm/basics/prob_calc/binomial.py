@@ -5,6 +5,10 @@ from .utils import check, iround, plot_discrete
 
 
 def prob_binom(n: int, p: float, lb=None, ub=None, plb=None, pub=None):
+    if n is None or n < 0:
+        raise ValueError("n must be zero or larger")
+    if p is None or not 0 <= p <= 1:
+        raise ValueError("p must be between 0 and 1")
     # Helper function to convert to int if not None
     def to_int(x):
         return int(max(0, x)) if x is not None else None

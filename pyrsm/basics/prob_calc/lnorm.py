@@ -1,10 +1,11 @@
 import numpy as np
 from scipy import stats
 
-from .utils import check, iround, plot_continuous
+from .utils import check, check_positive, iround, plot_continuous
 
 
 def prob_lnorm(meanlog, sdlog, lb=None, ub=None, plb=None, pub=None):
+    check_positive(**{"St. dev log": sdlog})
     if lb is None:
         lb = -np.inf
     if ub is None:
@@ -62,13 +63,15 @@ def summary_prob_lnorm(dct, type="values", dec=3, ret=False):
     p_ub, pub = dct["p_ub"], dct["pub"]
     p_int = dct["p_int"]
 
-    add(summary_dict, "Distribution", "Log Normal")
+    add(summary_dict, "Distribution", "Log normal")
     add(summary_dict, "Mean log", round(meanlog, dec))
     add(summary_dict, "St. dev log", round(sdlog, dec))
 
     if type == "values":
-        add(summary_dict, "Lower bound", lb if lb is not None else "-Inf")
-        add(summary_dict, "Upper bound", ub if ub is not None else "Inf")
+        lb_txt = "-Inf" if lb is None or lb == -np.inf else lb
+        ub_txt = "Inf" if ub is None or ub == np.inf else ub
+        add(summary_dict, "Lower bound", lb_txt)
+        add(summary_dict, "Upper bound", ub_txt)
         if ub != np.inf and lb != -np.inf:
             add(summary_dict, f"P(X < {lb if lb is not None else '-Inf'})", p_lb)
             add(
@@ -107,34 +110,19 @@ def summary_prob_lnorm(dct, type="values", dec=3, ret=False):
                 round(1 - p_ub, dec),
             )
     else:
-        if pub is None:
-            pub = 2
-        if plb is None:
-            plb = -1
-        add(
-            summary_dict,
-            "Lower bound",
-            ("0" if plb < 0 else plb) + " (" + str(v_lb) + ")",
-        )
-        add(
-            summary_dict,
-            "Upper bound",
-            ("1" if pub > 1 else pub) + " (" + str(v_ub) + ")",
-        )
-        if pub <= 1 or plb >= 0:
-            if plb >= 0:
-                add(summary_dict, f"P(X < {v_lb})", plb)
-                add(summary_dict, f"P(X > {v_lb})", round(1 - plb, dec))
-            if pub <= 1:
-                add(summary_dict, f"P(X < {v_ub})", pub)
-                add(summary_dict, f"P(X > {v_ub})", round(1 - pub, dec))
-            if pub <= 1 and plb >= 0:
-                add(summary_dict, f"P({v_lb} < X < {v_ub})", round(pub - plb, dec))
-                add(
-                    summary_dict,
-                    f"1 - P({v_lb} < X < {v_ub})",
-                    round(1 - (pub - plb), dec),
-                )
+        has_plb = plb is not None
+        has_pub = pub is not None
+        add(summary_dict, "Lower bound", f"{plb} ({v_lb})" if has_plb else "0")
+        add(summary_dict, "Upper bound", f"{pub} ({v_ub})" if has_pub else "1")
+        if has_plb:
+            add(summary_dict, f"P(X < {v_lb})", plb)
+            add(summary_dict, f"P(X > {v_lb})", round(1 - plb, dec))
+        if has_pub:
+            add(summary_dict, f"P(X < {v_ub})", pub)
+            add(summary_dict, f"P(X > {v_ub})", round(1 - pub, dec))
+        if has_plb and has_pub:
+            add(summary_dict, f"P({v_lb} < X < {v_ub})", round(pub - plb, dec))
+            add(summary_dict, f"1 - P({v_lb} < X < {v_ub})", round(1 - (pub - plb), dec))
 
     if ret:
         return summary_dict
