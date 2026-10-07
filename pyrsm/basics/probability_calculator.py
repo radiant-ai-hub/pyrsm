@@ -163,12 +163,17 @@ class prob_calc:
                     print(f"{k}{pad}: {v}")
         # Probability section: "P(...) =" with the values in one column, as in
         # radiant.basics
-        lines = [(f"{k} =", v) for k, v in prob.items() if v is not None]
+        # as in radiant.basics, only the interval lines are padded:
+        # "P(1 <= X <= 3)     = 0.621" above "1 - P(1 <= X <= 3) = 0.379"
+        lines = [(k, v) for k, v in prob.items() if v is not None]
         if lines:
             print()
-            width = max(len(left) for left, _ in lines)
-            for left, v in lines:
-                print(f"{left:<{width}} {v}")
+            width = max(
+                (len(k) for k, _ in lines if not k.startswith("P(X")), default=0
+            )
+            for k, v in lines:
+                pad = "" if k.startswith("P(X") else " " * (width - len(k))
+                print(f"{k}{pad} = {v}")
 
     def plot(self):
         """

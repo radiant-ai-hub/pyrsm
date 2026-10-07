@@ -121,18 +121,18 @@ def summary_prob_disc(dct, type="values", dec=3, ret=False):
     if type == "values":
         if lb is not None:
             header.update({"Lower bound": lb})
-            summary.update({f"P(X = {lb})": round(dct.get("p_elb", 0), dec)})
+            summary.update({f"P(X  = {lb})": round(dct.get("p_elb", 0), dec)})
             if lb > min(v):
                 summary.update(
                     {
-                        f"P(X < {lb})": dct.get("p_lb", 0),
+                        f"P(X  < {lb})": dct.get("p_lb", 0),
                         f"P(X <= {lb})": dct.get("p_lelb", 0),
                     }
                 )
             if lb < max(v):
                 summary.update(
                     {
-                        f"P(X > {lb})": round(
+                        f"P(X  > {lb})": round(
                             1 - (dct.get("p_lb", 0) + dct.get("p_elb", 0)), dec
                         ),
                         f"P(X >= {lb})": round(1 - dct.get("p_lb", 0), dec),
@@ -140,18 +140,18 @@ def summary_prob_disc(dct, type="values", dec=3, ret=False):
                 )
         if ub is not None:
             header.update({"Upper bound": ub})
-            summary.update({f"P(X = {ub})": dct.get("p_eub", 0)})
+            summary.update({f"P(X  = {ub})": dct.get("p_eub", 0)})
             if ub > min(v):
                 summary.update(
                     {
-                        f"P(X < {ub})": dct.get("p_ub", 0),
+                        f"P(X  < {ub})": dct.get("p_ub", 0),
                         f"P(X <= {ub})": dct.get("p_leub", 0),
                     }
                 )
             if ub < max(v):
                 summary.update(
                     {
-                        f"P(X > {ub})": round(
+                        f"P(X  > {ub})": round(
                             1 - (dct.get("p_ub", 0) + dct.get("p_eub", 0)), dec
                         ),
                         f"P(X >= {ub})": round(1 - dct.get("p_ub", 0), dec),
@@ -173,18 +173,18 @@ def summary_prob_disc(dct, type="values", dec=3, ret=False):
         )
         if plb is not None:
             header.update({"Lower bound": f"{plb} ({dct.get('vlb')})"})
-            summary.update({f"P(X = {vlb})": dct.get("vp_elb", 0)})
+            summary.update({f"P(X  = {vlb})": dct.get("vp_elb", 0)})
             if vlb > min(v):
                 summary.update(
                     {
-                        f"P(X < {vlb})": dct.get("vp_lb", 0),
+                        f"P(X  < {vlb})": dct.get("vp_lb", 0),
                         f"P(X <= {vlb})": dct.get("vp_lelb", 0),
                     }
                 )
             if vlb < max(v):
                 summary.update(
                     {
-                        f"P(X > {vlb})": round(
+                        f"P(X  > {vlb})": round(
                             1 - (dct.get("vp_lb", 0) + dct.get("vp_elb", 0)), dec
                         ),
                         f"P(X >= {vlb})": round(1 - dct.get("vp_lb", 0), dec),
@@ -192,18 +192,18 @@ def summary_prob_disc(dct, type="values", dec=3, ret=False):
                 )
         if pub is not None:
             header.update({"Upper bound": f"{pub} ({dct.get('vub')})"})
-            summary.update({f"P(X = {vub})": dct.get("vp_eub", 0)})
+            summary.update({f"P(X  = {vub})": dct.get("vp_eub", 0)})
             if vub > min(v):
                 summary.update(
                     {
-                        f"P(X < {vub})": dct.get("vp_ub", 0),
+                        f"P(X  < {vub})": dct.get("vp_ub", 0),
                         f"P(X <= {vub})": dct.get("vp_leub", 0),
                     }
                 )
             if vub < max(v):
                 summary.update(
                     {
-                        f"P(X > {vub})": round(
+                        f"P(X  > {vub})": round(
                             1 - (dct.get("vp_ub", 0) + dct.get("vp_eub", 0)), dec
                         ),
                         f"P(X >= {vub})": round(1 - dct.get("vp_ub", 0), dec),

@@ -70,8 +70,8 @@ def test_poisson_probability_bounds_give_discrete_table(capsys):
     out = _summary(capsys, "pois", lamb=2, plb=0.1, pub=0.9)
     assert "Upper bound : 0.9 (4)" in out
     for line in [
-        "P(X  = 0) =", "P(X  < 4) =          0.857", "P(X <= 4) =          0.947",
-        "P(X >= 4) =          0.143", "P(0 <= X <= 4) =     0.947",
+        "P(X  = 0) = 0.135", "P(X  < 4) = 0.857", "P(X <= 4) = 0.947",
+        "P(X >= 4) = 0.143", "P(0 <= X <= 4)     = 0.947",
     ]:
         assert line in out
 
@@ -85,7 +85,7 @@ def test_poisson_float_value_bounds():
 def test_discrete_text_inputs_recycle_probabilities(capsys):
     out = _summary(capsys, "disc", v="1 2 3 4 5 6", p="1/6", lb=2.0, ub=5.0)
     assert "Values       : 1 2 3 4 5 6" in out
-    assert "P(X = 2) =" in out and "P(2 <= X <= 5) =     0.667" in out
+    assert "P(X  = 2) = 0.167" in out and "P(2 <= X <= 5)     = 0.667" in out
 
 
 def test_discrete_does_not_mutate_the_callers_list():
