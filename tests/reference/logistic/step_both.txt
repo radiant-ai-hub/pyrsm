@@ -1,0 +1,39 @@
+Start:  AIC=1411.99
+survived ~ 1
+
+         Df Deviance    AIC
++ sex     1   1100.4 1104.4
++ pclass  2   1303.5 1309.5
++ age     1   1406.5 1410.5
+<none>        1410.0 1412.0
++ noise   1   1409.6 1413.6
+
+Step:  AIC=1104.41
+survived ~ sex
+
+         Df Deviance    AIC
++ pclass  2   1013.1 1021.1
+<none>        1100.4 1104.4
++ age     1   1099.7 1105.7
++ noise   1   1100.3 1106.3
+- sex     1   1410.0 1412.0
+
+Step:  AIC=1021.12
+survived ~ sex + pclass
+
+         Df Deviance     AIC
++ age     1   981.73  991.73
+<none>       1013.12 1021.12
++ noise   1  1013.02 1023.02
+- pclass  2  1100.41 1104.41
+- sex     1  1303.47 1309.47
+
+Step:  AIC=991.73
+survived ~ sex + pclass + age
+
+         Df Deviance     AIC
+<none>        981.73  991.73
++ noise   1   981.72  993.72
+- age     1  1013.12 1021.12
+- pclass  2  1099.69 1105.69
+- sex     1  1253.01 1261.01
