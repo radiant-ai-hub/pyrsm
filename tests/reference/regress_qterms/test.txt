@@ -1,0 +1,29 @@
+Linear regression (OLS)
+Data     : d 
+Response variable    : price 
+Explanatory variables: carat, clarity 
+Null hyp.: the effect of x on price is zero
+Alt. hyp.: the effect of x on price is not zero
+
+              coefficient std.error t.value p.value    
+ (Intercept)    -6198.655   213.175 -29.078  < .001 ***
+ carat           7023.629   169.960  41.325  < .001 ***
+ clarity|SI2     2778.542   198.923  13.968  < .001 ***
+ clarity|SI1     3614.703   198.043  18.252  < .001 ***
+ clarity|VS2     4226.480   199.145  21.223  < .001 ***
+ clarity|VS1     4439.310   202.092  21.967  < .001 ***
+ clarity|VVS2    5044.019   207.757  24.278  < .001 ***
+ clarity|VVS1    4940.859   211.851  23.322  < .001 ***
+ clarity|IF      5148.637   231.171  22.272  < .001 ***
+ I(carat^2)       662.663    76.036   8.715  < .001 ***
+
+Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+
+R-squared: 0.907,  Adjusted R-squared: 0.906 
+F-statistic: 3224.871 df(9,2990), p.value < .001
+Nr obs: 3,000 
+
+Model 1: price ~ carat + clarity
+Model 2: price ~ carat + clarity + I(carat^2)
+R-squared, Model 1 vs 2: 0.904 0.907
+F-statistic: 75.954 df(1,2990), p.value < .001

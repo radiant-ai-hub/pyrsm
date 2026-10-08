@@ -184,8 +184,9 @@ class regress:
         self.rvar = rvar
         model_utils = _model_utils()
         self.evar = model_utils.convert_to_list(evar)
-        self.ivar = model_utils.convert_to_list(ivar)
-        self.formula = formula
+        # radiant.model's squared / cubed terms, I(x^2), in Python's spelling
+        self.ivar = model_utils.r_powers(model_utils.convert_to_list(ivar))
+        self.formula = model_utils.r_powers(formula) if formula else formula
 
         # Convert categorical/string columns to sorted Enum BEFORE fitting
         # This ensures patsy learns alphabetically sorted levels
@@ -266,7 +267,10 @@ class regress:
         # Build coefficient table as polars DataFrame
         self.coef = pl.DataFrame(
             {
-                "index": params.index.str.replace("[T.", "[", regex=False).tolist(),
+                "index": [
+                    model_utils.r_label(i)
+                    for i in params.index.str.replace("[T.", "[", regex=False)
+                ],
                 "coefficient": params.values,
                 "std.error": bse.values,
                 "t.value": tvalues.values,
@@ -389,7 +393,14 @@ class regress:
                             (f"+ {t}", fit.df_resid - f.df_resid, fit.ssr - f.ssr, f.ssr, aic(f), keep)
                         )
             table.sort(key=lambda row: row[4])
-            trace.append(_step_block(label, fit_aic, formula_for(current), table))
+            trace.append(
+                _step_block(
+                    label,
+                    fit_aic,
+                    _model_utils().r_label(formula_for(current)),
+                    [(_model_utils().r_label(r[0]), *r[1:]) for r in table],
+                )
+            )
             label = "Step"
             best = table[0]
             if best[0] == "<none>" or best[4] >= fit_aic - 1e-7:
@@ -855,7 +866,7 @@ class regress:
             return
         if isinstance(test, str):
             test = [v.strip() for v in test.split(",") if v.strip()]
-        test = list(test)
+        test = _model_utils().r_powers(list(test))
         evar = setdiff(self.evar, test)
         if self.ivar is not None and len(self.ivar) > 0:
             sint = setdiff(self.ivar, test)
@@ -887,8 +898,9 @@ class regress:
             )
         )
 
-        print(f"\nModel 1: {formula}")
-        print(f"Model 2: {self.formula}")
+        r_label = _model_utils().r_label
+        print(f"\nModel 1: {r_label(formula)}")
+        print(f"Model 2: {r_label(self.formula)}")
         # The F-test uses the robust covariance when ``robust`` is set (R's
         # car::linearHypothesis with a vcov); the R-squared of the restricted
         # model comes from the classical F, which is exact for OLS.

@@ -267,3 +267,73 @@ def test_prediction_with_missing_columns_says_which(model):
         m.predict(cmd={"x3": [1]})
     assert "The command entered contains variable names that are not in the model" in str(err.value)
     assert str(err.value).endswith("Variables not available in prediction data: x3")
+
+
+QTERMS = Path(__file__).parent / "reference" / "regress_qterms"
+
+
+def test_squared_and_cubed_terms_match_radiant(diamonds):
+    """radiant.model's qterms: I(carat^2), I(carat^3) as interaction terms."""
+    import csv
+
+    reg = regress(
+        {"diamonds": diamonds},
+        rvar="price",
+        evar=["carat", "clarity"],
+        ivar=["I(carat^2)", "I(carat^3)"],
+    )
+    coef = dict(zip(reg.coef["index"], reg.coef["coefficient"]))
+    se = dict(zip(reg.coef["index"], reg.coef["std.error"]))
+    with open(QTERMS / "coef.csv") as fh:
+        for row in csv.DictReader(fh):
+            label = row["label"].replace("(Intercept)", "Intercept").replace("|", "[")
+            if "[" in label:
+                label += "]"
+            assert coef[label] == pytest.approx(float(row["coefficient"]), rel=1e-8), label
+            assert se[label] == pytest.approx(float(row["std.error"]), rel=1e-8), label
+
+
+def test_squared_terms_in_the_step_trace_read_as_r(diamonds):
+    reg = regress(
+        {"diamonds": _deterministic_noise(diamonds)},
+        rvar="price",
+        evar=["carat", "noise", "depth"],
+        ivar=["I(carat^2)", "I(noise^2)", "carat:depth"],
+        stepwise=True,
+    )
+    assert reg.step_trace == (QTERMS / "step.txt").read_text().rstrip("\n")
+
+
+def test_f_test_on_a_squared_term(diamonds, capsys):
+    reg = regress(
+        {"diamonds": diamonds},
+        rvar="price",
+        evar=["carat", "clarity"],
+        ivar=["I(carat^2)"],
+    )
+    reg.f_test(test=["I(carat^2)"])
+    out = capsys.readouterr().out
+    assert "F-statistic: 75.954 df (1, 2990)" in out
+    assert "R-squared, Model 1 vs 2: 0.904 vs 0.907" in out
+
+
+def test_squared_term_predictions_use_the_base_variable(diamonds):
+    reg = regress(
+        {"diamonds": diamonds}, rvar="price", evar=["carat", "clarity"], ivar=["I(carat^2)"]
+    )
+    pred = reg.predict(cmd={"carat": [1, 2]})
+    assert pred.columns[:2] == ["carat", "clarity"]
+    assert pred["prediction"][1] > pred["prediction"][0]
+
+
+def test_logistic_squared_term_and_chisq_test(capsys):
+    from pyrsm.model.logistic import logistic
+
+    rng = np.random.default_rng(2)
+    x = rng.normal(size=400)
+    y = (x + x**2 + rng.normal(size=400) > 1).astype(int)
+    df = pl.DataFrame({"y": y.astype(str), "x": x})
+    clf = logistic(df, rvar="y", lev="1", evar=["x"], ivar=["I(x^2)"])
+    assert "I(x^2)" in clf.coef["index"].to_list()
+    clf.chisq_test(test=["I(x^2)"])
+    assert "Model 2: y ~ x + I(x^2)" in capsys.readouterr().out

@@ -251,6 +251,29 @@ def extract_rvar(model, cn):
     return re.findall(pattern, model.formula)[0]
 
 
+_R_POWER = re.compile(r"I\(\s*([A-Za-z_.][\w.]*)\s*\^\s*([0-9]+)\s*\)")
+_PY_POWER = re.compile(r"I\(\s*([A-Za-z_.][\w.]*)\s*\*\*\s*([0-9]+)\s*\)")
+
+
+def r_powers(term):
+    """R's ``I(x^2)`` as the formula engine's ``I(x ** 2)``.
+
+    In a Python formula ``^`` is bitwise XOR, so radiant.model's squared and
+    cubed terms (``qterms``) must be rewritten before estimation. Applies to a
+    single term, a list of terms, or a whole formula.
+    """
+    if term is None:
+        return None
+    if isinstance(term, (list, tuple)):
+        return [r_powers(t) for t in term]
+    return _R_POWER.sub(lambda m: f"I({m.group(1)} ** {m.group(2)})", str(term))
+
+
+def r_label(term: str) -> str:
+    """``I(x ** 2)`` back to R's ``I(x^2)``, for labels a student reads."""
+    return _PY_POWER.sub(lambda m: f"I({m.group(1)}^{m.group(2)})", str(term))
+
+
 def check_pred_vars(evar, data=None, cmd=None, data_cmd=None) -> None:
     """
     Refuse a prediction request that does not fit the model, with Radiant's message

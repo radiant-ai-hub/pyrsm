@@ -130,8 +130,11 @@ class logistic:
         self.rvar = rvar
         self.lev = lev
         self.evar = convert_to_list(evar)
-        self.ivar = convert_to_list(ivar)
-        self.formula = formula
+        # radiant.model's squared / cubed terms, I(x^2), in Python's spelling
+        from pyrsm.model.model import r_powers
+
+        self.ivar = r_powers(convert_to_list(ivar))
+        self.formula = r_powers(formula) if formula else formula
 
         # Apply binary conversion on polars DataFrame
         if self.lev is not None and self.rvar is not None:
@@ -195,13 +198,16 @@ class logistic:
         self.fitted.nobs_dropped = self.data.height - self.fitted.nobs
 
         # Build coefficient table as polars DataFrame
+        from pyrsm.model.model import r_label as r_powers_label
+
         or_vals = np.exp(self.fitted.params)
         or_pct = 100 * np.where(or_vals < 1, -(1 - or_vals), or_vals - 1)
         self.coef = pl.DataFrame(
             {
-                "index": self.fitted.params.index.str.replace(
-                    "[T.", "[", regex=False
-                ).tolist(),
+                "index": [
+                    r_powers_label(i)
+                    for i in self.fitted.params.index.str.replace("[T.", "[", regex=False)
+                ],
                 "OR": or_vals,
                 "OR%": or_pct,
                 "coefficient": self.fitted.params.values,
@@ -513,6 +519,9 @@ class logistic:
             test = self.evar
         else:
             test = ifelse(isinstance(test, str), [test], test)
+        from pyrsm.model.model import r_powers
+
+        test = r_powers(list(test))
 
         evar = [c for c in self.evar if c not in test]
         if self.ivar is not None and len(self.ivar) > 0:
@@ -528,8 +537,10 @@ class logistic:
         else:
             formula += f"{' + '.join(evar + sint)}"
 
-        print(f"\nModel 1: {formula}")
-        print(f"Model 2: {self.formula}")
+        from pyrsm.model.model import r_label
+
+        print(f"\nModel 1: {r_label(formula)}")
+        print(f"Model 2: {r_label(self.formula)}")
 
         sub_fitted = smf.glm(
             formula=formula,
