@@ -328,96 +328,33 @@ class regress:
         """Stepwise selection by AIC, as R's ``step()`` (and its printed trace)."""
         import numpy as np
 
-        direction = self.stepwise
-        full = self.fitted
-        design = full.model.data.design_info
-        has_intercept = any(len(t.factors) == 0 for t in design.terms)
-
-        # Terms in R's order: by degree, then as the student listed them.
-        rhs = [t.strip() for t in self.formula.split("~", 1)[1].split("+")]
-        terms = [t for t in design.terms if len(t.factors) > 0]
-
-        def position(name: str) -> int:
-            return rhs.index(name) if name in rhs else len(rhs)
-
-        terms.sort(key=lambda t: (len(t.factors), position(t.name())))
-        upper = [t.name() for t in terms]
-        factors = {t.name(): {f.name() for f in t.factors} for t in terms}
-
-        # Every model is compared on the rows complete for the full model.
-        rows = full.model.data.row_labels
-        if rows is not None and len(rows) < len(pdf):
-            pdf = pdf.loc[rows]
-
-        def formula_for(keep: list[str]) -> str:
-            keep = [t for t in upper if t in keep]
-            rhs_ = " + ".join(keep) if keep else "1"
-            if not has_intercept:
-                rhs_ += " - 1"
-            return f"{self.rvar} ~ {rhs_}"
-
         def aic(fit) -> float:
             # R's extractAIC for lm: n log(RSS/n) + 2 edf
             n = fit.nobs
             return n * np.log(fit.ssr / n) + 2 * (n - fit.df_resid)
 
-        def droppable(t: str, current: list[str]) -> bool:
-            return not any(factors[t] < factors[o] for o in current if o != t)
+        def stats(fit, base) -> list:
+            # drop1 / add1 for lm: Df, Sum of Sq, RSS
+            if base is None:
+                return [None, None, fit.ssr]
+            return [abs(fit.df_resid - base.df_resid), abs(fit.ssr - base.ssr), fit.ssr]
 
-        def addable(t: str, current: list[str]) -> bool:
-            return all(o in current for o in upper if factors[o] < factors[t])
-
-        current = list(upper) if direction == "backward" else []
-        fit = self._ols(formula_for(current), pdf)
-        fit_aic = aic(fit)
-        trace: list[str] = []
-        label = "Start"
-        while True:
-            table: list[tuple[str, float | None, float | None, float, float, list[str]]] = [
-                ("<none>", None, None, fit.ssr, fit_aic, current)
-            ]
-            if direction in ("backward", "both"):
-                for t in current:
-                    if droppable(t, current):
-                        keep = [x for x in current if x != t]
-                        f = self._ols(formula_for(keep), pdf)
-                        table.append(
-                            (f"- {t}", f.df_resid - fit.df_resid, f.ssr - fit.ssr, f.ssr, aic(f), keep)
-                        )
-            if direction in ("forward", "both"):
-                for t in upper:
-                    if t not in current and addable(t, current):
-                        keep = current + [t]
-                        f = self._ols(formula_for(keep), pdf)
-                        table.append(
-                            (f"+ {t}", fit.df_resid - f.df_resid, fit.ssr - f.ssr, f.ssr, aic(f), keep)
-                        )
-            table.sort(key=lambda row: row[4])
-            trace.append(
-                _step_block(
-                    label,
-                    fit_aic,
-                    _model_utils().r_label(formula_for(current)),
-                    [(_model_utils().r_label(r[0]), *r[1:]) for r in table],
-                )
-            )
-            label = "Step"
-            best = table[0]
-            if best[0] == "<none>" or best[4] >= fit_aic - 1e-7:
-                break
-            changed = best[0][2:]
-            if best[0].startswith("-"):
-                self.removed.append(changed)
-            else:
-                self.added.append(changed)
-            current = best[5]
-            fit = self._ols(formula_for(current), pdf)
-            fit_aic = aic(fit)
-
-        self.step_trace = "\n\n".join(trace)
-        self.formula = formula_for(current)
-        self.fitted = fit
-        self.ivar = [t for t in self.ivar if t in current]
+        out = _model_utils().step_select(
+            full_fit=self.fitted,
+            formula=self.formula,
+            rvar=self.rvar,
+            direction=self.stepwise,
+            pdf=pdf,
+            fit_formula=self._ols,
+            aic=aic,
+            stats=stats,
+            columns=["Df", "Sum of Sq", "RSS"],
+        )
+        self.step_trace = out["trace"]
+        self.removed, self.added = out["removed"], out["added"]
+        self.formula = out["formula"]
+        self.fitted = out["fit"]
+        self.ivar = [t for t in self.ivar if t in out["current"]]
 
     def _model_evar(self) -> list[str]:
         """Explanatory variables still used by the (possibly stepwise) model."""
@@ -917,85 +854,3 @@ class regress:
             f"F-statistic: {round(out.fvalue, dec)} df ({out.df_num:.0f}, {out.df_denom:.0f}), p.value {pvalue}"
         )
 
-
-def _r_format_column(values: list, digits: int = 5) -> list[str]:
-    """Format a numeric column the way R's ``print.anova`` does.
-
-    ``zapsmall`` to ``digits``, then R's ``formatReal``: fixed notation unless
-    it would be wider than scientific notation, at most ``digits``
-    significant digits.
-    """
-    import math
-
-    finite = [v for v in values if v is not None and math.isfinite(v)]
-    if not finite:
-        return ["" for _ in values]
-    # print.anova zaps each column first: zapsmall(x, digits)
-    mx = max(abs(v) for v in finite)
-    if mx > 0:
-        places = max(0, digits - math.ceil(math.log10(mx)))
-        values = [None if v is None or not math.isfinite(v) else round(v, places) for v in values]
-        finite = [v for v in values if v is not None]
-    neg = any(v < 0 for v in finite)
-    sig, left, right, wide_exp = [], [], [], False
-    for v in finite:
-        if v == 0:
-            sig.append(1), left.append(1), right.append(0)
-            continue
-        mant, exp = f"{abs(v):.{digits - 1}e}".split("e")
-        exp = int(exp)
-        wide_exp = wide_exp or abs(exp) >= 100
-        s = len(mant.replace(".", "").rstrip("0")) or 1
-        sig.append(s)
-        left.append(max(1, exp + 1))
-        right.append(max(0, s - 1 - exp))
-    rgt = max(right)
-    fixed_width = neg + max(left) + (rgt + 1 if rgt > 0 else 0)
-    mf = max(sig) - 1
-    sci_width = neg + (mf + 1 if mf > 0 else 0) + 1 + (5 if wide_exp else 4)
-    out = []
-    for v in values:
-        if v is None or not math.isfinite(v):
-            out.append("")
-        elif fixed_width <= sci_width:
-            out.append(f"{v:.{rgt}f}")
-        else:
-            out.append(f"{v:.{mf}e}")
-    return out
-
-
-def _r_formula_lines(formula: str, width: int = 60) -> str:
-    """Wrap a formula as R's ``deparse`` does: break after ``+`` past ``width``."""
-    lhs, rhs = formula.split("~", 1)
-    terms = [t.strip() for t in rhs.split("+")]
-    lines, line = [], f"{lhs.strip()} ~ {terms[0]}"
-    for term in terms[1:]:
-        if len(line) + 3 > width:
-            lines.append(line + " + ")
-            line = "    " + term
-        else:
-            line += " + " + term
-    lines.append(line)
-    return "\n".join(lines)
-
-
-def _step_block(label: str, aic: float, formula: str, table: list) -> str:
-    """One step of R's ``step()`` trace: header, formula and the AIC table."""
-    header = f"{label}:  AIC={float(f'{round(aic, 2):.7g}'):.7g}"
-    labels = [row[0] for row in table]
-    df_col = ["" if row[1] is None else str(int(round(row[1]))) for row in table]
-    columns = [
-        ("Df", df_col),
-        ("Sum of Sq", _r_format_column([row[2] for row in table])),
-        ("RSS", _r_format_column([row[3] for row in table])),
-        ("AIC", _r_format_column([row[4] for row in table])),
-    ]
-    lw = max(len(x) for x in labels)
-    widths = [max(len(h), *(len(v) for v in vals)) for h, vals in columns]
-    out = [" " * lw + "".join(" " + h.rjust(w) for (h, _), w in zip(columns, widths))]
-    for i, lab in enumerate(labels):
-        out.append(
-            lab.ljust(lw)
-            + "".join(" " + vals[i].rjust(w) for (_, vals), w in zip(columns, widths))
-        )
-    return f"{header}\n{_r_formula_lines(formula)}\n\n" + "\n".join(out)
