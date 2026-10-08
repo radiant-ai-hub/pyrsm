@@ -1705,7 +1705,7 @@ def plot_predictions(
     if len(bounds) == 2:
         if shaded:
             p = p + geom_ribbon(
-                aes(ymin=bounds[0], ymax=bounds[1]), fill="#b3b3b3", color=None, alpha=0.5
+                aes(ymin=bounds[0], ymax=bounds[1]), fill=MUTED, color=None, alpha=0.35
             )
         else:
             p = p + geom_pointrange(aes(ymin=bounds[0], ymax=bounds[1]), size=0.3)

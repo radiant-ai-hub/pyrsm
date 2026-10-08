@@ -844,3 +844,37 @@ def named_data(data):
         name, frame = next(iter(data.items()))
         return str(name), frame
     return None, data
+
+
+def cat_levels(s, drop_unused: bool = False) -> list:
+    """
+    Level order of a categorical column, following pyrsm's policy.
+
+    Categorical data should be stored as a polars Enum whose categories are in
+    a deliberate order (e.g. small < medium < large); that order is used
+    everywhere (base levels, tables, plots). Columns that are not Enum (text,
+    pl.Categorical) get their order of first appearance -- never an
+    alphabetical sort, which is rarely the order that is wanted.
+
+    Parameters
+    ----------
+    s : pl.Series
+        The column.
+    drop_unused : bool, default False
+        Leave out Enum levels that do not occur in ``s``.
+
+    Returns
+    -------
+    list
+        The levels, in order (strings for Enum/text columns; for other dtypes
+        the unique values in order of appearance).
+    """
+    if isinstance(s.dtype, pl.Enum):
+        levels = s.dtype.categories.to_list()
+        if drop_unused:
+            present = set(s.cast(pl.Utf8).drop_nulls().unique().to_list())
+            levels = [lv for lv in levels if lv in present]
+        return levels
+    if s.dtype in (pl.Utf8, pl.String, pl.Categorical):
+        return s.cast(pl.Utf8).drop_nulls().unique(maintain_order=True).to_list()
+    return s.drop_nulls().unique(maintain_order=True).to_list()

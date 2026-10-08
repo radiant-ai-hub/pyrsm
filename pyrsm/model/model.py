@@ -817,6 +817,98 @@ def vif(fitted, dec=3):
     return df
 
 
+def gvif(fitted, dec: int | None = 3) -> pd.DataFrame:
+    """
+    Generalized variance inflation factors as ``car::vif``
+
+    Computed from the correlation matrix of the coefficient estimates (the
+    model's covariance without the intercept), so it is right for weighted
+    and GLM fits as well as OLS. One row per term: ``vif`` is the GVIF and
+    ``Rsq`` = 1 - 1/GVIF, sorted from largest to smallest.
+    """
+    design = fitted.model.data.design_info
+    names = list(fitted.params.index)
+    cov = np.asarray(fitted.cov_params())
+    keep = [i for i, n in enumerate(names) if n != "Intercept"]
+    cov = cov[np.ix_(keep, keep)]
+    sd = np.sqrt(np.diag(cov))
+    R = cov / np.outer(sd, sd)
+    det_all = np.linalg.det(R)
+    position = {names[i]: j for j, i in enumerate(keep)}
+    rows = []
+    for term, sl in design.term_name_slices.items():
+        if term == "Intercept":
+            continue
+        cols = [position[names[i]] for i in range(sl.start, sl.stop) if names[i] in position]
+        rest = [j for j in range(len(keep)) if j not in cols]
+        a = np.linalg.det(R[np.ix_(cols, cols)])
+        b = np.linalg.det(R[np.ix_(rest, rest)]) if rest else 1.0
+        rows.append((r_label(term), a * b / det_all))
+    df = pd.DataFrame(rows, columns=["index", "vif"]).set_index("index")
+    df["Rsq"] = 1 - 1 / df["vif"]
+    df = df.sort_values("vif", ascending=False)
+    df.index.name = None
+    return df.round(dec) if dec is not None else df
+
+
+def profile_ci(fitted, alpha: float = 0.05) -> pd.DataFrame:
+    """
+    Profile-likelihood confidence intervals for a GLM, as R's ``confint(glm)``
+
+    For each coefficient the interval holds the values b at which the
+    deviance of the model refit with that coefficient fixed at b (the other
+    coefficients re-estimated) exceeds the minimum deviance by at most the
+    chi-squared(1) quantile -- equivalently the signed root of the deviance
+    difference lies within +/- z(1 - alpha/2).
+
+    Returns
+    -------
+    pandas DataFrame with the lower and upper bound, indexed by coefficient
+    """
+    from scipy.optimize import brentq
+    from statsmodels.genmod.generalized_linear_model import GLM
+
+    model = fitted.model
+    y, X = model.endog, model.exog
+    w = getattr(model, "freq_weights", None)
+    offset = getattr(model, "offset", None)
+    base_offset = np.zeros(len(y)) if offset is None else np.asarray(offset)
+    dev_hat = fitted.deviance
+    q = stats.norm.ppf(1 - alpha / 2) ** 2
+    params = np.asarray(fitted.params)
+    bse = np.asarray(fitted.bse)
+
+    def excess(j: int, b: float, start) -> float:
+        others = np.delete(X, j, axis=1)
+        off = base_offset + X[:, j] * b
+        if others.shape[1] == 0:
+            mu = model.family.link.inverse(off)
+            dev = model.family.deviance(y, mu, freq_weights=w if w is not None else 1.0)
+        else:
+            fit = GLM(y, others, family=model.family, offset=off, freq_weights=w).fit(
+                start_params=start
+            )
+            dev = fit.deviance
+        return (dev - dev_hat) - q
+
+    out = []
+    for j in range(len(params)):
+        start = np.delete(params, j)
+        bounds = []
+        for direction in (-1, 1):
+            step = max(bse[j], 1e-8) * np.sqrt(q)
+            edge = params[j] + direction * step
+            for _ in range(60):
+                if excess(j, edge, start) > 0:
+                    break
+                step *= 2
+                edge = params[j] + direction * step
+            lo, hi = sorted([params[j], edge])
+            bounds.append(brentq(lambda b: excess(j, b, start), lo, hi, xtol=1e-10))
+        out.append(bounds)
+    return pd.DataFrame(out, index=fitted.params.index)
+
+
 def predict_ci(fitted, df, conf=0.95, alpha=None):
     """
     Compute predicted probabilities with confidence intervals based on a
@@ -1590,7 +1682,12 @@ def influence_plot(fitted, figsize: tuple = None):
     plotnine.ggplot
     """
     infl = fitted.get_influence()
-    std_resid = np.asarray(infl.resid_studentized_internal, dtype=float)
+    if hasattr(fitted, "resid_deviance"):
+        # GLM: standardized deviance residuals (R's rstandard.glm)
+        h = np.asarray(infl.hat_matrix_diag, dtype=float)
+        std_resid = np.asarray(fitted.resid_deviance, dtype=float) / np.sqrt(1 - h)
+    else:
+        std_resid = np.asarray(infl.resid_studentized_internal, dtype=float)
     cooksd = np.asarray(infl.cooks_distance[0], dtype=float)
     index = np.arange(1, len(std_resid) + 1)
     top = set(np.argsort(-np.nan_to_num(cooksd, nan=-np.inf))[:3].tolist())
@@ -1713,3 +1810,218 @@ def cross_validation(
 
 
 # %%
+
+
+def _r_format_column(values: list, digits: int = 5) -> list[str]:
+    """Format a numeric column the way R's ``print.anova`` does.
+
+    ``zapsmall`` to ``digits``, then R's ``formatReal``: fixed notation unless
+    it would be wider than scientific notation, at most ``digits``
+    significant digits.
+    """
+    import math
+
+    finite = [v for v in values if v is not None and math.isfinite(v)]
+    if not finite:
+        return ["" for _ in values]
+    # print.anova zaps each column first: zapsmall(x, digits)
+    mx = max(abs(v) for v in finite)
+    if mx > 0:
+        # R (>= 4.4) zapsmall: round(x, max(0, digits - log10(mx))), the
+        # fractional number of places itself rounded to the nearest integer
+        places = int(math.floor(max(0.0, digits - math.log10(mx)) + 0.5))
+        values = [None if v is None or not math.isfinite(v) else round(v, places) for v in values]
+        finite = [v for v in values if v is not None]
+    neg = any(v < 0 for v in finite)
+    sig, left, right, wide_exp = [], [], [], False
+    for v in finite:
+        if v == 0:
+            sig.append(1), left.append(1), right.append(0)
+            continue
+        mant, exp = f"{abs(v):.{digits - 1}e}".split("e")
+        exp = int(exp)
+        wide_exp = wide_exp or abs(exp) >= 100
+        s = len(mant.replace(".", "").rstrip("0")) or 1
+        sig.append(s)
+        left.append(max(1, exp + 1))
+        right.append(max(0, s - 1 - exp))
+    rgt = max(right)
+    fixed_width = neg + max(left) + (rgt + 1 if rgt > 0 else 0)
+    mf = max(sig) - 1
+    sci_width = neg + (mf + 1 if mf > 0 else 0) + 1 + (5 if wide_exp else 4)
+    out = []
+    for v in values:
+        if v is None or not math.isfinite(v):
+            out.append("")
+        elif fixed_width <= sci_width:
+            out.append(f"{v:.{rgt}f}")
+        else:
+            out.append(f"{v:.{mf}e}")
+    return out
+
+
+def _r_formula_lines(formula: str, width: int = 60) -> str:
+    """Wrap a formula as R's ``deparse`` does: break after ``+`` past ``width``."""
+    lhs, rhs = formula.split("~", 1)
+    terms = [t.strip() for t in rhs.split("+")]
+    lines, line = [], f"{lhs.strip()} ~ {terms[0]}"
+    for term in terms[1:]:
+        if len(line) + 3 > width:
+            lines.append(line + " + ")
+            line = "    " + term
+        else:
+            line += " + " + term
+    lines.append(line)
+    return "\n".join(lines)
+
+
+def _step_block(label: str, aic: float, formula: str, columns: list[str], table: list) -> str:
+    """One step of R's ``step()`` trace: header, formula and the AIC table.
+
+    ``table`` rows are ``(label, *values, aic)`` with values for ``columns``;
+    a ``Df`` column prints as integers, the rest as R's ``print.anova``.
+    """
+    header = f"{label}:  AIC={float(f'{round(aic, 2):.7g}'):.7g}"
+    labels = [row[0] for row in table]
+    cols = []
+    for i, name in enumerate([*columns, "AIC"]):
+        values = [row[1 + i] for row in table]
+        if name == "Df":
+            cols.append((name, ["" if v is None else str(int(round(v))) for v in values]))
+        else:
+            cols.append((name, _r_format_column(values)))
+    lw = max(len(x) for x in labels)
+    widths = [max(len(h), *(len(v) for v in vals)) for h, vals in cols]
+    out = [" " * lw + "".join(" " + h.rjust(w) for (h, _), w in zip(cols, widths))]
+    for i, lab in enumerate(labels):
+        out.append(
+            lab.ljust(lw)
+            + "".join(" " + vals[i].rjust(w) for (_, vals), w in zip(cols, widths))
+        )
+    return f"{header}\n{_r_formula_lines(formula)}\n\n" + "\n".join(out)
+
+
+def step_select(
+    *,
+    full_fit,
+    formula: str,
+    rvar: str,
+    direction: str,
+    pdf,
+    fit_formula,
+    aic,
+    stats,
+    columns: list[str],
+) -> dict:
+    """
+    Stepwise selection by AIC as R's ``step()``, with its printed trace
+
+    Parameters
+    ----------
+    full_fit : statsmodels results
+        The model with every candidate term (the upper scope)
+    formula : str
+        Its formula, in the order the student listed the terms
+    direction : str
+        "backward" (start from the full model), "forward" or "both" (start
+        from the intercept-only model)
+    pdf : pandas DataFrame
+        Estimation data; every model is fit on the rows complete for the full model
+    fit_formula : callable
+        ``fit_formula(formula, pdf)`` -> fitted results
+    aic : callable
+        ``aic(fit)`` -> R's ``extractAIC`` for the model type
+    stats : callable
+        ``stats(fit, base)`` -> values for ``columns``; ``base`` is None for
+        the ``<none>`` row, else the current model the change starts from
+    columns : list[str]
+        Table columns before AIC, e.g. ["Df", "Sum of Sq", "RSS"] (lm) or
+        ["Df", "Deviance"] (glm)
+
+    Returns
+    -------
+    dict with formula, fit, current terms, removed, added and the trace
+    """
+    design = full_fit.model.data.design_info
+    has_intercept = any(len(t.factors) == 0 for t in design.terms)
+
+    # Terms in R's order: by degree, then as the student listed them.
+    rhs = [t.strip() for t in formula.split("~", 1)[1].split("+")]
+    terms = [t for t in design.terms if len(t.factors) > 0]
+
+    def position(name: str) -> int:
+        return rhs.index(name) if name in rhs else len(rhs)
+
+    terms.sort(key=lambda t: (len(t.factors), position(t.name())))
+    upper = [t.name() for t in terms]
+    factors = {t.name(): {f.name() for f in t.factors} for t in terms}
+
+    rows = full_fit.model.data.row_labels
+    if rows is not None and len(rows) < len(pdf):
+        pdf = pdf.loc[rows]
+
+    degree = {t.name(): len(t.factors) for t in terms}
+
+    def formula_for(keep: list[str]) -> str:
+        # R's update() appends an added term; terms() then orders by degree
+        keep = sorted(keep, key=lambda t: degree[t])
+        rhs_ = " + ".join(keep) if keep else "1"
+        if not has_intercept:
+            rhs_ += " - 1"
+        return f"{rvar} ~ {rhs_}"
+
+    def droppable(t: str, current: list[str]) -> bool:
+        return not any(factors[t] < factors[o] for o in current if o != t)
+
+    def addable(t: str, current: list[str]) -> bool:
+        return all(o in current for o in upper if factors[o] < factors[t])
+
+    current = list(upper) if direction == "backward" else []
+    fit = fit_formula(formula_for(current), pdf)
+    fit_aic = aic(fit)
+    removed: list[str] = []
+    added: list[str] = []
+    trace: list[str] = []
+    label = "Start"
+    while True:
+        table = [("<none>", *stats(fit, None), fit_aic, current)]
+        if direction in ("backward", "both"):
+            for t in current:
+                if droppable(t, current):
+                    keep = [x for x in current if x != t]
+                    f = fit_formula(formula_for(keep), pdf)
+                    table.append((f"- {t}", *stats(f, fit), aic(f), keep))
+        if direction in ("forward", "both"):
+            for t in upper:
+                if t not in current and addable(t, current):
+                    keep = current + [t]
+                    f = fit_formula(formula_for(keep), pdf)
+                    table.append((f"+ {t}", *stats(f, fit), aic(f), keep))
+        table.sort(key=lambda row: row[-2])
+        trace.append(
+            _step_block(
+                label,
+                fit_aic,
+                r_label(formula_for(current)),
+                columns,
+                [(r_label(r[0]), *r[1:-1]) for r in table],
+            )
+        )
+        label = "Step"
+        best = table[0]
+        if best[0] == "<none>" or best[-2] >= fit_aic - 1e-7:
+            break
+        changed = best[0][2:]
+        (removed if best[0].startswith("-") else added).append(changed)
+        current = best[-1]
+        fit = fit_formula(formula_for(current), pdf)
+        fit_aic = aic(fit)
+
+    return {
+        "formula": formula_for(current),
+        "fit": fit,
+        "current": current,
+        "removed": removed,
+        "added": added,
+        "trace": "\n\n".join(trace),
+    }

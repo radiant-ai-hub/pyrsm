@@ -3,6 +3,7 @@ from importlib import import_module
 _LAZY_SUBMODULES = {
     "logistic",
     "rforest",
+    "crtree",
     "mlp",
     "xgboost",
     "perf",
@@ -33,6 +34,7 @@ _LAZY_FUNCTIONS = {
     "evalbin": "perf",
     "auc": "perf",
     "profit_max": "perf",
+    "cv_crtree": "crtree",
     "plot_predictions": "visualize",
 }
 
