@@ -172,6 +172,27 @@ class central_limit_theorem:
             raise ValueError("stat must be 'sum' or 'mean'")
         return self.sim.sum(axis=0) if stat == "sum" else self.sim.mean(axis=0)
 
+    def stats(self, stat: str = "sum") -> dict[str, dict[str, float]]:
+        """
+        Mean and standard deviation of the sample sums (or means): simulated,
+        and as the Central Limit Theorem predicts them.
+
+        Returns
+        -------
+        dict
+            ``{"simulated": {"mean", "sd"}, "clt": {"mean", "sd"}}``.
+        """
+        values = self.stat(stat)
+        pop_mean, pop_sd = self.population()
+        if stat == "sum":
+            clt_mean, clt_sd = self.n * pop_mean, np.sqrt(self.n) * pop_sd
+        else:
+            clt_mean, clt_sd = pop_mean, pop_sd / np.sqrt(self.n)
+        return {
+            "simulated": {"mean": float(values.mean()), "sd": float(values.std(ddof=1))},
+            "clt": {"mean": float(clt_mean), "sd": float(clt_sd)},
+        }
+
     def summary(self, stat: str = "sum", dec: int = 3) -> None:
         """
         Print the simulation setup and compare the simulated sample sums (or
@@ -184,12 +205,8 @@ class central_limit_theorem:
         dec : int
             Number of decimals to show.
         """
-        values = self.stat(stat)
-        pop_mean, pop_sd = self.population()
-        if stat == "sum":
-            clt_mean, clt_sd = self.n * pop_mean, np.sqrt(self.n) * pop_sd
-        else:
-            clt_mean, clt_sd = pop_mean, pop_sd / np.sqrt(self.n)
+        st = self.stats(stat)
+        clt_mean, clt_sd = st["clt"]["mean"], st["clt"]["sd"]
         label = "sums" if stat == "sum" else "means"
 
         def fmt(x):
@@ -213,7 +230,7 @@ class central_limit_theorem:
         print(f"\nSample {label}:")
         cells = [
             ["", "Mean", "St. dev"],
-            ["Simulated", fmt(float(values.mean())), fmt(float(values.std(ddof=1)))],
+            ["Simulated", fmt(st["simulated"]["mean"]), fmt(st["simulated"]["sd"])],
             ["CLT", fmt(float(clt_mean)), fmt(float(clt_sd))],
         ]
         widths = [max(len(row[i]) for row in cells) for i in range(3)]

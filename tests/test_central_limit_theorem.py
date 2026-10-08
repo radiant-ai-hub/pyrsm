@@ -94,3 +94,10 @@ def test_plot_has_four_panels(stat):
     c = central_limit_theorem("Exponential", n=30, m=40, seed=6)
     p = c.plot(stat=stat, bins=10)
     assert isinstance(p, Compose)
+
+
+def test_stats_match_the_summary():
+    c = central_limit_theorem("Uniform", n=12, m=50, seed=5)
+    st = c.stats("mean")
+    assert st["clt"]["sd"] == pytest.approx(1 / 12)
+    assert st["simulated"]["mean"] == pytest.approx(c.stat("mean").mean())
