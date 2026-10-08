@@ -762,6 +762,96 @@ class crtree:
             )
         return pred
 
+    def rules(self, dec: int = 4) -> pl.DataFrame:
+        """
+        One row per terminal node: the conditions that lead to it, its size
+        and its prediction, highest prediction first.
+
+        Conditions on the same variable are merged along the path, so a node
+        reached by ``age >= 9.5`` and then ``age < 56.5`` reads
+        ``9.5 <= age < 56.5``. Integer variables use whole-number cut-offs, as
+        in the tree plot. For a classification tree the prediction is the
+        probability of ``lev`` (adjusted for a prior, as in the plot); for a
+        regression tree it is the mean response in the node.
+
+        Parameters
+        ----------
+        dec : int, default 4
+            Significant digits of the numeric cut-offs.
+
+        Returns
+        -------
+        pl.DataFrame
+            Columns ``node`` (rpart's node number), ``rule``, ``n``, ``share``
+            (fraction of the estimation sample) and ``prediction``.
+        """
+        frame = self.fit.frame
+        byid = {r["id"]: r for r in frame}
+        labels = self._split_labels(dec)
+        root_n = byid[1]["n"]
+        nclass = len(self.ylevels) if self.mod_type == "classification" else 0
+
+        def condition(var: str, lab: str) -> tuple[str, str, float | str]:
+            for op in (">=", "<"):
+                if lab.startswith(op):
+                    cut = float(lab[len(op):].strip())
+                    if var in self.int_vars:
+                        cut = float(math.ceil(cut))
+                    return ("num", op, cut)
+            return ("cat", "in", lab)
+
+        def fmt(x: float) -> str:
+            return _r_num2str(x) if x != int(x) else str(int(x))
+
+        rows = []
+        for r in frame:
+            if not r["leaf"]:
+                continue
+            path = []
+            nid = r["id"]
+            while nid > 1:
+                parent = nid // 2
+                path.append((byid[parent]["var"], labels[parent][nid % 2]))
+                nid = parent
+            path.reverse()
+            bounds: dict[str, dict[str, float | str]] = {}
+            for var, lab in path:
+                kind, op, value = condition(var, lab)
+                b = bounds.setdefault(var, {})
+                if kind == "cat":
+                    b["in"] = value  # deeper splits are subsets: keep the last
+                elif op == ">=":
+                    b[">="] = max(b.get(">=", -math.inf), value)
+                else:
+                    b["<"] = min(b.get("<", math.inf), value)
+            parts = []
+            for var, b in bounds.items():
+                if "in" in b:
+                    levels = str(b["in"]).split(",")
+                    sep = " = " if len(levels) == 1 else " in "
+                    parts.append(var + sep + ", ".join(levels))
+                elif ">=" in b and "<" in b:
+                    parts.append(f"{fmt(b['>='])} <= {var} < {fmt(b['<'])}")
+                elif ">=" in b:
+                    parts.append(f"{var} >= {fmt(b['>='])}")
+                else:
+                    parts.append(f"{var} < {fmt(b['<'])}")
+            if nclass:
+                pred = float(r["yval2"][1 + nclass])
+            else:
+                pred = float(r["yval"])
+            rows.append(
+                {
+                    "node": int(r["id"]),
+                    "rule": " and ".join(parts),
+                    "n": int(r["n"]),
+                    "share": r["n"] / root_n,
+                    "prediction": pred,
+                }
+            )
+        rows.sort(key=lambda row: -row["prediction"])
+        return pl.DataFrame(rows)
+
     # -- mermaid tree --------------------------------------------------------
     def to_mermaid(self, orient: str = "LR", dec: int = 2) -> str:
         """Mermaid source for the tree, as drawn by Radiant's ``plot.crtree``."""

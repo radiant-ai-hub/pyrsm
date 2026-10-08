@@ -351,3 +351,46 @@ def test_pip_returns_table():
     p, tab = ct.plot("pip", ret=True)
     assert set(tab["variable"]) == {"pclass", "sex", "age"}
     assert tab["importance"].to_list() == sorted(tab["importance"], reverse=True)
+
+
+# -- rules: one row per terminal node ------------------------------------------
+def test_rules_cover_every_leaf_once():
+    d = load("titanic")
+    ct = crtree({"titanic": d}, rvar="survived", lev="Yes", evar=["pclass", "sex", "age"],
+                prior=0.5, cp=0.01)
+    rules = ct.rules()
+    leaves = [r for r in ct.fit.frame if r["leaf"]]
+    assert sorted(rules["node"].to_list()) == sorted(r["id"] for r in leaves)
+    assert rules["n"].sum() == ct.fit.frame[0]["n"]
+    assert abs(rules["share"].sum() - 1) < 1e-12
+    assert rules["prediction"].to_list() == sorted(rules["prediction"].to_list(), reverse=True)
+    assert rules["rule"].to_list() == [
+        "sex = female",
+        "sex = male and age < 9.5",
+        "sex = male and age >= 9.5",
+    ]
+    # the probabilities are the (prior-adjusted) ones the tree plot shows
+    assert round(rules["prediction"][0], 4) == 0.7513
+
+
+def test_rules_merge_bounds_on_one_variable():
+    d = load("titanic")
+    ct = crtree({"titanic": d}, rvar="survived", lev="Yes", evar=["pclass", "sex", "age"],
+                prior=0.5, cp=0.001)
+    rules = ct.rules()["rule"].to_list()
+    # each variable appears at most once per rule
+    for rule in rules:
+        names = [part.split()[0] if not part[0].isdigit() else part.split()[2]
+                 for part in rule.split(" and ")]
+        assert len(names) == len(set(names)), rule
+    assert any(" <= age < " in rule for rule in rules)
+    assert any("pclass in 1st, 2nd" in rule for rule in rules)
+
+
+def test_rules_regression_predicts_the_node_mean():
+    d = load("catalog")
+    ct = crtree({"catalog": d}, rvar="Sales", evar=["Income", "HH_size", "Age"], cp=0.02)
+    rules = ct.rules()
+    means = {r["id"]: r["yval"] for r in ct.fit.frame if r["leaf"]}
+    for node, pred in zip(rules["node"], rules["prediction"]):
+        assert pred == means[node]
