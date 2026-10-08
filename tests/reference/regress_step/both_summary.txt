@@ -1,0 +1,67 @@
+Start:  AIC=49700.32
+price ~ 1
+
+          Df  Sum of Sq        RSS   AIC
++ carat    1 4.0379e+10 6.5764e+09 43805
++ clarity  7 1.4644e+09 4.5492e+10 49619
+<none>                  4.6956e+10 49700
++ depth    1 5.9045e+06 4.6950e+10 49702
++ noise    1 1.4699e+06 4.6954e+10 49702
+
+Step:  AIC=43805.17
+price ~ carat
+
+          Df  Sum of Sq        RSS   AIC
++ clarity  7 2.0795e+09 4.4969e+09 42679
++ depth    1 6.5201e+07 6.5112e+09 43777
+<none>                  6.5764e+09 43805
++ noise    1 2.6614e+04 6.5764e+09 43807
+- carat    1 4.0379e+10 4.6956e+10 49700
+
+Step:  AIC=42678.89
+price ~ carat + clarity
+
+          Df  Sum of Sq        RSS   AIC
++ depth    1 1.1682e+07 4.4853e+09 42673
+<none>                  4.4969e+09 42679
++ noise    1 9.0912e+05 4.4960e+09 42680
+- clarity  7 2.0795e+09 6.5764e+09 43805
+- carat    1 4.0995e+10 4.5492e+10 49619
+
+Step:  AIC=42673.09
+price ~ carat + clarity + depth
+
+          Df  Sum of Sq        RSS   AIC
+<none>                  4.4853e+09 42673
++ noise    1 8.1535e+05 4.4845e+09 42675
+- depth    1 1.1682e+07 4.4969e+09 42679
+- clarity  7 2.0260e+09 6.5112e+09 43777
+- carat    1 4.0984e+10 4.5469e+10 49620
+----------------------------------------------------
+Forward and Backward stepwise selection of variables
+----------------------------------------------------
+Linear regression (OLS)
+Data     : d 
+Response variable    : price 
+Explanatory variables: carat, clarity, noise, depth 
+Null hyp.: the effect of x on price is zero
+Alt. hyp.: the effect of x on price is not zero
+
+              coefficient std.error t.value p.value    
+ (Intercept)    -4030.680  1006.604  -4.004  < .001 ***
+ carat           8437.090    51.044 165.290  < .001 ***
+ clarity|SI2     2735.925   202.124  13.536  < .001 ***
+ clarity|SI1     3558.148   201.093  17.694  < .001 ***
+ clarity|VS2     4186.705   202.648  20.660  < .001 ***
+ clarity|VS1     4401.119   205.520  21.415  < .001 ***
+ clarity|VVS2    5052.638   210.954  23.951  < .001 ***
+ clarity|VVS1    4958.282   215.448  23.014  < .001 ***
+ clarity|IF      5197.258   234.659  22.148  < .001 ***
+ depth            -43.595    15.622  -2.791   0.005 ** 
+
+Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+
+R-squared: 0.904,  Adjusted R-squared: 0.904 
+F-statistic: 3145.785 df(9,2990), p.value < .001
+Nr obs: 3,000 
+

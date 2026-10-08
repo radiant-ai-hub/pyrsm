@@ -123,7 +123,7 @@ def test_stepwise_backward_drops_noise_and_respects_marginality(diamonds, capsys
     assert reg.fitted.aic < full.fitted.aic
     reg.summary(test=["depth"])
     out = capsys.readouterr().out
-    assert "removed noise:n2, noise, n2" in out
+    assert "removed: noise:n2, noise, n2" in out
     assert "Model comparisons are not conducted when Stepwise has been selected." in out
 
 
@@ -168,3 +168,102 @@ def test_plot_predictions(diamonds, tmp_path):
         p.save(tmp_path / "pred.png", dpi=40, verbose=False)
     with pytest.raises(ValueError):
         plot_predictions(pred, xvar="cut")
+
+
+REFERENCE = Path(__file__).parent / "reference" / "regress_step"
+
+
+def _deterministic_noise(diamonds):
+    # Same columns in R: noise <- sin(1:n); n2 <- cos(3 * (1:n))
+    i = np.arange(1, diamonds.height + 1)
+    return diamonds.with_columns(pl.Series("noise", np.sin(i)), pl.Series("n2", np.cos(3 * i)))
+
+
+@pytest.mark.parametrize(
+    "direction,evar,ivar",
+    [
+        ("backward", ["carat", "clarity", "noise", "n2", "depth"], ["carat:clarity", "noise:n2"]),
+        ("forward", ["carat", "noise", "depth"], ["carat:depth"]),
+        ("both", ["carat", "clarity", "noise", "depth"], None),
+    ],
+)
+def test_step_trace_is_r_step_output(diamonds, direction, evar, ivar):
+    """The trace is what R prints for regress(..., check = "stepwise-<direction>")."""
+    reg = regress(
+        {"diamonds": _deterministic_noise(diamonds)},
+        rvar="price",
+        evar=evar,
+        ivar=ivar,
+        stepwise=direction,
+    )
+    expected = (REFERENCE / f"{direction}.txt").read_text().rstrip("\n")
+    assert reg.step_trace == expected
+
+
+def test_stepwise_summary_banner_and_selected_model(diamonds, capsys):
+    reg = regress(
+        {"diamonds": _deterministic_noise(diamonds)},
+        rvar="price",
+        evar=["carat", "clarity", "noise", "depth"],
+        stepwise="both",
+    )
+    reg.summary()
+    out = capsys.readouterr().out
+    banner = "-" * 52 + "\nForward and Backward stepwise selection of variables\n" + "-" * 52
+    assert banner in out
+    # radiant.model keeps carat, clarity and depth (see both_summary.txt)
+    r_summary = (REFERENCE / "both_summary.txt").read_text()
+    for term in ["carat", "clarity|IF", "depth"]:
+        assert term in r_summary
+    assert set(reg.formula.split("~")[1].replace(" ", "").split("+")) == {"carat", "clarity", "depth"}
+
+
+def test_robust_keeps_classical_fit_statistics(diamonds):
+    """As radiant.model: robust SEs for inference, classical R-squared and F."""
+    plain = regress({"diamonds": diamonds}, rvar="price", evar=["carat", "clarity"])
+    robust = regress({"diamonds": diamonds}, rvar="price", evar=["carat", "clarity"], robust=True)
+    assert robust.fitted.fvalue == pytest.approx(plain.fitted.fvalue)
+    assert robust.fitted.rsquared == pytest.approx(plain.fitted.rsquared)
+    assert robust.coef["std.error"][1] != pytest.approx(plain.coef["std.error"][1])
+    # prediction intervals are the classical ones (R's predict.lm)
+    a = plain.predict(cmd={"carat": [1]}, ci=True)
+    b = robust.predict(cmd={"carat": [1]}, ci=True)
+    assert a["2.50%"][0] == pytest.approx(b["2.50%"][0])
+
+
+@pytest.mark.parametrize("model", ["regress", "logistic", "rforest", "mlp", "xgboost"])
+def test_prediction_with_missing_columns_says_which(model):
+    from pyrsm.model.logistic import logistic
+    from pyrsm.model.mlp import mlp
+    from pyrsm.model.rforest import rforest
+    from pyrsm.model.xgboost import xgboost
+
+    rng = np.random.default_rng(1)
+    df = pl.DataFrame(
+        {
+            "y": rng.integers(0, 2, 200).astype(float),
+            "x1": rng.normal(size=200),
+            "x2": rng.normal(size=200),
+        }
+    )
+    if model == "regress":
+        m = regress(df, rvar="y", evar=["x1", "x2"])
+    elif model == "logistic":
+        m = logistic(df.with_columns(pl.col("y").cast(pl.Int64).cast(pl.Utf8)), rvar="y", lev="1", evar=["x1", "x2"])
+    elif model == "rforest":
+        m = rforest(df, rvar="y", evar=["x1", "x2"], mod_type="regression")
+    elif model == "mlp":
+        m = mlp(df, rvar="y", evar=["x1", "x2"], mod_type="regression", max_iter=50)
+    else:
+        m = xgboost(df, rvar="y", evar=["x1", "x2"], mod_type="regression")
+    with pytest.raises(ValueError) as err:
+        m.predict(data=df.drop("x2"))
+    assert str(err.value) == (
+        "All variables in the model must also be in the prediction data\n"
+        "Variables in the model: x1, x2\n"
+        "Variables not available in prediction data: x2"
+    )
+    with pytest.raises(ValueError) as err:
+        m.predict(cmd={"x3": [1]})
+    assert "The command entered contains variable names that are not in the model" in str(err.value)
+    assert str(err.value).endswith("Variables not available in prediction data: x3")

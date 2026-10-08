@@ -342,6 +342,14 @@ class mlp:
         --------
         >>> predictions = model.predict(new_data)
         """
+        from pyrsm.model.model import check_pred_vars
+
+        check_pred_vars(
+            self.evar,
+            data=None if data is None else check_dataframe(data),
+            cmd=cmd if isinstance(cmd, dict) else None,
+            data_cmd=data_cmd if isinstance(data_cmd, dict) else None,
+        )
         if data is None:
             pred_data = self.data.select(self.evar)
         else:

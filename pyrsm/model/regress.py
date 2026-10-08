@@ -70,12 +70,18 @@ class regress:
         (0 when the data were not standardized).
     center : bool
         Whether numeric variables were mean-centered before estimation.
-    stepwise : bool
-        Whether backward stepwise selection (AIC) was applied.
+    stepwise : str
+        Stepwise selection direction ("backward", "forward", "both"), or ""
+        when no stepwise selection was applied.
     robust : bool
         Whether heteroskedasticity-robust (HC1) standard errors are used.
     removed : list[str]
         Terms dropped by stepwise selection.
+    step_trace : str
+        The stepwise selection trace, laid out as R's ``step()`` prints it.
+    fitted_inference : statsmodels results
+        The results used for coefficient inference: ``fitted`` itself, or its
+        HC1 robust version when ``robust=True``.
 
     Methods
     -------
@@ -101,7 +107,7 @@ class regress:
         slice: str = "",
         standardize: bool | int | float = False,
         center: bool = False,
-        stepwise: bool = False,
+        stepwise: bool | str = False,
         robust: bool = False,
     ) -> None:
         """
@@ -139,13 +145,23 @@ class regress:
         center : bool, default False
             Subtract the mean from numeric variables (response included) before
             estimation. Ignored when ``standardize`` is set.
-        stepwise : bool, default False
-            Backward stepwise selection of explanatory variables using AIC.
+        stepwise : bool or str, default False
+            Stepwise selection of explanatory variables by AIC, as R's
+            ``step()``: ``"backward"`` (or ``True``) starts from the full model
+            and drops terms, ``"forward"`` starts from an intercept-only model
+            and adds terms, ``"both"`` starts from the intercept-only model and
+            may add or drop at each step. AIC is ``n log(RSS/n) + 2k`` with
+            ``k`` the number of estimated coefficients (R's ``extractAIC``).
             A main effect is not dropped while an interaction that contains it
-            remains in the model.
+            is in the model, and an interaction is not added before its main
+            effects. ``summary()`` prints the selection trace.
         robust : bool, default False
-            Use heteroskedasticity-robust (HC1) standard errors for the
-            coefficients, confidence intervals and F-tests.
+            Heteroskedasticity-robust (HC1, White/MacKinnon) standard errors,
+            as ``sandwich::vcovHC(type = "HC1")`` in Radiant. They are used
+            for the coefficient table, confidence intervals, the coefficient
+            plot and F-tests on ``test`` variables. The coefficients, R-squared,
+            the overall F-statistic and prediction intervals are the classical
+            OLS ones, as in Radiant.
         """
         if isinstance(data, dict):
             self.name = list(data.keys())[0]
@@ -195,9 +211,15 @@ class regress:
         if self.standardize == int(self.standardize):
             self.standardize = int(self.standardize)
         self.center = bool(center) and not self.standardize
-        self.stepwise = bool(stepwise)
+        if stepwise is True:
+            stepwise = "backward"
+        if stepwise and stepwise not in ("backward", "forward", "both"):
+            raise ValueError("stepwise must be 'backward', 'forward' or 'both'")
+        self.stepwise = stepwise or ""
         self.robust = bool(robust)
         self.removed: list[str] = []
+        self.added: list[str] = []
+        self.step_trace = ""
 
         # The data in original units. Standardizing or centering changes what
         # is estimated, not what a student types for a prediction, so
@@ -228,32 +250,36 @@ class regress:
             self.rvar = model_utils.extract_rvar(self.fitted.model, self.data.columns)
 
         if self.stepwise:
-            self._stepwise_backward(pdf)
+            self._step(pdf)
 
         self.fitted.nobs_dropped = self.data.height - self.fitted.nobs
+
+        # Coefficient inference: robust (HC1) when asked, classical otherwise.
+        if self.robust:
+            # Same model, HC1 covariance; t distribution with n - k df as R.
+            self.fitted_inference = self.fitted.model.fit(cov_type="HC1", use_t=True)
+        else:
+            self.fitted_inference = self.fitted
+        inf = self.fitted_inference
+        params, bse, tvalues, pvalues = inf.params, inf.bse, inf.tvalues, inf.pvalues
 
         # Build coefficient table as polars DataFrame
         self.coef = pl.DataFrame(
             {
-                "index": self.fitted.params.index.str.replace(
-                    "[T.", "[", regex=False
-                ).tolist(),
-                "coefficient": self.fitted.params.values,
-                "std.error": (self.fitted.params / self.fitted.tvalues).values,
-                "t.value": self.fitted.tvalues.values,
-                "p.value": self.fitted.pvalues.values,
-                "  ": model_utils.sig_stars(self.fitted.pvalues.values),
+                "index": params.index.str.replace("[T.", "[", regex=False).tolist(),
+                "coefficient": params.values,
+                "std.error": bse.values,
+                "t.value": tvalues.values,
+                "p.value": pvalues.values,
+                "  ": model_utils.sig_stars(pvalues.values),
             }
         ).drop_nulls(subset=["coefficient"])
 
     def _ols(self, formula: str, pdf: pd.DataFrame):
-        """Fit OLS, with HC1 standard errors when ``robust`` is set."""
+        """Fit OLS (classical covariance; see ``fitted_inference`` for robust)."""
         import statsmodels.formula.api as smf
 
-        model = smf.ols(formula=formula, data=pdf)
-        if self.robust:
-            return model.fit(cov_type="HC1", use_t=True)
-        return model.fit()
+        return smf.ols(formula=formula, data=pdf).fit()
 
     def _calc_scaling(self) -> None:
         """Means and standard deviations of the numeric columns (R's ``sd``)."""
@@ -294,49 +320,93 @@ class regress:
             return values * (self.standardize * sd) + mean
         return values + mean
 
-    def _stepwise_backward(self, pdf: pd.DataFrame) -> None:
-        """Backward elimination by AIC, respecting marginality (R's ``step``)."""
-        design = self.fitted.model.data.design_info
+    def _step(self, pdf: pd.DataFrame) -> None:
+        """Stepwise selection by AIC, as R's ``step()`` (and its printed trace)."""
+        import numpy as np
+
+        direction = self.stepwise
+        full = self.fitted
+        design = full.model.data.design_info
         has_intercept = any(len(t.factors) == 0 for t in design.terms)
+
+        # Terms in R's order: by degree, then as the student listed them.
+        rhs = [t.strip() for t in self.formula.split("~", 1)[1].split("+")]
         terms = [t for t in design.terms if len(t.factors) > 0]
-        names = [t.name() for t in terms]
+
+        def position(name: str) -> int:
+            return rhs.index(name) if name in rhs else len(rhs)
+
+        terms.sort(key=lambda t: (len(t.factors), position(t.name())))
+        upper = [t.name() for t in terms]
         factors = {t.name(): {f.name() for f in t.factors} for t in terms}
 
-        # Compare models on the same rows: those complete for the full model.
-        rows = self.fitted.model.data.row_labels
+        # Every model is compared on the rows complete for the full model.
+        rows = full.model.data.row_labels
         if rows is not None and len(rows) < len(pdf):
             pdf = pdf.loc[rows]
 
         def formula_for(keep: list[str]) -> str:
-            rhs = " + ".join(keep) if keep else "1"
+            keep = [t for t in upper if t in keep]
+            rhs_ = " + ".join(keep) if keep else "1"
             if not has_intercept:
-                rhs += " - 1"
-            return f"{self.rvar} ~ {rhs}"
+                rhs_ += " - 1"
+            return f"{self.rvar} ~ {rhs_}"
 
-        current = list(names)
-        current_aic = self.fitted.aic
-        while current:
-            # A term can go only if no remaining term contains it.
-            candidates = [
-                t
-                for t in current
-                if not any(factors[t] < factors[o] for o in current if o != t)
+        def aic(fit) -> float:
+            # R's extractAIC for lm: n log(RSS/n) + 2 edf
+            n = fit.nobs
+            return n * np.log(fit.ssr / n) + 2 * (n - fit.df_resid)
+
+        def droppable(t: str, current: list[str]) -> bool:
+            return not any(factors[t] < factors[o] for o in current if o != t)
+
+        def addable(t: str, current: list[str]) -> bool:
+            return all(o in current for o in upper if factors[o] < factors[t])
+
+        current = list(upper) if direction == "backward" else []
+        fit = self._ols(formula_for(current), pdf)
+        fit_aic = aic(fit)
+        trace: list[str] = []
+        label = "Start"
+        while True:
+            table: list[tuple[str, float | None, float | None, float, float, list[str]]] = [
+                ("<none>", None, None, fit.ssr, fit_aic, current)
             ]
-            best, best_aic = None, None
-            for t in candidates:
-                aic = self._ols(formula_for([x for x in current if x != t]), pdf).aic
-                if best_aic is None or aic < best_aic:
-                    best, best_aic = t, aic
-            if best is None or best_aic >= current_aic - 1e-7:
+            if direction in ("backward", "both"):
+                for t in current:
+                    if droppable(t, current):
+                        keep = [x for x in current if x != t]
+                        f = self._ols(formula_for(keep), pdf)
+                        table.append(
+                            (f"- {t}", f.df_resid - fit.df_resid, f.ssr - fit.ssr, f.ssr, aic(f), keep)
+                        )
+            if direction in ("forward", "both"):
+                for t in upper:
+                    if t not in current and addable(t, current):
+                        keep = current + [t]
+                        f = self._ols(formula_for(keep), pdf)
+                        table.append(
+                            (f"+ {t}", fit.df_resid - f.df_resid, fit.ssr - f.ssr, f.ssr, aic(f), keep)
+                        )
+            table.sort(key=lambda row: row[4])
+            trace.append(_step_block(label, fit_aic, formula_for(current), table))
+            label = "Step"
+            best = table[0]
+            if best[0] == "<none>" or best[4] >= fit_aic - 1e-7:
                 break
-            current.remove(best)
-            self.removed.append(best)
-            current_aic = best_aic
+            changed = best[0][2:]
+            if best[0].startswith("-"):
+                self.removed.append(changed)
+            else:
+                self.added.append(changed)
+            current = best[5]
+            fit = self._ols(formula_for(current), pdf)
+            fit_aic = aic(fit)
 
-        if self.removed:
-            self.formula = formula_for(current)
-            self.fitted = self._ols(self.formula, pdf)
-            self.ivar = [t for t in self.ivar if t in current]
+        self.step_trace = "\n\n".join(trace)
+        self.formula = formula_for(current)
+        self.fitted = fit
+        self.ivar = [t for t in self.ivar if t in current]
 
     def _model_evar(self) -> list[str]:
         """Explanatory variables still used by the (possibly stepwise) model."""
@@ -380,6 +450,17 @@ class regress:
             Force plain text output (useful for non-notebook environments like Shiny).
         """
         model_utils = _model_utils()
+
+        if self.stepwise:
+            # As Radiant's report: the selection trace, then the summary.
+            print(self.step_trace)
+            title = {
+                "backward": "Backward",
+                "forward": "Forward",
+                "both": "Forward and Backward",
+            }[self.stepwise]
+            line = "-" * 52
+            print(f"\n{line}\n{title} stepwise selection of variables\n{line}")
 
         self._summary_header()
         if not plain and du.is_notebook():
@@ -428,7 +509,7 @@ class regress:
 
         if ci:
             print("\nConfidence intervals:")
-            df = model_utils.coef_ci(self.fitted, alpha=1 - conf, dec=dec)
+            df = model_utils.coef_ci(self.fitted_inference, alpha=1 - conf, dec=dec)
             print(f"\n{df.to_string()}")
 
     def rmse(self) -> tuple[float, float]:
@@ -445,8 +526,12 @@ class regress:
         print("Response variable    :", self.rvar)
         print("Explanatory variables:", ", ".join(self.evar))
         if self.stepwise:
-            removed = ", ".join(self.removed) if self.removed else "none"
-            print("Stepwise selection   : backward (AIC), removed", removed)
+            if self.stepwise == "backward":
+                change = "removed: " + (", ".join(self.removed) or "none")
+            else:
+                kept = self.formula.split("~", 1)[1].strip()
+                change = "selected: " + kept
+            print(f"Stepwise selection   : {self.stepwise} (AIC), {change}")
         print(f"Null hyp.: the effect of x on {self.rvar} is zero")
         print(f"Alt. hyp.: the effect of x on {self.rvar} is not zero")
         if self.standardize:
@@ -525,6 +610,14 @@ class regress:
         pl.DataFrame
             DataFrame containing the predictions and the data used to make those predictions.
         """
+        from pyrsm.model.model import check_pred_vars
+
+        check_pred_vars(
+            self.evar,
+            data=None if data is None else check_dataframe(data),
+            cmd=cmd if isinstance(cmd, dict) else None,
+            data_cmd=data_cmd if isinstance(data_cmd, dict) else None,
+        )
         model_utils = _model_utils()
         if data is None:
             pred_data = self.data_raw.select(self.evar)
@@ -738,7 +831,7 @@ class regress:
             return p
         if "coef" in plots:
             return model_utils.coef_plot(
-                self.fitted,
+                self.fitted_inference,
                 alpha=alpha,
                 intercept=intercept,
                 incl=incl,
@@ -796,10 +889,14 @@ class regress:
 
         print(f"\nModel 1: {formula}")
         print(f"Model 2: {self.formula}")
-        out = self.fitted.f_test(hypothesis)
+        # The F-test uses the robust covariance when ``robust`` is set (R's
+        # car::linearHypothesis with a vcov); the R-squared of the restricted
+        # model comes from the classical F, which is exact for OLS.
+        out = self.fitted_inference.f_test(hypothesis)
+        classical = self.fitted.f_test(hypothesis)
 
         r2_sub = self.fitted.rsquared - (
-            len(hypothesis) * out.fvalue * (1 - self.fitted.rsquared)
+            len(hypothesis) * classical.fvalue * (1 - self.fitted.rsquared)
         ) / (self.fitted.nobs - self.fitted.df_model - 1)
 
         pvalue = ifelse(out.pvalue < 0.001, "< .001", round(out.pvalue, dec))
@@ -807,3 +904,86 @@ class regress:
         print(
             f"F-statistic: {round(out.fvalue, dec)} df ({out.df_num:.0f}, {out.df_denom:.0f}), p.value {pvalue}"
         )
+
+
+def _r_format_column(values: list, digits: int = 5) -> list[str]:
+    """Format a numeric column the way R's ``print.anova`` does.
+
+    ``zapsmall`` to ``digits``, then R's ``formatReal``: fixed notation unless
+    it would be wider than scientific notation, at most ``digits``
+    significant digits.
+    """
+    import math
+
+    finite = [v for v in values if v is not None and math.isfinite(v)]
+    if not finite:
+        return ["" for _ in values]
+    # print.anova zaps each column first: zapsmall(x, digits)
+    mx = max(abs(v) for v in finite)
+    if mx > 0:
+        places = max(0, digits - math.ceil(math.log10(mx)))
+        values = [None if v is None or not math.isfinite(v) else round(v, places) for v in values]
+        finite = [v for v in values if v is not None]
+    neg = any(v < 0 for v in finite)
+    sig, left, right, wide_exp = [], [], [], False
+    for v in finite:
+        if v == 0:
+            sig.append(1), left.append(1), right.append(0)
+            continue
+        mant, exp = f"{abs(v):.{digits - 1}e}".split("e")
+        exp = int(exp)
+        wide_exp = wide_exp or abs(exp) >= 100
+        s = len(mant.replace(".", "").rstrip("0")) or 1
+        sig.append(s)
+        left.append(max(1, exp + 1))
+        right.append(max(0, s - 1 - exp))
+    rgt = max(right)
+    fixed_width = neg + max(left) + (rgt + 1 if rgt > 0 else 0)
+    mf = max(sig) - 1
+    sci_width = neg + (mf + 1 if mf > 0 else 0) + 1 + (5 if wide_exp else 4)
+    out = []
+    for v in values:
+        if v is None or not math.isfinite(v):
+            out.append("")
+        elif fixed_width <= sci_width:
+            out.append(f"{v:.{rgt}f}")
+        else:
+            out.append(f"{v:.{mf}e}")
+    return out
+
+
+def _r_formula_lines(formula: str, width: int = 60) -> str:
+    """Wrap a formula as R's ``deparse`` does: break after ``+`` past ``width``."""
+    lhs, rhs = formula.split("~", 1)
+    terms = [t.strip() for t in rhs.split("+")]
+    lines, line = [], f"{lhs.strip()} ~ {terms[0]}"
+    for term in terms[1:]:
+        if len(line) + 3 > width:
+            lines.append(line + " + ")
+            line = "    " + term
+        else:
+            line += " + " + term
+    lines.append(line)
+    return "\n".join(lines)
+
+
+def _step_block(label: str, aic: float, formula: str, table: list) -> str:
+    """One step of R's ``step()`` trace: header, formula and the AIC table."""
+    header = f"{label}:  AIC={float(f'{round(aic, 2):.7g}'):.7g}"
+    labels = [row[0] for row in table]
+    df_col = ["" if row[1] is None else str(int(round(row[1]))) for row in table]
+    columns = [
+        ("Df", df_col),
+        ("Sum of Sq", _r_format_column([row[2] for row in table])),
+        ("RSS", _r_format_column([row[3] for row in table])),
+        ("AIC", _r_format_column([row[4] for row in table])),
+    ]
+    lw = max(len(x) for x in labels)
+    widths = [max(len(h), *(len(v) for v in vals)) for h, vals in columns]
+    out = [" " * lw + "".join(" " + h.rjust(w) for (h, _), w in zip(columns, widths))]
+    for i, lab in enumerate(labels):
+        out.append(
+            lab.ljust(lw)
+            + "".join(" " + vals[i].rjust(w) for (_, vals), w in zip(columns, widths))
+        )
+    return f"{header}\n{_r_formula_lines(formula)}\n\n" + "\n".join(out)

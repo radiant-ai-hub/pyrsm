@@ -251,6 +251,46 @@ def extract_rvar(model, cn):
     return re.findall(pattern, model.formula)[0]
 
 
+def check_pred_vars(evar, data=None, cmd=None, data_cmd=None) -> None:
+    """
+    Refuse a prediction request that does not fit the model, with Radiant's message
+
+    Parameters
+    ----------
+    evar : list[str]
+        Explanatory variables in the model
+    data : DataFrame, optional
+        Prediction data. Every explanatory variable must be a column.
+    cmd, data_cmd : dict, optional
+        Prediction command(s). Every name must be an explanatory variable.
+
+    Raises
+    ------
+    ValueError
+        Naming the variables in the model and the ones that are missing
+    """
+    evar = list(evar or [])
+    if data is not None:
+        columns = list(data.columns)
+        missing = [v for v in evar if v not in columns]
+        if missing:
+            raise ValueError(
+                "All variables in the model must also be in the prediction data\n"
+                f"Variables in the model: {', '.join(evar)}\n"
+                f"Variables not available in prediction data: {', '.join(missing)}"
+            )
+    for command in (cmd, data_cmd):
+        if not command or not isinstance(command, dict):
+            continue
+        extra = [k for k in command if k not in evar]
+        if extra:
+            raise ValueError(
+                "The command entered contains variable names that are not in the model\n"
+                f"Variables in the model: {', '.join(evar)}\n"
+                f"Variables not available in prediction data: {', '.join(extra)}"
+            )
+
+
 def convert_to_list(v):
     if v is None:
         return []

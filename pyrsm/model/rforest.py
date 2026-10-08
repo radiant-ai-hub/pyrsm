@@ -261,6 +261,14 @@ class rforest:
         pl.DataFrame
             DataFrame containing the predictions and the data used to make those predictions.
         """
+        from pyrsm.model.model import check_pred_vars
+
+        check_pred_vars(
+            self.evar,
+            data=None if data is None else check_dataframe(data),
+            cmd=cmd if isinstance(cmd, dict) else None,
+            data_cmd=data_cmd if isinstance(data_cmd, dict) else None,
+        )
         if (
             data is None
             and self.oob_score

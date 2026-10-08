@@ -1640,8 +1640,8 @@ def plot_predictions(
     Predictions are averaged over the rows that share the plotted values, so a
     command that varies more variables than are plotted still gives one line
     (or point) per group. Confidence bounds that ``predict(ci=True)`` adds
-    (the two columns ending in "%") are drawn as dashed lines for a numeric
-    ``xvar`` and as error bars for a categorical one.
+    (the two columns ending in "%") are drawn as in Radiant: a shaded band for
+    a numeric ``xvar`` with 11 or more values, point ranges otherwise.
 
     Parameters
     ----------
@@ -1660,7 +1660,7 @@ def plot_predictions(
     -------
     plotnine.ggplot
     """
-    from plotnine import facet_grid, geom_errorbar
+    from plotnine import facet_grid, facet_wrap, geom_pointrange, geom_ribbon
 
     if isinstance(pred, pd.DataFrame):
         pred = pl.from_pandas(pred)
@@ -1695,20 +1695,25 @@ def plot_predictions(
     if color:
         mapping["color"] = color
         mapping["group"] = color
-    elif is_numeric_x:
+    else:
         mapping["group"] = 1
 
+    # As radiant.model: a shaded interval along a numeric x with 11 or more
+    # values, point ranges for a categorical x or a short grid.
+    shaded = is_numeric_x and df[xvar].n_unique() >= 11
     p = ggplot(df.to_pandas(), aes(**mapping))
-    if is_numeric_x:
-        p = p + (geom_line() if color else geom_line(color=LINE))
-        for b in bounds:
-            p = p + geom_line(aes(y=b), linetype="dashed", alpha=0.6)
-    else:
-        if len(bounds) == 2:
-            p = p + geom_errorbar(aes(ymin=bounds[0], ymax=bounds[1]), width=0.15)
-        p = p + (geom_point(size=2.5) if color else geom_point(size=2.5, color=LINE))
-        if color:
-            p = p + geom_line()
-    if facet_row or facet_col:
-        p = p + facet_grid(rows=facet_row or None, cols=facet_col or None, labeller="label_both")
+    if len(bounds) == 2:
+        if shaded:
+            p = p + geom_ribbon(
+                aes(ymin=bounds[0], ymax=bounds[1]), fill="#b3b3b3", color=None, alpha=0.5
+            )
+        else:
+            p = p + geom_pointrange(aes(ymin=bounds[0], ymax=bounds[1]), size=0.3)
+    elif not shaded:
+        p = p + geom_point(size=1.5)
+    p = p + (geom_line() if color else geom_line(color=LINE))
+    if facet_row:
+        p = p + facet_grid(rows=facet_row, cols=facet_col or None, labeller="label_both")
+    elif facet_col:
+        p = p + facet_wrap(facet_col, labeller="label_both")
     return p + labs(x=xvar, y="Prediction") + theme_pyrsm()
