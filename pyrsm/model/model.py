@@ -17,6 +17,7 @@ from plotnine import (
     geom_line,
     geom_point,
     geom_smooth,
+    geom_text,
     geom_vline,
     ggplot,
     ggtitle,
@@ -991,8 +992,8 @@ def coef_ci(fitted, alpha: float = 0.05, intercept: bool = True, dec: int = 3):
 
     df = pd.DataFrame({"coefficient": fitted.params})
 
-    low, high = [100 * alpha / 2, 100 * (1 - (alpha / 2))]
-    df[[f"{low}%", f"{high}%"]] = fitted.conf_int(alpha=alpha)
+    low, high = [round(100 * alpha / 2, 4), round(100 * (1 - (alpha / 2)), 4)]
+    df[[f"{low:g}%", f"{high:g}%"]] = fitted.conf_int(alpha=alpha)
 
     if dec is None:
         df["p.values"] = ifelse(fitted.pvalues < 0.001, "< .001", fitted.pvalues)
@@ -1057,7 +1058,12 @@ def evalreg(df, rvar: str, pred: str, dec: int = 3):
     return result.with_columns([pl.col(c).round(dec) for c in numeric_cols])
 
 
-def reg_dashboard(fitted, nobs: int = 1000):
+def _fit_line(method: str):
+    """A dashed fit line (``method`` is "lm" or "loess") in the reference color."""
+    return geom_smooth(method=method, se=False, color=REF, linetype="dashdot", size=0.75)
+
+
+def reg_dashboard(fitted, nobs: int = 1000, lines: list[str] | None = None):
     """
     Plot regression residual dashboard
 
@@ -1069,6 +1075,11 @@ def reg_dashboard(fitted, nobs: int = 1000):
         Set to None or -1 to plot all values.
         The Residuals vs Order plot will only be valid
         if all observations are plotted
+    lines : list[str] or None
+        None keeps the default linear fit lines. Otherwise the lines to add,
+        as in Radiant: "line" adds a 45-degree line to the Actual vs Fitted
+        and Q-Q plots and a linear fit to the residual plots; "loess" adds a
+        local polynomial fit to the first three plots. ``[]`` adds none.
     """
     if hasattr(fitted.model, "endog"):
         endog = fitted.model.endog
@@ -1088,11 +1099,13 @@ def reg_dashboard(fitted, nobs: int = 1000):
     if (nobs != -1 and nobs is not None) and (nobs < data.height):
         data = data.sample(nobs, seed=1234)
 
+    default_lines = lines is None
+    lines = [] if lines is None else list(lines)
+
     # Plot 1: Actual vs Fitted values
     p1 = (
         ggplot(data, aes(x="fitted", y="actual"))
         + geom_point(alpha=ALPHA, color=FILL)
-        + geom_smooth(method="lm", color=REF)
         + labs(x="Fitted values", y="Actual values")
         + ggtitle("Actual vs Fitted values")
         + theme_pyrsm()
@@ -1102,7 +1115,6 @@ def reg_dashboard(fitted, nobs: int = 1000):
     p2 = (
         ggplot(data, aes(x="fitted", y="resid"))
         + geom_point(alpha=ALPHA, color=FILL)
-        + geom_smooth(method="lm", color=REF)
         + geom_hline(yintercept=0, linetype="dashed", color=REF)
         + labs(x="Fitted values", y="Residuals")
         + ggtitle("Residuals vs Fitted values")
@@ -1123,11 +1135,25 @@ def reg_dashboard(fitted, nobs: int = 1000):
     p4 = (
         ggplot(data, aes(sample="std_resid"))
         + stat_qq(color=LINE)
-        + stat_qq_line(color=REF)
         + labs(x="Theoretical quantiles", y="Sample quantiles")
         + ggtitle("Normal Q-Q plot")
         + theme_pyrsm()
     )
+
+    if default_lines:
+        p1 = p1 + geom_smooth(method="lm", color=REF)
+        p2 = p2 + geom_smooth(method="lm", color=REF)
+        p4 = p4 + stat_qq_line(color=REF)
+    else:
+        if "line" in lines:
+            p1 = p1 + geom_abline(linetype="dashdot", color=REF)
+            p2 = p2 + _fit_line("lm")
+            p3 = p3 + _fit_line("lm")
+            p4 = p4 + stat_qq_line(color=REF, linetype="dashdot")
+        if "loess" in lines:
+            p1 = p1 + _fit_line("loess")
+            p2 = p2 + _fit_line("loess")
+            p3 = p3 + _fit_line("loess")
 
     # Plot 5: Histogram of residuals
     p5 = (
@@ -1360,7 +1386,12 @@ def sim_prediction(
 
 
 def scatter_plot(
-    fitted, df, nobs: int = 1000, figsize: tuple = None, resid=False
+    fitted,
+    df,
+    nobs: int = 1000,
+    figsize: tuple = None,
+    resid=False,
+    lines: list[str] | None = None,
 ) -> None:
     """
     Scatter plot of explanatory and response variables from a fitted regression
@@ -1377,7 +1408,11 @@ def scatter_plot(
         A tuple that determines the figure size (ignored, kept for compatibility)
     resid : bool
         If True, use residuals as the response variable
+    lines : list[str] or None
+        For numeric explanatory variables: "line" adds a linear fit, "loess"
+        a local polynomial fit, and "jitter" jitters the points
     """
+    lines = list(lines or [])
     # Convert to polars
     if isinstance(df, pd.DataFrame):
         df = pl.from_pandas(df)
@@ -1403,12 +1438,21 @@ def scatter_plot(
         col = df[exog_name]
         if col.dtype.is_numeric():
             # Scatter plot for numeric variables
+            points = (
+                geom_jitter(alpha=ALPHA, color=FILL, width=0.2, height=0)
+                if "jitter" in lines
+                else geom_point(alpha=ALPHA, color=FILL)
+            )
             p = (
                 ggplot(df, aes(x=exog_name, y=endog_name))
-                + geom_point(alpha=ALPHA, color=FILL)
+                + points
                 + labs(x=exog_name, y=endog_name)
                 + theme_pyrsm()
             )
+            if "line" in lines:
+                p = p + _fit_line("lm")
+            if "loess" in lines:
+                p = p + _fit_line("loess")
         else:
             # Jitter plot for categorical variables with mean lines
             # means_df = df.group_by(exog_name).agg(pl.col(endog_name).mean().alias("mean"))
@@ -1446,6 +1490,7 @@ def residual_plot(
     df,
     nobs: int = 1000,
     figsize: tuple = None,
+    lines: list[str] | None = None,
 ) -> None:
     """
     Plot of variables vs residuals
@@ -1461,7 +1506,57 @@ def residual_plot(
         determined based on the number of variables in the model
     """
 
-    return scatter_plot(fitted, df, nobs=nobs, figsize=figsize, resid=True)
+    return scatter_plot(fitted, df, nobs=nobs, figsize=figsize, resid=True, lines=lines)
+
+
+def influence_plot(fitted, figsize: tuple = None):
+    """
+    Influential observations: standardized residuals by observation, with the
+    point size showing Cook's distance (as in Radiant)
+
+    Observations with an absolute standardized residual below 1 are not shown,
+    except the three with the largest Cook's distance, which are labeled with
+    their row number. Dashed lines mark +/- 1 and +/- 3.
+
+    Parameters
+    ----------
+    fitted : A fitted linear regression model
+
+    Returns
+    -------
+    plotnine.ggplot
+    """
+    infl = fitted.get_influence()
+    std_resid = np.asarray(infl.resid_studentized_internal, dtype=float)
+    cooksd = np.asarray(infl.cooks_distance[0], dtype=float)
+    index = np.arange(1, len(std_resid) + 1)
+    top = set(np.argsort(-np.nan_to_num(cooksd, nan=-np.inf))[:3].tolist())
+    is_top = np.array([i in top for i in range(len(index))])
+    keep = (np.abs(std_resid) >= 1) | is_top
+    df = pd.DataFrame(
+        {
+            "index": index[keep],
+            "std_resid": std_resid[keep],
+            "cooksd": cooksd[keep],
+            "label": np.where(is_top[keep], index[keep].astype(str), ""),
+        }
+    )
+    big = np.nanmax(np.abs(std_resid)) if len(std_resid) else 0
+    lim = (min(-4.0, -big - 0.5), max(4.0, big + 0.7))
+    return (
+        ggplot(df, aes(x="index", y="std_resid"))
+        + geom_hline(yintercept=[-3, -1, 1, 3], linetype="dashed", color=REF, size=0.4)
+        + geom_point(aes(size="cooksd"), alpha=0.5, color=LINE)
+        + geom_text(aes(label="label"), nudge_y=0.35, size=9)
+        + scale_y_continuous(breaks=list(range(-4, 5)), limits=lim)
+        + labs(
+            title="Influential observations",
+            x="Observation index",
+            y="Standardized residuals",
+            size="Cook's distance",
+        )
+        + theme_pyrsm()
+    )
 
 
 def cross_validation(

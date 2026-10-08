@@ -1624,3 +1624,91 @@ def pip_plot_sklearn(fitted, X: pl.DataFrame, y, rep=5, ret=False):
         return (p, imp_df.sort("importance", descending=True))
     else:
         return (p, None)
+
+
+def plot_predictions(
+    pred: pl.DataFrame | pd.DataFrame,
+    xvar: str,
+    facet_row: str | None = None,
+    facet_col: str | None = None,
+    color: str | None = None,
+    yvar: str = "prediction",
+):
+    """
+    Plot the output of a model's ``predict`` method (Radiant's "Plot predictions")
+
+    Predictions are averaged over the rows that share the plotted values, so a
+    command that varies more variables than are plotted still gives one line
+    (or point) per group. Confidence bounds that ``predict(ci=True)`` adds
+    (the two columns ending in "%") are drawn as dashed lines for a numeric
+    ``xvar`` and as error bars for a categorical one.
+
+    Parameters
+    ----------
+    pred : DataFrame
+        Output of ``predict`` with a ``prediction`` column
+    xvar : str
+        Variable on the x-axis
+    facet_row, facet_col : str, optional
+        Variables to facet the plot by (rows and columns)
+    color : str, optional
+        Variable used to color lines and points
+    yvar : str, default "prediction"
+        Column with the predictions
+
+    Returns
+    -------
+    plotnine.ggplot
+    """
+    from plotnine import facet_grid, geom_errorbar
+
+    if isinstance(pred, pd.DataFrame):
+        pred = pl.from_pandas(pred)
+    if xvar not in pred.columns:
+        raise ValueError(f"'{xvar}' is not a column in the predictions")
+    if yvar not in pred.columns:
+        raise ValueError(f"'{yvar}' is not a column in the predictions")
+
+    groups = [v for v in [xvar, color, facet_row, facet_col] if v]
+    missing = [v for v in groups if v not in pred.columns]
+    if missing:
+        raise ValueError(f"Not columns in the predictions: {', '.join(missing)}")
+    groups = list(dict.fromkeys(groups))
+    bounds = [c for c in pred.columns if c.endswith("%")][:2]
+    df = (
+        pred.group_by(groups, maintain_order=True)
+        .agg([pl.col(c).mean() for c in [yvar, *bounds]])
+        .sort(groups)
+        .rename(dict(zip(bounds, ["__lower__", "__upper__"])))
+    )
+    bounds = ["__lower__", "__upper__"][: len(bounds)]
+    is_numeric_x = df.schema[xvar].is_numeric()
+
+    # Categorical aesthetics read as discrete groups, never as gradients
+    for v in [color, facet_row, facet_col]:
+        if v and df.schema[v] != pl.Utf8:
+            df = df.with_columns(pl.col(v).cast(pl.Utf8))
+    if not is_numeric_x:
+        df = df.with_columns(pl.col(xvar).cast(pl.Utf8))
+
+    mapping = {"x": xvar, "y": yvar}
+    if color:
+        mapping["color"] = color
+        mapping["group"] = color
+    elif is_numeric_x:
+        mapping["group"] = 1
+
+    p = ggplot(df.to_pandas(), aes(**mapping))
+    if is_numeric_x:
+        p = p + (geom_line() if color else geom_line(color=LINE))
+        for b in bounds:
+            p = p + geom_line(aes(y=b), linetype="dashed", alpha=0.6)
+    else:
+        if len(bounds) == 2:
+            p = p + geom_errorbar(aes(ymin=bounds[0], ymax=bounds[1]), width=0.15)
+        p = p + (geom_point(size=2.5) if color else geom_point(size=2.5, color=LINE))
+        if color:
+            p = p + geom_line()
+    if facet_row or facet_col:
+        p = p + facet_grid(rows=facet_row or None, cols=facet_col or None, labeller="label_both")
+    return p + labs(x=xvar, y="Prediction") + theme_pyrsm()
