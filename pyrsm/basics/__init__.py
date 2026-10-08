@@ -4,6 +4,7 @@ from types import ModuleType
 
 _EXPORTS = {
     "central_limit_theorem": "pyrsm.basics.central_limit_theorem",
+    "clt": "pyrsm.basics.central_limit_theorem",
     "compare_means": "pyrsm.basics.compare_means",
     "compare_props": "pyrsm.basics.compare_props",
     "correlation": "pyrsm.basics.correlation",

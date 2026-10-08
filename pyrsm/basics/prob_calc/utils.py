@@ -19,7 +19,18 @@ from pyrsm.plot_style import ALPHA, FILL, FILL_ALT, HIGHLIGHT, REF, theme_pyrsm
 
 
 def iround(x, dec):
-    return x if not isinstance(x, float) else round(x, dec)
+    """Round floats to ``dec`` decimals; integral floats become ints (2.0 -> 2)."""
+    if not isinstance(x, float):
+        return x
+    x = round(x, dec)
+    return int(x) if x.is_integer() else x
+
+
+def check_positive(**params):
+    """Raise a ValueError naming the first parameter that is not positive."""
+    for name, value in params.items():
+        if value is None or not value > 0:
+            raise ValueError(f"{name} must be positive")
 
 
 def pretty_print_summary(summary_dict):

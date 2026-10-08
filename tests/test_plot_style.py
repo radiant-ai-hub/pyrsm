@@ -346,9 +346,7 @@ def _sp():
 def _clt():
     from pyrsm.basics.central_limit_theorem import central_limit_theorem
 
-    clt = central_limit_theorem(dist="normal", sample_size=50, num_samples=40, num_bins=10, mean=0, sd=1)
-    rng = np.random.default_rng(1)
-    return clt.plot_distribution([rng.normal(size=50) for _ in range(40)])
+    return central_limit_theorem("Normal", n=50, m=40, seed=1).plot(bins=10)
 
 
 _PROB = {
