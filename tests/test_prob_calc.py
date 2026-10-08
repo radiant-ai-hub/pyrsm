@@ -122,3 +122,28 @@ def test_one_minus_interval_is_a_probability_line(capsys):
 def test_invalid_parameters_raise(dist, kwargs, message):
     with pytest.raises(ValueError, match=message):
         prob_calc(dist, **kwargs)
+
+
+def test_defaults_match_radiant_basics():
+    from pyrsm.basics.probability_calculator import pc_defaults, pc_dist
+
+    assert set(pc_defaults) == set(pc_dist.values())
+    assert pc_defaults["binom"]["params"] == {"n": 10, "p": 0.2}
+    assert pc_defaults["chisq"]["values"]["ub"] == 3.841
+    assert pc_defaults["tdist"]["probs"] == {"plb": 0.025, "pub": 0.975}
+
+
+@pytest.mark.parametrize("dist", ["binom", "chisq", "disc", "expo", "fdist", "lnorm", "norm", "pois", "tdist", "unif"])
+@pytest.mark.parametrize("kind", ["values", "probs"])
+def test_every_default_setup_runs(dist, kind, capsys):
+    from pyrsm.basics.probability_calculator import pc_defaults
+
+    bounds = {k: v for k, v in pc_defaults[dist][kind].items() if v is not None}
+    pc = prob_calc(dist, **bounds)  # parameters filled from the defaults
+    pc.summary()
+    assert "P(" in capsys.readouterr().out
+    pc.plot()
+
+
+def test_explicit_parameters_win_over_defaults():
+    assert prob_calc("binom", n=20, p=0.9, lb=15).args == {"n": 20, "p": 0.9, "lb": 15}

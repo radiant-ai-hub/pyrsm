@@ -28,3 +28,16 @@ def test_prob_calc_wrapper_summary():
     # Ensure at least one probability line is produced
     prob_keys = [k for k in summary if k.startswith("P(")]
     assert prob_keys
+
+
+def test_prob_calc_is_the_class_after_importing_the_module_directly():
+    import subprocess
+    import sys
+
+    code = (
+        "from pyrsm.basics.probability_calculator import pc_defaults\n"
+        "import pyrsm as rsm\n"
+        "pc = rsm.basics.prob_calc('norm', ub=0)\n"
+        "assert pc.dct['p_ub'] == 0.5\n"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True, cwd=str(__import__("pathlib").Path(__file__).parents[1]))

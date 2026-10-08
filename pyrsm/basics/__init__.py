@@ -52,6 +52,11 @@ try:
     from pyrsm.basics.correlation import correlation as _correlation
     from pyrsm.basics.cross_tabs import cross_tabs as _cross_tabs
     from pyrsm.basics.goodness import goodness as _goodness
+    # ``prob_calc`` is also the name of a subpackage: once anything imports
+    # pyrsm.basics.probability_calculator (which imports .prob_calc), Python sets
+    # this module's ``prob_calc`` attribute to that subpackage and
+    # ``rsm.basics.prob_calc(...)`` fails with "'module' object is not callable".
+    from pyrsm.basics.probability_calculator import prob_calc as _prob_calc
     from pyrsm.basics.single_mean import single_mean as _single_mean
     from pyrsm.basics.single_prop import single_prop as _single_prop
 
@@ -60,6 +65,7 @@ try:
     globals()["correlation"] = _correlation
     globals()["cross_tabs"] = _cross_tabs
     globals()["goodness"] = _goodness
+    globals()["prob_calc"] = _prob_calc
     globals()["single_mean"] = _single_mean
     globals()["single_prop"] = _single_prop
 except Exception:
