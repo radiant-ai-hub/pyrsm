@@ -65,6 +65,17 @@ class regress:
     slice : str, default ""
         Rows to keep, counting from 1, e.g., "1:100". Applied after the filter
         and the sort.
+    standardize : int
+        Number of standard deviations used to standardize numeric variables
+        (0 when the data were not standardized).
+    center : bool
+        Whether numeric variables were mean-centered before estimation.
+    stepwise : bool
+        Whether backward stepwise selection (AIC) was applied.
+    robust : bool
+        Whether heteroskedasticity-robust (HC1) standard errors are used.
+    removed : list[str]
+        Terms dropped by stepwise selection.
 
     Methods
     -------
@@ -88,6 +99,10 @@ class regress:
         data_filter: str = "",
         sort: str = "",
         slice: str = "",
+        standardize: bool | int | float = False,
+        center: bool = False,
+        stepwise: bool = False,
+        robust: bool = False,
     ) -> None:
         """
         Initialize the regress class to build a linear regression model with the provided data and parameters.
@@ -115,6 +130,22 @@ class regress:
         slice : str, default ""
             Rows to keep, counting from 1, e.g., "1:100". Applied after the
             filter and the sort.
+        standardize : bool or int, default False
+            Standardize numeric variables (response included) before
+            estimation so coefficients are comparable: ``1`` divides by one
+            standard deviation, ``2`` (or ``True``) by two standard deviations
+            (Gelman, 2008), which puts numeric and binary explanatory variables
+            on a similar scale. Predictions are returned in the original units.
+        center : bool, default False
+            Subtract the mean from numeric variables (response included) before
+            estimation. Ignored when ``standardize`` is set.
+        stepwise : bool, default False
+            Backward stepwise selection of explanatory variables using AIC.
+            A main effect is not dropped while an interaction that contains it
+            remains in the model.
+        robust : bool, default False
+            Use heteroskedasticity-robust (HC1) standard errors for the
+            coefficients, confidence intervals and F-tests.
         """
         if isinstance(data, dict):
             self.name = list(data.keys())[0]
@@ -157,23 +188,47 @@ class regress:
             )
             self._enum_types.update(enum_types)
 
-        # Convert to pandas only for statsmodels fitting
-        import statsmodels.formula.api as smf
+        # Estimation options (radiant.model's "check" boxes)
+        if standardize is True:
+            standardize = 2
+        self.standardize = float(standardize or 0)
+        if self.standardize == int(self.standardize):
+            self.standardize = int(self.standardize)
+        self.center = bool(center) and not self.standardize
+        self.stepwise = bool(stepwise)
+        self.robust = bool(robust)
+        self.removed: list[str] = []
 
-        if self.formula:
-            self.fitted = smf.ols(
-                formula=self.formula, data=self.data.to_pandas()
-            ).fit()
-            self.evar = model_utils.extract_evars(self.fitted.model, self.data.columns)
-            self.rvar = model_utils.extract_rvar(self.fitted.model, self.data.columns)
-        else:
+        # The data in original units. Standardizing or centering changes what
+        # is estimated, not what a student types for a prediction, so
+        # ``predict`` starts from these values.
+        self.data_raw = self.data
+        self.scale_means: dict[str, float] = {}
+        self.scale_sds: dict[str, float] = {}
+        if self.standardize or self.center:
+            self._calc_scaling()
+            self.data = self._scale(self.data)
+
+        # Convert to pandas only for statsmodels fitting
+        if not self.formula:
             if self.evar is None or len(self.evar) == 0:
                 self.formula = f"{self.rvar} ~ 1"
             else:
                 self.formula = f"{self.rvar} ~ {' + '.join(self.evar)}"
             if self.ivar:
                 self.formula += f" + {' + '.join(self.ivar)}"
-            self.fitted = smf.ols(self.formula, data=self.data.to_pandas()).fit()
+            formula_given = False
+        else:
+            formula_given = True
+
+        pdf = self.data.to_pandas()
+        self.fitted = self._ols(self.formula, pdf)
+        if formula_given:
+            self.evar = model_utils.extract_evars(self.fitted.model, self.data.columns)
+            self.rvar = model_utils.extract_rvar(self.fitted.model, self.data.columns)
+
+        if self.stepwise:
+            self._stepwise_backward(pdf)
 
         self.fitted.nobs_dropped = self.data.height - self.fitted.nobs
 
@@ -191,6 +246,106 @@ class regress:
             }
         ).drop_nulls(subset=["coefficient"])
 
+    def _ols(self, formula: str, pdf: pd.DataFrame):
+        """Fit OLS, with HC1 standard errors when ``robust`` is set."""
+        import statsmodels.formula.api as smf
+
+        model = smf.ols(formula=formula, data=pdf)
+        if self.robust:
+            return model.fit(cov_type="HC1", use_t=True)
+        return model.fit()
+
+    def _calc_scaling(self) -> None:
+        """Means and standard deviations of the numeric columns (R's ``sd``)."""
+        for c in self.data.columns:
+            dtype = self.data[c].dtype
+            if not dtype.is_numeric() or dtype == pl.Boolean:
+                continue
+            col = self.data[c].cast(pl.Float64)
+            mean = col.mean()
+            if mean is None:
+                continue
+            self.scale_means[c] = float(mean)
+            sd = col.std(ddof=1)
+            self.scale_sds[c] = float(sd) if sd else 0.0
+
+    def _scale(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Apply the estimation-data scaling to ``df`` (any subset of columns)."""
+        exprs = []
+        for c, mean in self.scale_means.items():
+            if c not in df.columns:
+                continue
+            sd = self.scale_sds.get(c, 0.0)
+            if self.standardize and sd > 0:
+                exprs.append(
+                    ((pl.col(c).cast(pl.Float64) - mean) / (self.standardize * sd)).alias(c)
+                )
+            else:
+                exprs.append((pl.col(c).cast(pl.Float64) - mean).alias(c))
+        return df.with_columns(exprs) if exprs else df
+
+    def _unscale_response(self, values):
+        """Convert predictions of a standardized/centered response to original units."""
+        mean = self.scale_means.get(self.rvar)
+        if mean is None:
+            return values
+        sd = self.scale_sds.get(self.rvar, 0.0)
+        if self.standardize and sd > 0:
+            return values * (self.standardize * sd) + mean
+        return values + mean
+
+    def _stepwise_backward(self, pdf: pd.DataFrame) -> None:
+        """Backward elimination by AIC, respecting marginality (R's ``step``)."""
+        design = self.fitted.model.data.design_info
+        has_intercept = any(len(t.factors) == 0 for t in design.terms)
+        terms = [t for t in design.terms if len(t.factors) > 0]
+        names = [t.name() for t in terms]
+        factors = {t.name(): {f.name() for f in t.factors} for t in terms}
+
+        # Compare models on the same rows: those complete for the full model.
+        rows = self.fitted.model.data.row_labels
+        if rows is not None and len(rows) < len(pdf):
+            pdf = pdf.loc[rows]
+
+        def formula_for(keep: list[str]) -> str:
+            rhs = " + ".join(keep) if keep else "1"
+            if not has_intercept:
+                rhs += " - 1"
+            return f"{self.rvar} ~ {rhs}"
+
+        current = list(names)
+        current_aic = self.fitted.aic
+        while current:
+            # A term can go only if no remaining term contains it.
+            candidates = [
+                t
+                for t in current
+                if not any(factors[t] < factors[o] for o in current if o != t)
+            ]
+            best, best_aic = None, None
+            for t in candidates:
+                aic = self._ols(formula_for([x for x in current if x != t]), pdf).aic
+                if best_aic is None or aic < best_aic:
+                    best, best_aic = t, aic
+            if best is None or best_aic >= current_aic - 1e-7:
+                break
+            current.remove(best)
+            self.removed.append(best)
+            current_aic = best_aic
+
+        if self.removed:
+            self.formula = formula_for(current)
+            self.fitted = self._ols(self.formula, pdf)
+            self.ivar = [t for t in self.ivar if t in current]
+
+    def _model_evar(self) -> list[str]:
+        """Explanatory variables still used by the (possibly stepwise) model."""
+        if not self.removed:
+            return list(self.evar)
+        design = self.fitted.model.data.design_info
+        used = " ".join(t.name() for t in design.terms)
+        return [v for v in self.evar if re.search(rf"\b{re.escape(v)}\b", used)]
+
     def summary(
         self,
         vif=False,
@@ -198,6 +353,7 @@ class regress:
         rmse=False,
         test: str | None = None,
         ci=False,
+        conf: float = 0.95,
         dec: int = 3,
         plain: bool = True,
     ) -> None:
@@ -216,6 +372,8 @@ class regress:
             List of variable names used in the model to test using a Chi-Square test or None if no tests are performed.
         ci : bool, default False
             Print the confidence intervals for the coefficients.
+        conf : float, default 0.95
+            Confidence level for the coefficient confidence intervals.
         dec : int, default 3
             Number of decimal places to round to.
         plain : bool, default False
@@ -261,17 +419,23 @@ class regress:
             print(f"\n{sum_of_squares.to_string()}")
 
         if rmse:
-            print("\nRoot Mean Square Error (RMSE):")
-            rmse_val = (self.fitted.ssr / self.fitted.nobs) ** 0.5
-            print(round(rmse_val, dec))
+            rmse_val, rsd_val = self.rmse()
+            print(f"\nPrediction error (RMSE): {round(rmse_val, dec)}")
+            print(f"Residual st.dev   (RSD): {round(rsd_val, dec)}")
 
         if test is not None and len(test) > 0:
             self.f_test(test=test, dec=dec)
 
         if ci:
             print("\nConfidence intervals:")
-            df = model_utils.coef_ci(self.fitted, dec=dec)
+            df = model_utils.coef_ci(self.fitted, alpha=1 - conf, dec=dec)
             print(f"\n{df.to_string()}")
+
+    def rmse(self) -> tuple[float, float]:
+        """Root mean squared error and residual standard deviation."""
+        rmse_val = (self.fitted.ssr / self.fitted.nobs) ** 0.5
+        rsd_val = (self.fitted.ssr / self.fitted.df_resid) ** 0.5
+        return rmse_val, rsd_val
 
     def _summary_header(self) -> None:
         """Print the summary header."""
@@ -280,8 +444,18 @@ class regress:
         print_scope(self, 21)
         print("Response variable    :", self.rvar)
         print("Explanatory variables:", ", ".join(self.evar))
+        if self.stepwise:
+            removed = ", ".join(self.removed) if self.removed else "none"
+            print("Stepwise selection   : backward (AIC), removed", removed)
         print(f"Null hyp.: the effect of x on {self.rvar} is zero")
-        print(f"Alt. hyp.: the effect of x on {self.rvar} is not zero\n")
+        print(f"Alt. hyp.: the effect of x on {self.rvar} is not zero")
+        if self.standardize:
+            print(f"**Standardized coefficients shown ({self.standardize} X SD)**")
+        elif self.center:
+            print("**Centered coefficients shown (x - mean(x))**")
+        if self.robust:
+            print("**Robust standard errors used**")
+        print()
 
     def _summary_plain(self, dec: int = 3) -> None:
         """Print plain text coefficient table."""
@@ -353,7 +527,7 @@ class regress:
         """
         model_utils = _model_utils()
         if data is None:
-            pred_data = self.data.select(self.evar)
+            pred_data = self.data_raw.select(self.evar)
         else:
             data = check_dataframe(data)
             pred_data = data.select(self.evar)
@@ -376,6 +550,10 @@ class regress:
             if self._enum_types:
                 pred_data = model_utils.apply_enum_types(pred_data, self._enum_types)
 
+        # A standardized/centered model is evaluated on scaled inputs; the
+        # output shows the inputs and the prediction in original units.
+        model_data = self._scale(pred_data) if self.scale_means else pred_data
+
         if ci:
             if data_cmd is not None:
                 raise ValueError(
@@ -383,18 +561,20 @@ class regress:
                 )
             else:
                 # predict_ci returns pandas, convert result to polars
-                ci_result = model_utils.predict_ci(
-                    self.fitted, pred_data.to_pandas(), conf=conf
+                ci_result = pl.from_pandas(
+                    model_utils.predict_ci(self.fitted, model_data.to_pandas(), conf=conf)
                 )
-                pred = pl.concat(
-                    [pred_data, pl.from_pandas(ci_result)], how="horizontal"
-                )
+                if self.scale_means:
+                    ci_result = ci_result.with_columns(
+                        [self._unscale_response(pl.col(c)) for c in ci_result.columns]
+                    )
+                pred = pl.concat([pred_data, ci_result], how="horizontal")
         else:
             # Get predictions from statsmodels (needs pandas), add to polars DataFrame
-            predictions = self.fitted.predict(pred_data.to_pandas())
-            pred = pred_data.with_columns(
-                pl.lit(predictions.values).alias("prediction")
-            )
+            predictions = self.fitted.predict(model_data.to_pandas()).values
+            if self.scale_means:
+                predictions = self._unscale_response(predictions)
+            pred = pred_data.with_columns(pl.lit(predictions).alias("prediction"))
 
         if dec is not None:
             pred = pred.with_columns(
@@ -416,6 +596,7 @@ class regress:
         incl=None,
         excl=None,
         incl_int=None,
+        lines=None,
         fix=True,
         hline=False,
         ice=False,
@@ -432,7 +613,9 @@ class regress:
         Parameters
         ----------
         plots : str or list[str], default 'dist'
-            List of plot types to generate. Options include 'dist', 'corr', 'scatter', 'dashboard', 'residual', 'pred', 'pip', 'coef'.
+            List of plot types to generate. Options include 'dist', 'corr', 'scatter', 'dashboard', 'residual', 'pred', 'pdp', 'pip', 'coef', 'influence'.
+        alpha : float, default 0.05
+            Significance level for the confidence intervals in a coefficient plot (coef).
         nobs : int, default 1000
             Number of observations to plot. Relevant for all plots that include a scatter of data points (i.e., corr, scatter, dashboard, residual).
         incl : list[str], optional
@@ -441,6 +624,11 @@ class regress:
             Variables to exclude from the plot. Relevant for prediction plots (pred) and coefficient plots (coef).
         incl_int : list[str], optional
             Interaction terms to include in the plot. Relevant for prediction plots (pred).
+        lines : list[str], optional
+            Lines to add to 'scatter', 'residual' and 'dashboard' plots: "line"
+            (linear fit), "loess" (local polynomial fit), and, for scatter and
+            residual plots, "jitter" (jitter the points). For 'dashboard', None
+            keeps the default linear fit lines.
         fix : bool, default True
             Fix the y-axis limits. Relevant for prediction plots (pred).
         hline : bool, default False
@@ -498,14 +686,16 @@ class regress:
             return cr.plot(nobs=nobs, figsize=figsize)
         if "scatter" in plots:
             return model_utils.scatter_plot(
-                self.fitted, data, nobs=nobs, figsize=figsize
+                self.fitted, data, nobs=nobs, figsize=figsize, lines=lines
             )
         if "dashboard" in plots:
-            return model_utils.reg_dashboard(self.fitted, nobs=nobs)
+            return model_utils.reg_dashboard(self.fitted, nobs=nobs, lines=lines)
         if "residual" in plots:
             return model_utils.residual_plot(
-                self.fitted, data, nobs=nobs, figsize=figsize
+                self.fitted, data, nobs=nobs, figsize=figsize, lines=lines
             )
+        if "influence" in plots:
+            return model_utils.influence_plot(self.fitted)
         if "pred" in plots:
             return viz_utils.pred_plot_sm(
                 self.fitted,
@@ -567,6 +757,12 @@ class regress:
         dec : int, default 3
             Number of decimal places to round to.
         """
+        if self.stepwise:
+            print("\nModel comparisons are not conducted when Stepwise has been selected.")
+            return
+        if isinstance(test, str):
+            test = [v.strip() for v in test.split(",") if v.strip()]
+        test = list(test)
         evar = setdiff(self.evar, test)
         if self.ivar is not None and len(self.ivar) > 0:
             sint = setdiff(self.ivar, test)

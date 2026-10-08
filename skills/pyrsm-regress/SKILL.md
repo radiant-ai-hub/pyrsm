@@ -123,6 +123,8 @@ Notes:
 
 **Use plain `reg.summary()` by default.** The plain output already includes the coefficient table, F-statistic, R², adjusted R², n, df, and significance stars — everything needed for interpretation. Only add optional flags when the user explicitly asks: `ssq=True` for the sum-of-squares decomposition, `rmse=True` for residual spread, `vif=True` for multicollinearity diagnostics, `ci=True` for coefficient confidence intervals, `test=[...]` for an F-test on a subset of coefficients.
 
+Estimation options on `rsm.model.regress(...)` (Radiant's check boxes), only when asked: `standardize=1` or `standardize=2` (coefficients per 1 or 2 standard deviations; `True` means 2), `center=True` (mean-centered variables), `stepwise=True` (backward selection by AIC; the summary lists the removed terms and F-tests are not run), `robust=True` (HC1 standard errors). Predictions from a standardized or centered model are in the original units. `summary(ci=True, conf=0.9)` sets the confidence level; `rmse=True` prints both RMSE and the residual standard deviation (RSD).
+
 ## Step 5 — Interpret the output
 
 This is where most of the value is. Walk the user through the summary in roughly this order — see `references/regress.md` for the detailed templates and worked examples:
@@ -218,6 +220,8 @@ The most useful diagnostic plots, in order:
 - `reg.plot("scatter")` — scatter of response against each predictor with a fitted line (spot non-linearity).
 - `reg.plot("dashboard")` — six-panel residual dashboard (predicted-vs-actual, residuals, Q-Q, etc.). The single most important check.
 - `reg.plot("residual")` — residuals vs each explanatory variable (spot heteroscedasticity, missed non-linearity).
+- `reg.plot("influence")` — standardized residuals by observation, point size = Cook's distance, the three most influential rows labeled.
+- `lines=["line", "loess", "jitter"]` adds fit lines (and jitter) to `scatter`, `residual` and `dashboard` plots; `nobs=-1` plots every row.
 
 If the dashboard looks bad — fanning residuals, curved predicted-vs-actual, heavy Q-Q tails — the conclusions from Step 5 are not trustworthy. Suggest a log-log specification (especially for `price`, `sales`, dollar amounts) and offer to refit. See the diamonds example in `references/regress.md`.
 
@@ -231,6 +235,7 @@ If the user wants to use the model rather than just describe it, the relevant me
 - `reg.plot("pdp")` (add `ice=True` for ICE lines) — partial dependence plots.
 - `reg.plot("pip")` — permutation importance (with `ret=True` to also get the importance scores back as a DataFrame).
 - `reg.plot("coef")` — coefficient plot with confidence intervals.
+- `rsm.model.plot_predictions(pred, xvar="carat", color="clarity")` — plot the output of `reg.predict(...)` (add `ci=True` to `predict` for confidence bounds; `facet_row` / `facet_col` split the plot).
 
 Don't run all of these by default — pick the one that answers the user's actual question.
 

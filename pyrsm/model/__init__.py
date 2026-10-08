@@ -33,6 +33,7 @@ _LAZY_FUNCTIONS = {
     "evalbin": "perf",
     "auc": "perf",
     "profit_max": "perf",
+    "plot_predictions": "visualize",
 }
 
 
