@@ -342,6 +342,13 @@ def _sp():
     return single_prop({"salary": _salary()}, var="sex", lev="Male").plot(plots="bar")
 
 
+@case("basics.single_prop-sim")
+def _sp_sim():
+    from pyrsm.basics.single_prop import single_prop
+
+    return single_prop({"salary": _salary()}, var="sex", lev="Male").plot(plots="sim")
+
+
 @case("basics.central_limit_theorem")
 def _clt():
     from pyrsm.basics.central_limit_theorem import central_limit_theorem

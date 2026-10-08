@@ -14,6 +14,7 @@ import numpy as np
 import polars as pl
 
 from pyrsm.utils import polychoric_corr
+from pyrsm.utils import polyserial_corr as _polyserial_corr
 
 from ._utils import as_numeric_matrix, is_categorical
 
@@ -21,32 +22,9 @@ __all__ = ["heterogeneous_corr", "polyserial_corr"]
 
 
 def polyserial_corr(x_num: np.ndarray, y_codes: np.ndarray) -> float:
-    """Two-step polyserial correlation (Olsson, Drasgow & Dorans, 1982).
-
-    ``x_num`` is continuous, ``y_codes`` are integer codes of an ordinal
-    variable. Matches the default (non-ML) estimator used by
-    ``polycor::polyserial``.
-    """
-    from scipy.stats import norm
-
-    x = np.asarray(x_num, dtype=float)
-    y = np.asarray(y_codes, dtype=float)
-    sy = y.std(ddof=1)
-    if sy == 0 or x.std(ddof=1) == 0:
-        return 0.0
-    r_xy = np.corrcoef(x, y)[0, 1]
-
-    # normal thresholds from the cumulative category proportions
-    levels = np.sort(np.unique(y))
-    cum = 0.0
-    dens_sum = 0.0
-    for lev in levels[:-1]:
-        cum += np.mean(y == lev)
-        dens_sum += norm.pdf(norm.ppf(cum))
-    if dens_sum == 0:
-        return 0.0
-    rho = r_xy * sy / dens_sum
-    return float(np.clip(rho, -1.0, 1.0))
+    """Two-step polyserial correlation; the one routine in :mod:`pyrsm.utils`
+    (``polycor::polyserial``, population sd of the codes as polycor uses)."""
+    return _polyserial_corr(x_num, y_codes)
 
 
 def heterogeneous_corr(data: pl.DataFrame, vars: list[str], hcor: bool = False):

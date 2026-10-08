@@ -8,7 +8,7 @@ import pyrsm.basics.display_utils as du
 import pyrsm.basics.utils as bu
 from pyrsm.utils import check_dataframe, ifelse, sig_stars
 from pyrsm.data_scope import apply_scope, print_scope
-from pyrsm.plot_style import ALPHA, FILL, theme_pyrsm
+from pyrsm.plot_style import ALPHA, COMP, FILL, REF, theme_pyrsm
 
 
 @lru_cache(maxsize=1)
@@ -312,14 +312,38 @@ class single_prop:
         display(gt1)
         display(gt2)
 
+    def _simulate_props(self, nsim: int = 1000, seed: int | None = None):
+        """Sample proportions simulated under the null hypothesis.
+
+        ``nsim`` binomial draws of size ``n`` with success probability
+        ``comp_value``, as proportions, and the percentile cutoff(s) for the
+        chosen alternative. Mirrors the ``"simulate"`` plot in radiant.basics
+        ``plot.single_prop``.
+        """
+        rng = np.random.default_rng(seed)
+        sims = rng.binomial(self.n, self.comp_value, size=nsim) / self.n
+        if self.alt_hyp == "two-sided":
+            probs = [(1 - self.conf) / 2, 1 - (1 - self.conf) / 2]
+        elif self.alt_hyp == "less":
+            probs = [1 - self.conf]
+        else:  # greater
+            probs = [self.conf]
+        return sims, np.quantile(sims, probs)
+
     def plot(self, plots: str = "bar"):
         """
         Plot proportions for single proportion test.
 
+        ``"bar"`` shows the share of each level of the variable. ``"sim"``
+        (radiant.basics "simulate") shows proportions simulated if the null
+        hypothesis is true: the red solid line is the comparison value, the
+        black solid line the sample proportion, and the red dashed lines the
+        cutoffs for the chosen alternative.
+
         Parameters
         ----------
         plots : str
-            Plot type (default "bar")
+            Plot type: ``"bar"`` (default) or ``"sim"``
 
         Returns
         -------
@@ -329,6 +353,7 @@ class single_prop:
         from plotnine import (
             aes,
             geom_col,
+            geom_histogram,
             ggplot,
             ggtitle,
             labs,
@@ -353,6 +378,31 @@ class single_prop:
                 + theme_pyrsm()
             )
             return p
+
+        if plots in ("sim", "simulate"):
+            from pyrsm.basics.plotting_utils import ReferenceLine
+
+            sims, cutoffs = self._simulate_props()
+            data = pl.DataFrame({"sim": sims})
+            spread = float(sims.max() - sims.min())
+            hist = (
+                geom_histogram(binwidth=spread / 20, fill=FILL, alpha=ALPHA)
+                if spread > 0
+                else geom_histogram(bins=20, fill=FILL, alpha=ALPHA)
+            )
+            p = (
+                ggplot(data, aes(x="sim"))
+                + hist
+                + labs(x=f'Level "{self.lev}" in variable {self.var}', y="Frequency")
+                + ggtitle(f'Simulated proportions if null hyp. is true ("{self.lev}" in {self.var})')
+                + theme_pyrsm()
+            )
+            p = p + ReferenceLine.vline(self.comp_value, color=COMP, linetype="solid")
+            p = p + ReferenceLine.vline(float(self.p), color=REF, linetype="solid")
+            for cut in cutoffs:
+                p = p + ReferenceLine.vline(float(cut), color=COMP, linetype="dashed")
+            return p
+        raise ValueError(f"Invalid plot type '{plots}'. Choose 'bar' or 'sim'.")
 
 
 if __name__ == "__main__":

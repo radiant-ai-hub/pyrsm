@@ -31,13 +31,19 @@ class correlation:
         or ``"polychoric"``. Use ``"polychoric"`` for ordinal variables to
         estimate correlations between latent normal variables (equivalent
         to R's ``polycor::polychor``).
+    hcor_se : bool
+        With ``method="polychoric"``: also compute standard errors and the
+        adjusted p-values from them, as radiant.basics' "Calculate adjusted
+        p.values" (``polycor::hetcor(std.err = TRUE)``; z = r / se, two-sided).
+        As in R, numeric x categorical correlations are then re-optimized,
+        so they can differ slightly from the estimates without it.
 
     Attributes
     ----------
     cr : np.ndarray
         Correlation matrix.
     cp : np.ndarray
-        P-value matrix (not available for polychoric).
+        P-value matrix (polychoric: only with ``hcor_se=True``).
     cv : np.ndarray
         Covariance matrix (not available for polychoric).
     data_filter : str, default ""
@@ -71,6 +77,7 @@ class correlation:
         data: pl.DataFrame | dict[str, pl.DataFrame],
         vars: list[str] | None = [],
         method: str = "pearson",
+        hcor_se: bool = False,
         data_filter: str = "",
         sort: str = "",
         slice: str = "",
@@ -100,6 +107,7 @@ class correlation:
 
         self.data = self.data.select(self.vars)
         self.method = method
+        self.hcor_se = bool(hcor_se) and method == "polychoric"
 
         ncol = self.data.shape[1]
         cr = np.zeros([ncol, ncol])
@@ -113,7 +121,15 @@ class correlation:
             # fast closed-form polyserial, and numeric x numeric pairs use
             # Pearson. This avoids running continuous columns (which have
             # thousands of distinct "levels") through the polychoric optimizer.
-            from pyrsm.utils import polychoric_corr, polyserial_corr
+            from pyrsm.utils import (
+                pearson_se,
+                polychoric_corr,
+                polychoric_corr_se,
+                polyserial_corr,
+                polyserial_corr_se,
+            )
+
+            se_mat = np.full([ncol, ncol], np.nan)
 
             codes, is_cat = [], []
             for col_name in self.vars:
@@ -134,12 +150,18 @@ class correlation:
                 for j in range(i + 1, ncol):
                     xi, xj = mat[:, i], mat[:, j]
                     ci, cj = is_cat[i], is_cat[j]
+                    se = np.nan
                     if ci and cj:
-                        r = polychoric_corr(xi, xj)
-                    elif ci:
-                        r = polyserial_corr(xj, xi)
-                    elif cj:
-                        r = polyserial_corr(xi, xj)
+                        if self.hcor_se:
+                            r, se = polychoric_corr_se(xi, xj)
+                        else:
+                            r = polychoric_corr(xi, xj)
+                    elif ci or cj:
+                        num, cat = (xj, xi) if ci else (xi, xj)
+                        if self.hcor_se:
+                            r, se = polyserial_corr_se(num, cat)
+                        else:
+                            r = polyserial_corr(num, cat)
                     else:
                         keep = ~(np.isnan(xi) | np.isnan(xj))
                         r = (
@@ -147,8 +169,18 @@ class correlation:
                             if keep.sum() > 1
                             else np.nan
                         )
+                        if self.hcor_se and keep.sum() > 3:
+                            se = pearson_se(r, int(keep.sum()))
                     cr[i, j] = cr[j, i] = r
-            # p-values and covariance are not available for polychoric
+                    se_mat[i, j] = se_mat[j, i] = se
+            if self.hcor_se:
+                # radiant.basics: z = r / se, two-sided normal p-values
+                stats = _get_scipy_stats()
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    cp = 2.0 * stats.norm.sf(np.abs(cr / se_mat))
+                np.fill_diagonal(cp, 0.0)
+            self.se = se_mat
+            # covariance is not available for polychoric
         else:
             # Vectorized matrix correlation with pairwise-complete handling and
             # p-values from the t-test approximation, matching radiant's
@@ -291,13 +323,13 @@ class correlation:
             print("Correlation matrix:")
             print(crs_display)
 
-            if self.method != "polychoric":
+            if self.method != "polychoric" or self.hcor_se:
                 print("\np.values:")
                 print(cps_display)
 
-                if cov:
-                    print("\nCovariance matrix:")
-                    print(cvs_display)
+            if cov and self.method != "polychoric":
+                print("\nCovariance matrix:")
+                print(cvs_display)
             elif cov:
                 print("\nCovariance matrix:")
                 print(
@@ -319,7 +351,7 @@ class correlation:
         )
         display(gt1)
 
-        if self.method != "polychoric":
+        if self.method != "polychoric" or self.hcor_se:
             gt2 = du.style_table(
                 cps_display,
                 title="P-values",
@@ -327,13 +359,13 @@ class correlation:
             )
             display(gt2)
 
-            if cov:
-                gt3 = du.style_table(
-                    cvs_display,
-                    title="Covariance Matrix",
-                    subtitle="",
-                )
-                display(gt3)
+        if cov and self.method != "polychoric":
+            gt3 = du.style_table(
+                cvs_display,
+                title="Covariance Matrix",
+                subtitle="",
+            )
+            display(gt3)
         elif cov:
             from IPython.display import Markdown
 
@@ -345,6 +377,30 @@ class correlation:
                     "scale is not defined."
                 )
             )
+
+    def cor2df(self, labels: tuple[str, str] = ("label1", "label2")) -> pl.DataFrame:
+        """
+        The correlations as a long table: one row per pair of variables, as
+        radiant.basics ``cor2df`` ("Store as data.frame").
+
+        Columns are the two variable names, ``correlation`` and ``distance``
+        (``0.5 * (1 - correlation)``), pairs in the order R's ``combn`` lists
+        them (lower triangle by column).
+
+        Parameters
+        ----------
+        labels : tuple[str, str]
+            Names for the two variable-name columns.
+        """
+        names = list(self.data.columns)
+        rows = []
+        for j in range(len(names) - 1):
+            for i in range(j + 1, len(names)):
+                r = float(self.cr[i, j])
+                rows.append({labels[0]: names[j], labels[1]: names[i],
+                             "correlation": r, "distance": 0.5 * (1 - r)})
+        return pl.DataFrame(rows, schema={labels[0]: pl.Utf8, labels[1]: pl.Utf8,
+                                          "correlation": pl.Float64, "distance": pl.Float64})
 
     def plot(self, nobs: int = 1000, dec: int = 2, figsize: tuple[float, float] = None):
         """

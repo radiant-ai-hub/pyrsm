@@ -131,3 +131,71 @@ def test_plot_handles_categorical_variables():
         fig = cr.plot(nobs=-1)
     assert isinstance(fig, ggplot)
     fig.draw()
+
+
+# --- radiant.basics parity: hetcor with standard errors, cor2df -------------
+# Reference values: R radiant.basics::correlation(titanic, c("pclass",
+# "survived", "age", "fare"), hcor = TRUE, hcor_se = TRUE / FALSE), polycor 0.8.
+
+import glob as _glob
+
+import numpy as _np
+import polars as _pl
+import pytest as _pytest
+
+
+def _titanic():
+    path = _glob.glob("examples/data/**/titanic.parquet", recursive=True) or _glob.glob(
+        "/home/vnijs/gh/pyrsm/examples/data/**/titanic.parquet", recursive=True
+    )
+    if not path:
+        _pytest.skip("titanic example data not available")
+    return _pl.read_parquet(path[0])
+
+
+_VARS = ["pclass", "survived", "age", "fare"]
+
+
+def test_hetcor_two_step_matches_r():
+    from pyrsm.basics.correlation import correlation
+
+    c = correlation({"titanic": _titanic()}, vars=_VARS, method="polychoric")
+    r = {(0, 1): 0.44409, (0, 2): -0.47134, (0, 3): -0.65048,
+         (1, 2): 0.07268, (1, 3): -0.31375, (2, 3): 0.17721}
+    for (i, j), value in r.items():
+        assert c.cr[i, j] == _pytest.approx(value, abs=5e-4)
+    assert not c.hcor_se
+
+
+def test_hetcor_with_standard_errors_matches_r():
+    from pyrsm.basics.correlation import correlation
+
+    c = correlation({"titanic": _titanic()}, vars=_VARS, method="polychoric", hcor_se=True)
+    r = {(0, 1): 0.44407, (0, 2): -0.45427, (0, 3): -0.81752,
+         (1, 2): 0.07247, (1, 3): -0.35770, (2, 3): 0.17721}
+    p = {(0, 1): 1.1420e-31, (0, 2): 7.9409e-63, (1, 2): 6.3235e-02,
+         (1, 3): 8.2303e-19, (2, 3): 3.5166e-09}
+    for (i, j), value in r.items():
+        assert c.cr[i, j] == _pytest.approx(value, abs=1e-4)
+    for (i, j), value in p.items():
+        assert c.cp[i, j] == _pytest.approx(value, rel=0.01)
+
+
+def test_hetcor_summary_shows_p_values_only_with_standard_errors(capsys):
+    from pyrsm.basics.correlation import correlation
+
+    correlation({"titanic": _titanic()}, vars=_VARS, method="polychoric").summary(cov=True)
+    out = capsys.readouterr().out
+    assert "p.values:" not in out and "Not available for the polychoric" in out
+    correlation({"titanic": _titanic()}, vars=_VARS, method="polychoric", hcor_se=True).summary(cov=True)
+    out = capsys.readouterr().out
+    assert "p.values:" in out and "Not available for the polychoric" in out
+
+
+def test_cor2df_matches_r_layout():
+    from pyrsm.basics.correlation import correlation
+
+    df = correlation({"titanic": _titanic()}, vars=["age", "fare", "survived"][:2]).cor2df()
+    assert df.columns == ["label1", "label2", "correlation", "distance"]
+    assert df.row(0)[:2] == ("age", "fare")
+    assert df["distance"][0] == _pytest.approx(0.5 * (1 - df["correlation"][0]))

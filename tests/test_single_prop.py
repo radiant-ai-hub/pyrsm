@@ -198,3 +198,18 @@ class TestSinglePropPlot:
             warnings.simplefilter("ignore", UserWarning)
             p = sp.plot(plots="bar")
         assert p is not None
+
+
+def test_single_prop_simulate_plot():
+    import polars as pl
+    from plotnine import ggplot
+
+    from pyrsm.basics.single_prop import single_prop
+
+    df = pl.DataFrame({"x": ["yes"] * 30 + ["no"] * 70})
+    sp = single_prop({"d": df}, var="x", lev="yes", comp_value=0.5, alt_hyp="less")
+    sims, cutoffs = sp._simulate_props(seed=1)
+    assert len(sims) == 1000 and len(cutoffs) == 1
+    assert abs(sims.mean() - 0.5) < 0.02
+    for kind in ("sim", "simulate"):
+        assert isinstance(sp.plot(kind), ggplot)
