@@ -41,7 +41,8 @@ from statsmodels.stats.outliers_influence import variance_inflation_factor
 
 from pyrsm.notebook import load_state, save_state
 from pyrsm.stats import weighted_mean, weighted_sd
-from pyrsm.utils import check_dataframe, expand_grid, ifelse
+from pyrsm.basics.display_utils import format_pval, format_pvals
+from pyrsm.utils import cat_levels, check_dataframe, expand_grid, ifelse
 
 from .perf import auc
 
@@ -145,6 +146,225 @@ def convert_categoricals_to_enum(
             )
 
     return converted, enum_types
+
+
+# ---------------------------------------------------------------------------
+# Unused levels and collinear (aliased) terms, handled the way R does
+# ---------------------------------------------------------------------------
+#
+# R's lm()/glm() build the model frame with drop.unused.levels = TRUE, so a
+# level that no longer occurs (e.g. after a filter) is removed and the next
+# level becomes the base. statsmodels/patsy keep every Enum category: an empty
+# base level leaves the dummies collinear with the intercept.
+#
+# For collinear columns R uses a QR decomposition with limited pivoting
+# (LINPACK dqrdc2): a column whose remaining norm falls below tol x its
+# original norm is moved to the end and gets an NA coefficient, so the *later*
+# of two collinear terms is dropped. statsmodels instead solves with a
+# pseudo-inverse, silently splitting the effect over the collinear columns
+# (coefficients, standard errors and tests for those terms are meaningless).
+# ``fit_like_r`` refits statsmodels on the columns R would keep.
+
+COLLINEARITY_NOTE = (
+    "The set of explanatory variables exhibit perfect multicollinearity.\n"
+    "One or more variables were dropped from the estimation"
+)
+
+
+def drop_unused_levels(df: pl.DataFrame, cols: list[str]) -> pl.DataFrame:
+    """Drop Enum levels that do not occur in the rows used for estimation.
+
+    Rows are "used" when none of ``cols`` is missing (as statsmodels drops
+    rows with missing values). Level order is kept; only absent levels go.
+    """
+    cols = [c for c in cols if c in df.columns]
+    if not cols:
+        return df
+    complete = df.select(cols).drop_nulls()
+    exprs = []
+    for c in cols:
+        if not isinstance(df[c].dtype, pl.Enum):
+            continue
+        present = set(complete[c].cast(pl.Utf8).unique().to_list())
+        levels = [lv for lv in df[c].dtype.categories.to_list() if lv in present]
+        if len(levels) < len(df[c].dtype.categories):
+            s = pl.col(c).cast(pl.Utf8)
+            exprs.append(
+                pl.when(s.is_in(levels)).then(s).otherwise(None).cast(pl.Enum(levels)).alias(c)
+            )
+    return df.with_columns(exprs) if exprs else df
+
+
+def dates_to_numeric(df: pl.DataFrame) -> pl.DataFrame:
+    """Dates as numbers, the way R's lm()/glm() use them: a Date becomes days
+    since 1970-01-01 and a Datetime seconds since then. (patsy would treat a
+    date column as categorical, with one dummy per distinct date.)"""
+    exprs = []
+    for c, dt in df.schema.items():
+        if dt == pl.Date:
+            exprs.append(pl.col(c).cast(pl.Int32).cast(pl.Float64))
+        elif isinstance(dt, pl.Datetime):
+            exprs.append(pl.col(c).dt.epoch("ms").cast(pl.Float64) / 1000)
+    return df.with_columns(exprs) if exprs else df
+
+
+def to_model_pandas(df: pl.DataFrame) -> pd.DataFrame:
+    """pandas frame for statsmodels, with dates as numbers (see dates_to_numeric)."""
+    return dates_to_numeric(df).to_pandas()
+
+
+def collinearity_note(fitted) -> str:
+    """R's message about perfect multicollinearity, naming the dropped terms."""
+    aliased = getattr(fitted, "aliased", [])
+    if not aliased:
+        return ""
+    names = ", ".join(a.replace("[T.", "[") for a in aliased)
+    return f"{COLLINEARITY_NOTE}: {names}"
+
+
+def formula_vars(model, data_columns) -> list[str]:
+    """Data columns used by a statsmodels formula model (response first)."""
+    used = set()
+    for factor in model.data.design_info.factor_infos:
+        used.update(factor.code.replace("C(", " ").replace(")", " ").replace(",", " ").split())
+    ynames = model.endog_names
+    used.update(str(ynames).replace("(", " ").replace(")", " ").split())
+    return [c for c in data_columns if c in used]
+
+
+def r_qr_rank(x: np.ndarray, tol: float = 1e-7) -> tuple[int, np.ndarray]:
+    """Rank and column pivot of ``x`` from R's LINPACK ``dqrdc2``.
+
+    Columns are processed left to right; one whose norm, after removing the
+    part explained by the columns kept so far, is below ``tol`` times its
+    original norm is moved to the end. Returns ``(rank, pivot)``;
+    ``pivot[rank:]`` are the aliased columns, exactly as ``lm()$qr$pivot``.
+    """
+    x = np.array(x, dtype=float, copy=True)
+    n, p = x.shape
+    qraux = np.linalg.norm(x, axis=0)
+    work1 = qraux.copy()
+    work2 = qraux.copy()
+    work2[work2 == 0.0] = 1.0
+    jpvt = np.arange(p)
+    k = p + 1  # one past the last non-negligible column (1-based, as in Fortran)
+    for l in range(min(n, p)):
+        while (l + 1) < k and qraux[l] < work2[l] * tol:
+            # cycle column l to the end
+            x[:, l:] = np.concatenate([x[:, l + 1 :], x[:, l : l + 1]], axis=1)
+            for arr in (jpvt, qraux, work1, work2):
+                arr[l:] = np.concatenate([arr[l + 1 :], arr[l : l + 1]])
+            k -= 1
+        if l == n - 1:
+            break
+        nrmxl = np.linalg.norm(x[l:, l])
+        if nrmxl == 0.0:
+            continue
+        if x[l, l] != 0.0:
+            nrmxl = np.copysign(nrmxl, x[l, l])
+        x[l:, l] /= nrmxl
+        x[l, l] += 1.0
+        for j in range(l + 1, p):
+            t = -np.dot(x[l:, l], x[l:, j]) / x[l, l]
+            x[l:, j] += t * x[l:, l]
+            if qraux[j] != 0.0:
+                tt = max(1.0 - (abs(x[l, j]) / qraux[j]) ** 2, 0.0)
+                if abs(tt) < 1e-6:
+                    qraux[j] = np.linalg.norm(x[l + 1 :, j])
+                    work1[j] = qraux[j]
+                else:
+                    qraux[j] = qraux[j] * np.sqrt(tt)
+        qraux[l] = x[l, l]
+        x[l, l] = -nrmxl
+    return min(k - 1, n), jpvt
+
+
+def fit_like_r(model, kind: str = "lm", weights=None, **fit_kwargs):
+    """Fit a statsmodels formula model, dropping aliased columns as R does.
+
+    The columns R would keep are estimated on their own; the result is then
+    expressed on the full design with a coefficient of 0 (and zero variance)
+    for every aliased column. Predictions, confidence intervals and tests
+    from statsmodels therefore work as usual and equal R's (R predicts with
+    the NA coefficients treated as 0), while the coefficient table should
+    leave out the names in ``results.aliased``.
+
+    Parameters
+    ----------
+    model : statsmodels model created with the formula API (smf.ols / smf.glm)
+    kind : {"lm", "glm"}
+        Tolerance as in R: 1e-7 for ``lm``, 1e-11 for ``glm`` (``glm.fit``
+        uses ``min(1e-7, epsilon / 1000)``).
+    weights : array-like, optional
+        Case weights; the rank is determined on ``sqrt(w) * X`` as in R.
+    **fit_kwargs
+        Passed on to ``model.fit``.
+
+    Returns
+    -------
+    statsmodels results with an extra attribute ``aliased``: the names of the
+    dropped columns (empty when the design has full rank).
+    """
+    import statsmodels.api as sma
+    from statsmodels.genmod.generalized_linear_model import (
+        GLM,
+        GLMResults,
+        GLMResultsWrapper,
+    )
+    from statsmodels.regression.linear_model import (
+        OLSResults,
+        RegressionResultsWrapper,
+    )
+
+    X = np.asarray(model.exog, dtype=float)
+    Xw = X if weights is None else X * np.sqrt(np.asarray(weights, dtype=float))[:, None]
+    rank, piv = r_qr_rank(Xw, 1e-7 if kind == "lm" else 1e-11)
+    names = list(model.exog_names)
+    if rank == X.shape[1]:
+        full = model.fit(**fit_kwargs)
+        full.aliased = []
+        return full
+    import warnings
+
+    with warnings.catch_warnings():
+        # the full (singular) fit only sets up the model's internal state;
+        # its coefficients are replaced below
+        warnings.simplefilter("ignore")
+        model.fit(**fit_kwargs)
+
+    drop = sorted(int(i) for i in piv[rank:])
+    keep = [i for i in range(X.shape[1]) if i not in drop]
+    k = X.shape[1]
+
+    def embed(params_k, ncov_k):
+        params = np.zeros(k)
+        params[keep] = params_k
+        ncov = np.zeros((k, k))
+        ncov[np.ix_(keep, keep)] = ncov_k
+        return params, ncov
+
+    if isinstance(model, GLM):
+        sub = sma.GLM(
+            model.endog,
+            X[:, keep],
+            family=model.family,
+            freq_weights=getattr(model, "freq_weights", None),
+            var_weights=getattr(model, "var_weights", None),
+            offset=getattr(model, "offset", None),
+        ).fit(**fit_kwargs)
+        params, ncov = embed(sub.params, sub.normalized_cov_params)
+        model.df_model = len(keep) - 1
+        model.df_resid = model.wnobs - len(keep)
+        res = GLMResultsWrapper(GLMResults(model, params, ncov, sub.scale))
+    else:
+        sub = sma.WLS(model.endog, X[:, keep], weights=getattr(model, "weights", 1.0)).fit()
+        params, ncov = embed(sub.params, sub.normalized_cov_params)
+        model.rank = len(keep)
+        model.df_model = len(keep) - model.k_constant
+        model.df_resid = model.nobs - len(keep)
+        res = RegressionResultsWrapper(OLSResults(model, params, normalized_cov_params=ncov))
+    res.aliased = [names[i] for i in drop]
+    return res
 
 
 def apply_enum_types(df: pl.DataFrame, enum_types: dict) -> pl.DataFrame:
@@ -577,7 +797,7 @@ def or_ci(fitted, alpha=0.05, intercept=False, importance=False, data=None, dec=
 
     low, high = [100 * alpha / 2, 100 * (1 - (alpha / 2))]
     df[[f"{low}%", f"{high}%"]] = np.exp(fitted.conf_int(alpha=alpha))
-    df["p.values"] = ifelse(fitted.pvalues < 0.001, "< .001", fitted.pvalues.round(dec))
+    df["p.values"] = format_pvals(fitted.pvalues, dec)
     df["  "] = sig_stars(fitted.pvalues)
     df["OR%"] = [f"{round(o, max(dec - 2, 0))}%" for o in df["OR%"]]
     df = df.reset_index()
@@ -705,14 +925,21 @@ def vif(fitted, dec=3):
         # legacy for when only an un-fitted model was accepted
         model = fitted
 
+    # leave out columns dropped for perfect collinearity (see fit_like_r);
+    # their VIF would be infinite and R's car::vif refuses aliased models
+    aliased = set(getattr(fitted, "aliased", []))
+    keep = [i for i, n in enumerate(model.exog_names) if n not in aliased]
+    exog_names = [model.exog_names[i] for i in keep]
+    exog_all = model.exog[:, keep]
+
     is_categorical = {
-        item.split("[T.")[0]: ("[T." in item) for item in model.exog_names
+        item.split("[T.")[0]: ("[T." in item) for item in exog_names
     }
     if sum(is_categorical.values()) > 0:
         evar = list(is_categorical.keys())[1:]
-        exog = model.exog[:, 1:]
+        exog = exog_all[:, 1:]
         Xcorr = np.linalg.det(np.corrcoef(exog, rowvar=False))
-        df = pd.DataFrame(exog, columns=model.exog_names[1:])
+        df = pd.DataFrame(exog, columns=exog_names[1:])
         vif = []
         for col, cat in is_categorical.items():
             if col == "Intercept":
@@ -730,14 +957,14 @@ def vif(fitted, dec=3):
         df = pd.DataFrame(evar, columns=["index"])
     else:
         vif = [
-            variance_inflation_factor(model.exog, i) for i in range(model.exog.shape[1])
+            variance_inflation_factor(exog_all, i) for i in range(exog_all.shape[1])
         ]
-        df = pd.DataFrame(model.exog_names, columns=["index"])
+        df = pd.DataFrame(exog_names, columns=["index"])
 
     df["vif"] = vif
     df["Rsq"] = 1 - 1 / df["vif"]
 
-    if "Intercept" in model.exog_names:
+    if "Intercept" in exog_names:
         df = df[df["index"] != "Intercept"]
 
     df = df.sort_values("vif", ascending=False).set_index("index")
@@ -815,7 +1042,12 @@ def predict_ci(fitted, df, conf=0.95, alpha=None):
     low, high = [(1.0 - conf) / 2.0, (1.0 - (1.0 - conf) / 2.0)]
     Xb = np.dot(exog, fitted.params)
     se = np.sqrt((exog.dot(fitted.cov_params()) * exog).sum(-1))
-    me = stats.norm.ppf(high) * se
+    if isinstance(fitted, sm.regression.linear_model.RegressionResultsWrapper):
+        # OLS: a t quantile with the residual degrees of freedom (R's predict.lm)
+        me = stats.t.ppf(high, fitted.df_resid) * se
+    else:
+        # GLM: normal quantile on the link scale (R's predict.glm)
+        me = stats.norm.ppf(high) * se
 
     if isinstance(fitted, sm.genmod.generalized_linear_model.GLMResultsWrapper):
         return pd.DataFrame(
@@ -877,11 +1109,11 @@ def model_fit(fitted, dec: int = 3, prn: bool = True) -> str | pd.DataFrame:
 Pseudo R-squared (McFadden adjusted): {mfit.pseudo_rsq_mcf_adj.values[0].round(dec)}
 Area under the RO Curve (AUC): {mfit.AUC.values[0].round(dec)}
 Log-likelihood: {mfit.log_likelihood.values[0].round(dec)}, AIC: {mfit.AIC.values[0].round(dec)}, BIC: {mfit.BIC.values[0].round(dec)}
-Chi-squared: {mfit.chisq.values[0].round(dec)}, df({mfit.chisq_df.values[0]}), p.value {np.where(mfit.chisq_pval.values[0] < 0.001, "< 0.001", mfit.chisq_pval.values[0].round(dec))}
+Chi-squared: {mfit.chisq.values[0].round(dec)}, df({mfit.chisq_df.values[0]}), p.value {format_pval(mfit.chisq_pval.values[0], dec)}
 Nr obs: {mfit.nobs.values[0]:,.0f}{nobs_dropped(fitted)}"""
         elif model_type == "regression":
             output = f"""R-squared: {mfit.rsq.values[0].round(dec)}, Adjusted R-squared: {mfit.rsq_adj.values[0].round(dec)}
-F-statistic: {mfit.fvalue[0].round(dec)} df({mfit.ftest_df_model.values[0]:.0f}, {mfit.ftest_df_resid.values[0]:.0f}), p.value {np.where(mfit.ftest_pval.values[0] < 0.001, "< 0.001", mfit.ftest_pval.values[0].round(dec))}
+F-statistic: {mfit.fvalue[0].round(dec)} df({mfit.ftest_df_model.values[0]:.0f}, {mfit.ftest_df_resid.values[0]:.0f}), p.value {format_pval(mfit.ftest_pval.values[0], dec)}
 Nr obs: {mfit.nobs.values[0]:,.0f}{nobs_dropped(fitted)}"""
         else:
             output = "Model type not supported"
@@ -988,12 +1220,10 @@ def coef_ci(fitted, alpha: float = 0.05, intercept: bool = True, dec: int = 3):
     df[[f"{low}%", f"{high}%"]] = fitted.conf_int(alpha=alpha)
 
     if dec is None:
-        df["p.values"] = ifelse(fitted.pvalues < 0.001, "< .001", fitted.pvalues)
+        df["p.values"] = format_pvals(fitted.pvalues, 3)
     else:
         df = df.round(dec)
-        df["p.values"] = ifelse(
-            fitted.pvalues < 0.001, "< .001", fitted.pvalues.round(dec)
-        )
+        df["p.values"] = format_pvals(fitted.pvalues, dec)
 
     df["  "] = sig_stars(fitted.pvalues)
     if intercept is False:
@@ -1179,9 +1409,13 @@ def sim_prediction(
         col = data[col_name]
         if col.dtype.is_numeric():
             return col.mean()
-        else:
-            # Get most common value
-            return col.value_counts().sort("count", descending=True)[0, col_name]
+        # most common value; ties go to the first level (Enum order, dates in
+        # date order), as R's names(which.max(table(x)))
+        counts = col.drop_nulls().value_counts()
+        best = counts["count"].max()
+        tied = set(counts.filter(pl.col("count") == best)[col_name].to_list())
+        order = cat_levels(col) if not col.dtype.is_temporal() else sorted(tied)
+        return next(v for v in order if v in tied)
 
     dct = {c: [fix_value(c)] for c in data.columns}
     schema = {c: data[c].dtype for c in data.columns}
@@ -1204,7 +1438,8 @@ def sim_prediction(
                 else:
                     dct[v] = [col.min(), col.max()]
             else:
-                dct[v] = col.unique().to_list()
+                # Enum order (or order of appearance), not an arbitrary order
+                dct[v] = cat_levels(col)
 
     return expand_grid(dct, schema)
 

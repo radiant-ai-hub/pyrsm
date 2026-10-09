@@ -19,10 +19,38 @@ def is_notebook() -> bool:
 
 
 def format_pval(p: float, dec: int = 3) -> str:
-    """Format p-value for display."""
+    """Format p-value for display.
+
+    Every p-value below 0.001 is shown as ``"< .001"``; larger values are
+    rounded to ``dec`` decimals. Use this (or :func:`format_pval_expr` /
+    :func:`format_pvals`) for all p-value output so the display is consistent.
+    """
+    if p is None:
+        return ""
     if p < 0.001:
         return "< .001"
     return str(round(p, dec))
+
+
+def format_pvals(pvals, dec: int = 3) -> list[str]:
+    """Vectorized :func:`format_pval` for any iterable of p-values."""
+    return [format_pval(p, dec) for p in pvals]
+
+
+def format_pval_expr(col: str | pl.Expr = "p.value", dec: int = 3) -> pl.Expr:
+    """Polars expression with exactly the behaviour of :func:`format_pval`.
+
+    Returns a string column named after ``col`` (when ``col`` is a name), with
+    ``"< .001"`` for p-values below 0.001 and the value rounded to ``dec``
+    decimals otherwise (Python ``round``, so the result is identical to
+    :func:`format_pval`). Nulls are shown as an empty string.
+    """
+    expr = pl.col(col) if isinstance(col, str) else col
+    out = expr.map_batches(
+        lambda s: pl.Series(s.name, format_pvals(s.to_list(), dec), dtype=pl.Utf8),
+        return_dtype=pl.Utf8,
+    )
+    return out.alias(col) if isinstance(col, str) else out
 
 
 def print_plain_tables(*tables: pl.DataFrame, max_rows: int = -1) -> None:

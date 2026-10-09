@@ -117,6 +117,11 @@ class single_prop:
         self.slice = slice
         self.data = apply_scope(self.data, data_filter, sort, slice)
         self.var = var
+        if lev is None:
+            # as Radiant: the first level of the variable
+            from pyrsm.utils import cat_levels
+
+            lev = cat_levels(self.data[var], drop_unused=True)[0]
         self.lev = lev
         self.alt_hyp = alt_hyp
         self.conf = conf
@@ -158,15 +163,17 @@ class single_prop:
             self.p_val = result.pvalue
         else:
             self.z_score = (self.p - self.comp_value) / self.se_p0
-            p_val = stats.norm.cdf(self.z_score)
+            # use the survival function for upper-tail probabilities so tiny
+            # p-values do not underflow to 0 (1 - cdf loses them), and use
+            # |z| for the two-sided test so p stays within [0, 1]
             if self.alt_hyp == "two-sided":
-                self.p_val = p_val * 2
+                self.p_val = 2 * stats.norm.sf(abs(self.z_score))
                 self.ci = wilson_ci(self.z_critical)
             elif self.alt_hyp == "less":
-                self.p_val = p_val
+                self.p_val = stats.norm.cdf(self.z_score)
                 self.ci = [0, wilson_ci(stats.norm.ppf(self.conf))[1]]
             else:
-                self.p_val = 1 - p_val
+                self.p_val = stats.norm.sf(self.z_score)
                 self.ci = [wilson_ci(stats.norm.ppf(self.conf))[0], 1]
 
     def summary(self, dec=3, plain: bool = True) -> None:
@@ -235,7 +242,7 @@ class single_prop:
             self.ns,
             round(self.z_score, dec) if self.z_score is not None else None,
         )
-        p_val_str = ifelse(self.p_val < 0.001, "< .001", round(self.p_val, dec))
+        p_val_str = du.format_pval(self.p_val, dec)
 
         test_df = pl.DataFrame(
             {

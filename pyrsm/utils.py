@@ -133,6 +133,40 @@ def format_nr(x, sym="", dec=2, perc=False):
             return sym + f"{round((x), dec):,}"
 
 
+def cat_levels(s, drop_unused: bool = False) -> list:
+    """
+    Level order of a categorical column, following pyrsm's policy.
+
+    Categorical data should be stored as a polars Enum whose categories are in
+    a deliberate order (e.g. small < medium < large); that order is used
+    everywhere (base levels, tables, plots). Columns that are not Enum (text,
+    pl.Categorical) get their order of first appearance -- never an
+    alphabetical sort, which is rarely the order that is wanted.
+
+    Parameters
+    ----------
+    s : pl.Series
+        The column.
+    drop_unused : bool, default False
+        Leave out Enum levels that do not occur in ``s``.
+
+    Returns
+    -------
+    list
+        The levels, in order (strings for Enum/text columns; for other dtypes
+        the unique values in order of appearance).
+    """
+    if isinstance(s.dtype, pl.Enum):
+        levels = s.dtype.categories.to_list()
+        if drop_unused:
+            present = set(s.cast(pl.Utf8).drop_nulls().unique().to_list())
+            levels = [lv for lv in levels if lv in present]
+        return levels
+    if s.dtype in (pl.Utf8, pl.String, pl.Categorical):
+        return s.cast(pl.Utf8).drop_nulls().unique(maintain_order=True).to_list()
+    return s.drop_nulls().unique(maintain_order=True).to_list()
+
+
 def levels_list(df):
     """
     Provide a DataFrame and get a dictionary back with the unique values for
@@ -158,7 +192,7 @@ def levels_list(df):
     pd = _get_pandas()
     if isinstance(df, pd.DataFrame):
         df = pl.from_pandas(df)
-    return {str(col): df[col].unique().to_list() for col in df.columns}
+    return {str(col): cat_levels(df[col]) for col in df.columns}
 
 
 def expand_grid(dct, schema=None):
@@ -648,7 +682,9 @@ def polyserial_corr(x_num, y_codes):
     Correlation between a continuous variable ``x_num`` and an ordinal variable
     given as integer ``y_codes``. Matches the default (non-ML) estimator used
     by ``polycor::polyserial`` and is the numeric-vs-factor cell of
-    ``polycor::hetcor``. Closed-form, so it is fast.
+    ``polycor::hetcor``:
+    ``sqrt((n - 1) / n) * sd(y) * cor(x, y) / sum(dnorm(cuts))``, kept within
+    polycor's ``maxcor`` of 0.9999. Closed-form, so it is fast.
     """
     from scipy.stats import norm
 
@@ -671,7 +707,9 @@ def polyserial_corr(x_num, y_codes):
         dens_sum += norm.pdf(norm.ppf(cum))
     if dens_sum == 0:
         return 0.0
-    return float(np.clip(r_xy * sy / dens_sum, -1.0, 1.0))
+    n = x.size
+    rho = np.sqrt((n - 1) / n) * r_xy * sy / dens_sum
+    return float(np.clip(rho, -0.9999, 0.9999))
 
 
 def polychoric_matrix(data_matrix):

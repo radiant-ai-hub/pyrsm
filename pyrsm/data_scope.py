@@ -477,7 +477,9 @@ def sort_code(sort: str, frame: str = "data") -> str:
     columns, descending = sort_spec(sort)
     if not columns:
         return ""
-    return f"{frame} = {frame}.sort({columns!r}, descending={descending!r})"
+    return (
+        f"{frame} = {frame}.sort({columns!r}, descending={descending!r}, maintain_order=True)"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -570,7 +572,9 @@ def apply_scope(
         missing = [column for column in columns if column not in out.columns]
         if missing:
             raise ScopeError(f"Unknown column in sort: {', '.join(missing)}")
-        out = out.sort(columns, descending=descending)
+        # stable, like R's arrange(): rows tied on the sort keys keep their
+        # order, so a slice after a sort picks the same rows every time
+        out = out.sort(columns, descending=descending, maintain_order=True)
     return _apply_slice(out, slice)
 
 

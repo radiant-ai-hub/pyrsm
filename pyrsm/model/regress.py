@@ -140,8 +140,9 @@ class regress:
         self.ivar = model_utils.convert_to_list(ivar)
         self.formula = formula
 
-        # Convert categorical/string columns to sorted Enum BEFORE fitting
-        # This ensures patsy learns alphabetically sorted levels
+        # Convert categorical/string columns to Enum BEFORE fitting (Enum level
+        # order is kept; text columns get their order of appearance) so patsy
+        # uses the same level order for estimation and prediction
         self._enum_types = {}
         cols_to_convert = []
         for c in self.data.columns:
@@ -161,11 +162,9 @@ class regress:
         import statsmodels.formula.api as smf
 
         if self.formula:
-            self.fitted = smf.ols(
-                formula=self.formula, data=self.data.to_pandas()
-            ).fit()
-            self.evar = model_utils.extract_evars(self.fitted.model, self.data.columns)
-            self.rvar = model_utils.extract_rvar(self.fitted.model, self.data.columns)
+            model = smf.ols(formula=self.formula, data=model_utils.to_model_pandas(self.data))
+            self.evar = model_utils.extract_evars(model, self.data.columns)
+            self.rvar = model_utils.extract_rvar(model, self.data.columns)
         else:
             if self.evar is None or len(self.evar) == 0:
                 self.formula = f"{self.rvar} ~ 1"
@@ -173,21 +172,35 @@ class regress:
                 self.formula = f"{self.rvar} ~ {' + '.join(self.evar)}"
             if self.ivar:
                 self.formula += f" + {' + '.join(self.ivar)}"
-            self.fitted = smf.ols(self.formula, data=self.data.to_pandas()).fit()
+            model = smf.ols(self.formula, data=model_utils.to_model_pandas(self.data))
+
+        # As R's lm(): levels that do not occur in the estimation rows are
+        # dropped (the next level becomes the base), and collinear terms are
+        # dropped rather than split by a pseudo-inverse
+        used = model_utils.formula_vars(model, self.data.columns)
+        self.data = model_utils.drop_unused_levels(self.data, used)
+        self._enum_types = {
+            c: self.data[c].dtype for c in self._enum_types if c in self.data.columns
+        }
+        self.fitted = model_utils.fit_like_r(
+            smf.ols(self.formula, data=model_utils.to_model_pandas(self.data)), kind="lm"
+        )
+        self.aliased = self.fitted.aliased
 
         self.fitted.nobs_dropped = self.data.height - self.fitted.nobs
 
-        # Build coefficient table as polars DataFrame
+        # Build coefficient table as polars DataFrame (without aliased terms,
+        # which R reports as NA and Radiant leaves out)
+        est = ~self.fitted.params.index.isin(self.aliased)
+        params = self.fitted.params[est]
         self.coef = pl.DataFrame(
             {
-                "index": self.fitted.params.index.str.replace(
-                    "[T.", "[", regex=False
-                ).tolist(),
-                "coefficient": self.fitted.params.values,
-                "std.error": (self.fitted.params / self.fitted.tvalues).values,
-                "t.value": self.fitted.tvalues.values,
-                "p.value": self.fitted.pvalues.values,
-                "  ": model_utils.sig_stars(self.fitted.pvalues.values),
+                "index": params.index.str.replace("[T.", "[", regex=False).tolist(),
+                "coefficient": params.values,
+                "std.error": self.fitted.bse[est].values,
+                "t.value": self.fitted.tvalues[est].values,
+                "p.value": self.fitted.pvalues[est].values,
+                "  ": model_utils.sig_stars(self.fitted.pvalues[est].values),
             }
         ).drop_nulls(subset=["coefficient"])
 
@@ -231,6 +244,8 @@ class regress:
         du.print_sig_codes()
 
         print(f"\n{model_utils.model_fit(self.fitted, dec=dec)}")
+        if self.aliased:
+            print(f"\n{model_utils.collinearity_note(self.fitted)}")
 
         if vif:
             if self.evar is None or len(self.evar) < 2:
@@ -291,10 +306,7 @@ class regress:
                 pl.col("coefficient").round(dec),
                 pl.col("std.error").round(dec),
                 pl.col("t.value").round(dec),
-                pl.when(pl.col("p.value") < 0.001)
-                .then(pl.lit("< .001"))
-                .otherwise(pl.col("p.value").round(dec).cast(pl.Utf8))
-                .alias("p.value"),
+                du.format_pval_expr("p.value", dec),
             ]
         )
 
@@ -384,14 +396,14 @@ class regress:
             else:
                 # predict_ci returns pandas, convert result to polars
                 ci_result = model_utils.predict_ci(
-                    self.fitted, pred_data.to_pandas(), conf=conf
+                    self.fitted, model_utils.to_model_pandas(pred_data), conf=conf
                 )
                 pred = pl.concat(
                     [pred_data, pl.from_pandas(ci_result)], how="horizontal"
                 )
         else:
             # Get predictions from statsmodels (needs pandas), add to polars DataFrame
-            predictions = self.fitted.predict(pred_data.to_pandas())
+            predictions = self.fitted.predict(model_utils.to_model_pandas(pred_data))
             pred = pred_data.with_columns(
                 pl.lit(predictions.values).alias("prediction")
             )
@@ -487,6 +499,8 @@ class regress:
         # Apply stored Enum types to ensure consistent categorical levels
         if self._enum_types:
             data = model_utils.apply_enum_types(data, self._enum_types)
+        # dates enter the model as numbers (as in R's lm)
+        data = model_utils.dates_to_numeric(data)
 
         if "dist" in plots:
             distr_plot, _, _, _ = _get_visualize_plots()
@@ -600,14 +614,35 @@ class regress:
 
         print(f"\nModel 1: {formula}")
         print(f"Model 2: {self.formula}")
-        out = self.fitted.f_test(hypothesis)
+        if self.aliased:
+            # with collinear terms dropped, compare the two fits directly (as
+            # R's anova does): removing a variable can make a dropped one
+            # estimable again, which a test on the coefficients cannot see
+            import statsmodels.formula.api as smf
 
-        r2_sub = self.fitted.rsquared - (
-            len(hypothesis) * out.fvalue * (1 - self.fitted.rsquared)
-        ) / (self.fitted.nobs - self.fitted.df_model - 1)
+            from pyrsm.model.model import fit_like_r, to_model_pandas
 
-        pvalue = ifelse(out.pvalue < 0.001, "< .001", round(out.pvalue, dec))
+            sub = fit_like_r(smf.ols(formula, data=to_model_pandas(self.data)), kind="lm")
+            df_num = sub.df_resid - self.fitted.df_resid
+            df_denom = self.fitted.df_resid
+            if df_num > 0:
+                fvalue = ((sub.ssr - self.fitted.ssr) / df_num) / (self.fitted.ssr / df_denom)
+                from scipy.stats import f as f_dist
+
+                fpval = f_dist.sf(fvalue, df_num, df_denom)
+            else:
+                fvalue, fpval = 0.0, 1.0
+            r2_sub = sub.rsquared
+        else:
+            out = self.fitted.f_test(hypothesis)
+            fvalue, fpval = float(pd.Series(out.fvalue).squeeze()), float(out.pvalue)
+            df_num, df_denom = out.df_num, out.df_denom
+            r2_sub = self.fitted.rsquared - (
+                len(hypothesis) * fvalue * (1 - self.fitted.rsquared)
+            ) / (self.fitted.nobs - self.fitted.df_model - 1)
+
+        pvalue = du.format_pval(fpval, dec)
         print(f"R-squared, Model 1 vs 2: {r2_sub:.3f} vs {self.fitted.rsquared:.3f}")
         print(
-            f"F-statistic: {round(out.fvalue, dec)} df ({out.df_num:.0f}, {out.df_denom:.0f}), p.value {pvalue}"
+            f"F-statistic: {round(fvalue, dec)} df ({df_num:.0f}, {df_denom:.0f}), p.value {pvalue}"
         )

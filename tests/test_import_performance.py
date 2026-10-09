@@ -3,8 +3,26 @@ import importlib
 import sys
 import time
 
+import pytest
+
 FULL_IMPORT_BUDGET = 0.5  # seconds; tightened after lazy-loading refactor
 SUBMODULE_IMPORT_BUDGET = 1.0
+
+
+@pytest.fixture(autouse=True)
+def _restore_pyrsm_modules():
+    """Put the original pyrsm modules back after each test.
+
+    The cold imports below replace every pyrsm module with a fresh copy; left
+    in place, tests that run later would get classes that are not the ones
+    their modules imported at collection time (``A is A`` checks fail).
+    """
+    saved = {m: mod for m, mod in sys.modules.items() if m == "pyrsm" or m.startswith("pyrsm.")}
+    yield
+    for mod in list(sys.modules):
+        if mod == "pyrsm" or mod.startswith("pyrsm."):
+            sys.modules.pop(mod, None)
+    sys.modules.update(saved)
 
 
 def _clear_pyrsm():

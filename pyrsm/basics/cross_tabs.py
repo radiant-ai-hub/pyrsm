@@ -120,15 +120,13 @@ class cross_tabs:
         var1_col = self.data[var1]
         var2_col = self.data[var2]
 
-        if var1_col.dtype == pl.Enum:
-            var1_levels = var1_col.dtype.categories
-        else:
-            var1_levels = sorted(self.data[var1].unique().drop_nulls().to_list())
+        # levels in Enum order (text: order of appearance), without levels
+        # that do not occur in the rows used (R drops unused levels)
+        from pyrsm.basics.compare_means import _group_levels
 
-        if var2_col.dtype == pl.Enum:
-            var2_levels = var2_col.dtype.categories
-        else:
-            var2_levels = sorted(self.data[var2].unique().drop_nulls().to_list())
+        used = self.data.select([var1, var2]).drop_nulls()
+        var1_levels = _group_levels(used[var1])
+        var2_levels = _group_levels(used[var2])
 
         # Build crosstab using polars pivot
         # Drop nulls (standard for chi-square tests) to avoid categorical remapping warnings
@@ -322,9 +320,7 @@ Alt. hyp : There is an association between {self.var1} and {self.var2}""")
 
     def _summary_footer(self, dec: int = 2) -> None:
         """Print the chi-squared test results."""
-        p_val_str = ifelse(
-            self.chisq_test[1] < 0.001, "< .001", round(self.chisq_test[1], dec)
-        )
+        p_val_str = du.format_pval(self.chisq_test[1], dec)
         print(f"""
 Chi-squared: {round(self.chisq_test[0], dec)} df({int(self.chisq_test[2])}), p.value {p_val_str}
 {100 * round(self.expected_low[0] / self.expected_low[1], dec)}% of cells have expected values below 5

@@ -123,3 +123,38 @@ def test_pre_factor_plot_smoke(mv_data):
     plots = pf.plot(plots=("scree", "change"))
     assert isinstance(plots, list) and len(plots) == 2
     assert pf.plot(plots="scree") is not None
+
+
+def test_pre_factor_change_plot_matches_radiant(mv_data):
+    """Bars are labeled "1-2", "2-3", ... (drop from eigenvalue k to k+1),
+    scaled so the largest relative drop is 1, as in radiant's plot.pre_factor."""
+    pf = pre_factor({"shopping": mv_data("shopping")}, "v1:v6")
+    dat = pf.plot(plots="change").data
+    ev = pf.pre_eigen[pf.pre_eigen > 0.2]
+    change = (ev[1:] - ev[:-1]) / ev[:-1]
+    assert dat["nr_fact"].tolist() == [f"{i}-{i + 1}" for i in range(1, len(ev))]
+    assert np.allclose(dat["bump"], change / change.min())
+    # shopping's biggest drop is from PC2 to PC3
+    assert dat.loc[dat["bump"].idxmax(), "nr_fact"] == "2-3"
+
+
+def test_pre_factor_change_plot_keeps_numeric_order():
+    import polars as pl
+
+    rng = np.random.default_rng(1)
+    X = rng.normal(size=(500, 14))
+    X[:, 1:] += 0.3 * X[:, [0]]
+    df = pl.DataFrame(X, schema=[f"x{i}" for i in range(14)])
+    dat = pre_factor(df, "x0:x13").plot(plots="change", cutoff=0).data
+    expected = [f"{i}-{i + 1}" for i in range(1, 14)]
+    assert list(dat["nr_fact"].cat.categories) == expected
+
+
+def test_pre_factor_plot_errors(mv_data):
+    pf = pre_factor({"shopping": mv_data("shopping")}, "v1:v6")
+    with pytest.raises(ValueError, match="Unknown plot type"):
+        pf.plot(plots="bogus")
+    with pytest.raises(ValueError, match="No eigenvalues"):
+        pf.plot(plots="scree", cutoff=10)
+    with pytest.raises(ValueError, match="at least 2"):
+        pf.plot(plots="change", cutoff=2.5)

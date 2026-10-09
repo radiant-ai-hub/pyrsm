@@ -67,3 +67,10 @@ def __dir__():
 
 
 __all__ = list(_LAZY_SUBMODULES) + list(_LAZY_FUNCTIONS)
+
+
+# ``from pyrsm.<pkg>.<name> import <name>`` must not hide the class behind its
+# submodule (see pyrsm/_package.py)
+from pyrsm._package import keep_classes  # noqa: E402
+
+keep_classes(__name__, _LAZY_SUBMODULES)

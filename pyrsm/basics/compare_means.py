@@ -7,7 +7,7 @@ import polars as pl
 
 import pyrsm.basics.display_utils as du
 import pyrsm.basics.utils as bu
-from pyrsm.utils import check_dataframe, ifelse
+from pyrsm.utils import cat_levels, check_dataframe, ifelse
 from pyrsm.data_scope import apply_scope, print_scope
 
 
@@ -33,6 +33,15 @@ def _sig_stars():
 
     return model_mod.sig_stars
 
+
+
+def _group_levels(s: "pl.Series") -> list:
+    """Levels of a grouping variable: Enum order (text: order of appearance;
+    numbers: numeric order), without levels that do not occur -- R drops
+    levels that a filter removed."""
+    if isinstance(s.dtype, (pl.Enum, pl.Categorical)) or s.dtype in (pl.Utf8, pl.String):
+        return [str(x) for x in cat_levels(s, drop_unused=True)]
+    return [str(x) for x in sorted(s.drop_nulls().unique().to_list())]
 
 class compare_means:
     """
@@ -222,14 +231,10 @@ class compare_means:
         else:
             var2_list = ifelse(isinstance(var2, str), [var2], list(var2))
 
-        var1_series = self.data[self.var1]
-        if var1_series.dtype == pl.Enum:
-            self.levels = var1_series.dtype.categories
-        else:
-            self.levels = sorted(self.data[self.var1].unique().to_list())
-            self.data = self.data.with_columns(
-                pl.col(self.var1).cast(pl.Enum(self.levels))
-            )
+        self.levels = _group_levels(self.data[self.var1])
+        self.data = self.data.with_columns(
+            pl.col(self.var1).cast(pl.Utf8).cast(pl.Enum(self.levels))
+        )
 
         if len(comb) == 0:
             self.comb = [":".join(c) for c in combinations(self.levels, 2)]
@@ -266,7 +271,7 @@ class compare_means:
             return (tscore * se).real
 
         descriptive_stats = (
-            self.data.group_by(self.var1, maintain_order=True)
+            self.data.group_by(self.var1)
             .agg(
                 pl.col(self.var2).mean().alias("mean"),
                 pl.len().alias("n_total"),
@@ -287,6 +292,8 @@ class compare_means:
                 )
                 .alias("me")
             )
+            # rows in level order (Enum order), not order of appearance
+            .sort(self.var1, nulls_last=True)
         )
 
         self.descriptive_stats = descriptive_stats.select(
@@ -452,11 +459,7 @@ class compare_means:
                 ["Null hyp.", "Alt. hyp.", "diff", "p.value", ""]
             )
 
-        pvals = comp_stats["p.value"].to_list()
-        formatted = [ifelse(p < 0.001, "< .001", f"{round(p, dec)}") for p in pvals]
-        comp_stats = comp_stats.with_columns(
-            pl.Series("p.value", formatted, dtype=pl.Utf8)
-        )
+        comp_stats = comp_stats.with_columns(du.format_pval_expr("p.value", dec))
 
         # Round all numeric columns
         numeric_cols = [c for c in comp_stats.columns if comp_stats[c].dtype.is_float()]
@@ -487,11 +490,7 @@ class compare_means:
                 ["Null hyp.", "Alt. hyp.", "diff", "p.value", ""]
             )
 
-        pvals = comp_stats["p.value"].to_list()
-        formatted = [ifelse(p < 0.001, "< .001", f"{round(p, dec)}") for p in pvals]
-        comp_stats = comp_stats.with_columns(
-            pl.Series("p.value", formatted, dtype=pl.Utf8)
-        )
+        comp_stats = comp_stats.with_columns(du.format_pval_expr("p.value", dec))
 
         desc_gt = (
             desc.style.tab_header(

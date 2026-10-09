@@ -6,12 +6,15 @@ Public API (callable as ``pyrsm.multivariate.<name>``)::
     hclus, kclus              # hierarchical & k-means clustering
     mds, prmap                # (dis)similarity & attribute perceptual maps
     conjoint                  # conjoint analysis
+    conjoint_choice           # choice-based conjoint (conditional logit)
 
 Each returns a result object with ``summary()`` and ``plot()`` methods, plus
 ``store()``/``predict()`` where the R package offers them.
 """
 
+import sys
 from importlib import import_module
+from types import ModuleType
 
 _EXPORTS = {
     "pre_factor": "pyrsm.multivariate.pre_factor",
@@ -25,6 +28,7 @@ _EXPORTS = {
     "conjoint": "pyrsm.multivariate.conjoint",
     "store_predictions": "pyrsm.multivariate.conjoint",
     "cbc": "pyrsm.multivariate.cbc",
+    "conjoint_choice": "pyrsm.multivariate.conjoint_choice",
 }
 
 
@@ -40,6 +44,10 @@ def __getattr__(name):
         for export, src in _EXPORTS.items():
             if src == mod_name:
                 globals()[export] = getattr(module, export)
+            elif isinstance(globals().get(export), ModuleType) and src in sys.modules:
+                # a module imported indirectly (e.g. conjoint_choice imports
+                # helpers from cbc) also shadows its class; restore the class
+                globals()[export] = getattr(sys.modules[src], export)
         return globals()[name]
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
@@ -49,3 +57,10 @@ def __dir__():
 
 
 __all__ = sorted(_EXPORTS)
+
+
+# ``from pyrsm.<pkg>.<name> import <name>`` must not hide the class behind its
+# submodule (see pyrsm/_package.py)
+from pyrsm._package import keep_classes  # noqa: E402
+
+keep_classes(__name__, [n for n, src in _EXPORTS.items() if src.endswith(f".{n}")])

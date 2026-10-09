@@ -208,7 +208,10 @@ class hclus:
         if target.height != len(assign):
             raise ValueError("Target row count does not match number of cases.")
         return target.with_columns(
-            pl.Series(name, [str(x) for x in assign]).cast(pl.Categorical)
+            # an Enum in numeric order, so cluster "10" comes after "2"
+            pl.Series(name, [str(x) for x in assign]).cast(
+                pl.Enum([str(x) for x in sorted(set(assign))])
+            )
         )
 
     def summary(self, dec: int = 2) -> None:

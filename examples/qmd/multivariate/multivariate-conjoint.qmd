@@ -127,11 +127,11 @@ cj.predict(mp3, se=True, interval="prediction").head()
 
 ### Storing predictions onto a dataset
 
-`store_predictions` appends the prediction (and, when `se=True`, the lower/upper bounds and margin) back onto a dataset as new columns. Row counts must match, so predict on the same dataset you store into. This is handy for exporting scored profiles or for further analysis.
+`store_predictions` appends predictions back onto a dataset as new columns. As in Radiant, `name` takes up to three comma-separated names: the prediction, and (with `se=True`) the lower and upper bound. Row counts must match, so predict on the same dataset you store into. This is handy for exporting scored profiles or for further analysis.
 
 ```{python}
 scored = rsm.multivariate.store_predictions(
-    mp3, cj.predict(mp3, se=True), name="pred"
+    mp3, cj.predict(mp3, se=True), name="pred, pred_lb, pred_ub"
 )
 scored.head()
 ```

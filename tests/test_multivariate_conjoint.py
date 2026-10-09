@@ -123,8 +123,12 @@ def test_conjoint_store_predictions(mv_data):
 
     df = mv_data("mp3")
     cj = conjoint({"mp3": df}, rvar="Rating", evar="Memory:Shape")
+    # as Radiant's store: one name stores the prediction; up to three names
+    # (comma separated) store the prediction and the lower/upper bound
     out = store_predictions(df, cj.predict(df, se=True), name="pref")
-    assert {"pref", "pref_lb", "pref_ub", "pref_me"}.issubset(out.columns)
+    assert out.columns == df.columns + ["pref"]
+    out = store_predictions(df, cj.predict(df, se=True), name="pref, pref_lb, pref_ub")
+    assert out.columns == df.columns + ["pref", "pref_lb", "pref_ub"]
     assert out.height == df.height
 
 

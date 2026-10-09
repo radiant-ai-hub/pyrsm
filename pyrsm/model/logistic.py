@@ -10,6 +10,12 @@ from statsmodels.genmod.families.links import Logit
 
 from pyrsm.basics import display_utils as du
 from pyrsm.model.model import (
+    collinearity_note,
+    dates_to_numeric,
+    to_model_pandas,
+    drop_unused_levels,
+    fit_like_r,
+    formula_vars,
     apply_enum_types,
     check_binary,
     convert_categoricals_to_enum,
@@ -149,8 +155,9 @@ class logistic:
         else:
             weights = self.weights.to_pandas()
 
-        # Convert categorical/string columns to sorted Enum BEFORE fitting
-        # This ensures patsy learns alphabetically sorted levels
+        # Convert categorical/string columns to Enum BEFORE fitting (Enum level
+        # order is kept; text columns get their order of appearance) so patsy
+        # uses the same level order for estimation and prediction
         self._enum_types = {}
         cols_to_convert = []
         for c in self.data.columns:
@@ -166,15 +173,18 @@ class logistic:
             )
             self._enum_types.update(enum_types)
 
-        if self.formula:
-            self.fitted = smf.glm(
+        def glm_model(data):
+            return smf.glm(
                 formula=self.formula,
-                data=self.data.to_pandas(),
+                data=to_model_pandas(data),
                 freq_weights=weights,
                 family=Binomial(link=Logit()),
-            ).fit()
-            self.evar = extract_evars(self.fitted.model, self.data.columns)
-            self.rvar = extract_rvar(self.fitted.model, self.data.columns)
+            )
+
+        if self.formula:
+            model = glm_model(self.data)
+            self.evar = extract_evars(model, self.data.columns)
+            self.rvar = extract_rvar(model, self.data.columns)
             if self.lev is None:
                 self.lev = self.data[self.rvar][0]
         else:
@@ -184,31 +194,39 @@ class logistic:
                 self.formula = f"{self.rvar} ~ {' + '.join(self.evar)}"
             if self.ivar:
                 self.formula += f" + {' + '.join(self.ivar)}"
+            model = glm_model(self.data)
 
-            self.fitted = smf.glm(
-                formula=self.formula,
-                data=self.data.to_pandas(),
-                freq_weights=weights,
-                family=Binomial(link=Logit()),
-            ).fit()
+        # As R's glm(): levels that do not occur in the estimation rows are
+        # dropped (the next level becomes the base), and collinear terms are
+        # dropped rather than split by a pseudo-inverse
+        used = formula_vars(model, self.data.columns)
+        if self.weights_name is not None:
+            used = used + [self.weights_name]
+        self.data = drop_unused_levels(self.data, used)
+        self._enum_types = {
+            c: self.data[c].dtype for c in self._enum_types if c in self.data.columns
+        }
+        self.fitted = fit_like_r(glm_model(self.data), kind="glm", weights=weights)
+        self.aliased = self.fitted.aliased
 
         self.fitted.nobs_dropped = self.data.height - self.fitted.nobs
 
-        # Build coefficient table as polars DataFrame
-        or_vals = np.exp(self.fitted.params)
+        # Build coefficient table as polars DataFrame (without aliased terms,
+        # which R reports as NA and Radiant leaves out)
+        est = ~self.fitted.params.index.isin(self.aliased)
+        params = self.fitted.params[est]
+        or_vals = np.exp(params)
         or_pct = 100 * np.where(or_vals < 1, -(1 - or_vals), or_vals - 1)
         self.coef = pl.DataFrame(
             {
-                "index": self.fitted.params.index.str.replace(
-                    "[T.", "[", regex=False
-                ).tolist(),
+                "index": params.index.str.replace("[T.", "[", regex=False).tolist(),
                 "OR": or_vals,
                 "OR%": or_pct,
-                "coefficient": self.fitted.params.values,
-                "std.error": (self.fitted.params / self.fitted.tvalues).values,
-                "z.value": self.fitted.tvalues.values,
-                "p.value": self.fitted.pvalues.values,
-                "  ": sig_stars(self.fitted.pvalues.values),
+                "coefficient": params.values,
+                "std.error": self.fitted.bse[est].values,
+                "z.value": self.fitted.tvalues[est].values,
+                "p.value": self.fitted.pvalues[est].values,
+                "  ": sig_stars(self.fitted.pvalues[est].values),
             }
         ).drop_nulls(subset=["coefficient"])
 
@@ -238,6 +256,8 @@ class logistic:
         du.print_sig_codes()
 
         print(f"\n{model_fit(self.fitted, dec=dec)}")
+        if self.aliased:
+            print(f"\n{collinearity_note(self.fitted)}")
 
         if vif:
             if self.evar is None or len(self.evar) < 2:
@@ -277,10 +297,7 @@ class logistic:
                 pl.col("coefficient").round(dec),
                 pl.col("std.error").round(dec),
                 pl.col("z.value").round(dec),
-                pl.when(pl.col("p.value") < 0.001)
-                .then(pl.lit("< .001"))
-                .otherwise(pl.col("p.value").round(dec).cast(pl.Utf8))
-                .alias("p.value"),
+                du.format_pval_expr("p.value", dec),
                 (pl.col("OR%").round(max(dec - 2, 0)).cast(pl.Utf8) + "%").alias("OR%"),
                 pl.col("index"),
             ]
@@ -359,14 +376,14 @@ class logistic:
                 )
             else:
                 # predict_ci returns pandas, convert result to polars
-                ci_result = predict_ci(self.fitted, pred_data.to_pandas(), conf=conf)
+                ci_result = predict_ci(self.fitted, to_model_pandas(pred_data), conf=conf)
                 pred = pl.concat(
                     [pred_data, pl.from_pandas(ci_result)], how="horizontal"
                 )
 
         else:
             # Get predictions from statsmodels (needs pandas), add to polars DataFrame
-            predictions = self.fitted.predict(pred_data.to_pandas())
+            predictions = self.fitted.predict(to_model_pandas(pred_data))
             pred = pred_data.with_columns(
                 pl.lit(predictions.values).alias("prediction")
             )
@@ -423,6 +440,8 @@ class logistic:
         # Apply stored Enum types to ensure consistent categorical levels
         if self._enum_types:
             data = apply_enum_types(data, self._enum_types)
+        # dates enter the model as numbers (as in R's glm)
+        data = dates_to_numeric(data)
 
         if "dist" in plots:
             (
@@ -514,21 +533,27 @@ class logistic:
         print(f"\nModel 1: {formula}")
         print(f"Model 2: {self.formula}")
 
-        sub_fitted = smf.glm(
-            formula=formula,
-            data=self.data.to_pandas(),
-            freq_weights=self.weights,
-            family=Binomial(link=Logit()),
-        ).fit()
+        sub_fitted = fit_like_r(
+            smf.glm(
+                formula=formula,
+                data=to_model_pandas(self.data),
+                freq_weights=self.weights,
+                family=Binomial(link=Logit()),
+            ),
+            kind="glm",
+            weights=self.weights,
+        )
 
         lrtest = -2 * (sub_fitted.llf - self.fitted.llf)
         df = self.fitted.df_model - sub_fitted.df_model
         stats = _get_scipy_stats()
-        pvalue = stats.chi2.sf(lrtest, df)
+        # df 0: removing the variables changes nothing (a collinear term
+        # takes their place), so there is nothing to test
+        pvalue = stats.chi2.sf(lrtest, df) if df > 0 else 1.0
 
         pr2_full = 1 - self.fitted.llf / self.fitted.llnull
         pr2_sub = 1 - sub_fitted.llf / sub_fitted.llnull
 
         print(f"Pseudo R-squared, Model 1 vs 2: {pr2_sub:.3f} vs {pr2_full:.3f}")
-        pvalue = ifelse(pvalue < 0.001, "< .001", round(pvalue, dec))
+        pvalue = du.format_pval(pvalue, dec)
         print(f"Chi-squared: {round(lrtest, dec)} df ({df:.0f}), p.value {pvalue}")

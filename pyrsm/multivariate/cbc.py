@@ -20,6 +20,7 @@ from __future__ import annotations
 import numpy as np
 import polars as pl
 
+from pyrsm.basics import display_utils as du
 from pyrsm.utils import format_nr
 
 from ._plotting import as_plot_result
@@ -97,7 +98,8 @@ def _mnl_fit(X: np.ndarray, y: np.ndarray, codes: np.ndarray, ngroups: int):
         bse = np.full(p, np.nan)
 
     zvalues = beta / bse
-    pvalues = 2 * (1 - norm.cdf(np.abs(zvalues)))
+    # survival function keeps tiny p-values accurate (1 - cdf underflows to 0)
+    pvalues = 2 * norm.sf(np.abs(zvalues))
     llf = -res.fun
     # null model: equal probability within each task
     llnull = -float(np.log(np.bincount(codes, minlength=ngroups)).sum())
@@ -316,7 +318,8 @@ class cbc:
         print("\nConjoint choice-model results:\n")
         print(
             self.coeff.with_columns(
-                [pl.col(c).round(dec) for c in ("coefficient", "std.error", "z.value", "p.value")]
+                [pl.col(c).round(dec) for c in ("coefficient", "std.error", "z.value")]
+                + [du.format_pval_expr("p.value", dec)]
             )
         )
         print(

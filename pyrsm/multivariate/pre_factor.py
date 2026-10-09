@@ -11,6 +11,7 @@ from __future__ import annotations
 import numpy as np
 import polars as pl
 
+from pyrsm.basics import display_utils as du
 from pyrsm.utils import format_nr
 
 from ._correlation import heterogeneous_corr
@@ -152,8 +153,7 @@ class pre_factor:
         else:
             print("Correlation : Pearson\n")
 
-        bt = self.btest["p.value"]
-        bt_str = "< .001" if (np.isfinite(bt) and bt < 0.001) else round(bt, dec + 1)
+        bt_str = du.format_pval(self.btest["p.value"], dec + 1)
         print("Bartlett test")
         print("Null hyp. : variables are not correlated")
         print("Alt. hyp. : variables are correlated")
@@ -206,10 +206,24 @@ class pre_factor:
             theme_classic,
         )
 
+        import pandas as pd
+
         if isinstance(plots, str):
             plots = [plots]
+        unknown = [p for p in plots if p not in ("scree", "change")]
+        if unknown:
+            raise ValueError(
+                f"Unknown plot type(s): {', '.join(unknown)}. Use 'scree' and/or 'change'"
+            )
 
         ev = self.pre_eigen[self.pre_eigen > cutoff]
+        if "scree" in plots and len(ev) < 1:
+            raise ValueError(f"No eigenvalues above the cutoff ({cutoff}) to plot")
+        if "change" in plots and len(ev) < 2:
+            raise ValueError(
+                f"The change plot needs at least 2 eigenvalues above the cutoff ({cutoff})"
+            )
+
         out = []
         for ptype in plots:
             if ptype == "scree":
@@ -229,11 +243,15 @@ class pre_factor:
             elif ptype == "change":
                 change = (ev[1:] - ev[:-1]) / ev[:-1]
                 change = change / change.min()
-                labels = [f"{i}-{i + 1}" for i in range(len(change))]
-                dat = pl.DataFrame(
-                    {"nr_fact": labels, "bump": [float(v) for v in change]}
-                ).to_pandas()
-                dat["nr_fact"] = pl.Series(labels).to_pandas().astype("category")
+                # change[i] is the drop from eigenvalue i+1 to i+2 (Radiant's
+                # "1-2", "2-3", ...), kept in that order on the x-axis
+                labels = [f"{i}-{i + 1}" for i in range(1, len(change) + 1)]
+                dat = pd.DataFrame(
+                    {
+                        "nr_fact": pd.Categorical(labels, categories=labels, ordered=True),
+                        "bump": change.astype(float),
+                    }
+                )
                 g = (
                     ggplot(dat, aes(x="nr_fact", y="bump"))
                     + geom_bar(stat="identity", alpha=0.5, fill="blue")

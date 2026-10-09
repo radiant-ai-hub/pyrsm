@@ -1906,6 +1906,7 @@ tables = [
 [package.dev-dependencies]
 dev = [
     { name = "pyrsm" },
+    { name = "xgboost" },
     { name = "xlwt" },
 ]
 
@@ -1956,6 +1957,7 @@ provides-extras = ["ml", "plot", "tables", "dev", "notebooks", "all", "full"]
 [package.metadata.requires-dev]
 dev = [
     { name = "pyrsm", editable = "." },
+    { name = "xgboost", specifier = ">=2.1.1" },
     { name = "xlwt", specifier = ">=1.3.0" },
 ]
 

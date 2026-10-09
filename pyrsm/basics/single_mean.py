@@ -6,7 +6,7 @@ import polars as pl
 
 import pyrsm.basics.display_utils as du
 import pyrsm.basics.utils as bu
-from pyrsm.utils import check_dataframe, ifelse, sig_stars
+from pyrsm.utils import check_dataframe, sig_stars
 from pyrsm.data_scope import apply_scope, print_scope
 
 
@@ -238,7 +238,7 @@ class single_mean:
             }
         )
 
-        p_val_str = ifelse(self.p_val < 0.001, "< .001", round(self.p_val, dec))
+        p_val_str = du.format_pval(self.p_val, dec)
         table2 = pl.DataFrame(
             {
                 "diff": [round(self.diff, dec)],

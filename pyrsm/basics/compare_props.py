@@ -139,11 +139,9 @@ class compare_props:
         self.adjust = adjust
 
         # Get unique levels from var1 (cast to string if needed for categorical)
-        var1_series = self.data[self.var1]
-        if var1_series.dtype == pl.Enum:
-            self.levels = var1_series.dtype.categories
-        else:
-            self.levels = sorted(self.data[self.var1].unique().to_list())
+        from pyrsm.basics.compare_means import _group_levels
+
+        self.levels = _group_levels(self.data[self.var1])
 
         if len(comb) == 0:
             self.comb = [":".join(c) for c in combinations(self.levels, 2)]
@@ -322,9 +320,7 @@ class compare_props:
             )
 
         # Format p-values
-        p_vals = comp_stats["p.value"].to_list()
-        p_formatted = [du.format_pval(p, dec) for p in p_vals]
-        comp_stats = comp_stats.with_columns(pl.Series("p.value", p_formatted))
+        comp_stats = comp_stats.with_columns(du.format_pval_expr("p.value", dec))
 
         # Round numeric columns for display
         desc_rounded = self.descriptive_stats.select(
@@ -354,11 +350,7 @@ class compare_props:
             )
 
         # Format p-values
-        p_vals = comp_stats["p.value"].to_list()
-        p_formatted = [du.format_pval(p, dec) for p in p_vals]
-        comp_stats = comp_stats.with_columns(
-            pl.Series("p.value", p_formatted, dtype=pl.Utf8)
-        )
+        comp_stats = comp_stats.with_columns(du.format_pval_expr("p.value", dec))
 
         gt1 = du.style_table(
             self.descriptive_stats,

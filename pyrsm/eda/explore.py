@@ -225,15 +225,22 @@ def explore(
             and name not in by_cols
         ]
         if cat_cols:
-            df = df.to_dummies(columns=cat_cols, drop_first=True)
-            # Cast dummy columns (UInt8) to Float64 for consistent stats
-            df = df.cast(
-                {
-                    col: pl.Float64
-                    for col, dtype in df.schema.items()
-                    if dtype == pl.UInt8
-                }
-            )
+            # One dummy per level except the first, where "first" is the Enum's
+            # first level (text: first value to appear). polars' to_dummies
+            # drops whichever value happens to come first in the rows instead.
+            from pyrsm.utils import cat_levels
+
+            exprs = []
+            for name in df.columns:
+                if name in cat_cols:
+                    s = pl.col(name).cast(pl.Utf8)
+                    exprs += [
+                        (s == lev).cast(pl.Float64).alias(f"{name}_{lev}")
+                        for lev in cat_levels(df[name])[1:]
+                    ]
+                else:
+                    exprs.append(pl.col(name))
+            df = df.select(exprs)
 
     lf = df.lazy()
 

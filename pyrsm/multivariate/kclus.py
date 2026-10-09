@@ -16,7 +16,7 @@ from __future__ import annotations
 import numpy as np
 import polars as pl
 
-from pyrsm.utils import format_nr
+from pyrsm.utils import cat_levels, format_nr
 
 from ._plotting import as_plot_result
 from ._utils import does_vary, get_data, get_vars, is_categorical
@@ -225,10 +225,8 @@ class kclus:
         levels = {}
         for v in self.cat_vars:
             s = sub[v]
-            if isinstance(s.dtype, pl.Enum):
-                levels[v] = s.dtype.categories.to_list()
-            else:
-                levels[v] = sorted(s.cast(pl.Utf8).unique().to_list())
+            # Enum order; text columns in order of appearance (not alphabetical)
+            levels[v] = [str(x) for x in cat_levels(s)]
         return levels
 
     def _kproto_lambda(self, num_std, cat_arrs):
@@ -408,7 +406,10 @@ class kclus:
         if target.height != len(self.cluster):
             raise ValueError("Target row count does not match number of cases.")
         return target.with_columns(
-            pl.Series(name, [str(x) for x in self.cluster]).cast(pl.Categorical)
+            # an Enum in numeric order, so cluster "10" comes after "2"
+            pl.Series(name, [str(x) for x in self.cluster]).cast(
+                pl.Enum([str(x) for x in sorted(set(self.cluster))])
+            )
         )
 
     def summary(self, dec: int = 2) -> None:

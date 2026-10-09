@@ -244,8 +244,11 @@ class correlation:
             crs_arr[np.abs(self.cr) < cutoff] = ""
         crs_arr[ind] = ""
 
-        # Build p-value matrix
-        cps_arr = self.cp.round(dec).astype(str)
+        # Build p-value matrix (values below .001 shown as "< .001")
+        cps_arr = np.array(
+            [du.format_pvals(row, dec) for row in np.asarray(self.cp, dtype=float)],
+            dtype=object,
+        )
         if cutoff > 0:
             cps_arr[np.abs(self.cr) < cutoff] = ""
         cps_arr[ind] = ""
@@ -404,8 +407,9 @@ class correlation:
         def cor_text(r, p, ax_sub, dec=2):
             if self.method == "polychoric" or np.isnan(p):
                 p = 1  # polychoric correlations do not provide p-values
-            p = round(p, dec)
             rt = round(r, dec)
+            # stars from the unrounded p-value (rounding first could move a
+            # value across a significance threshold)
             p_star = sig_stars([p])[0]
 
             fs = min(figsize[0], figsize[1])
