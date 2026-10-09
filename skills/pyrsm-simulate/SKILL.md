@@ -1,167 +1,132 @@
 ---
 name: pyrsm-simulate
-description: Build, run, and interpret Monte Carlo simulations with pyrsm.model.simulate
+description: Build, run, and interpret Monte Carlo simulations with pyrsm.decide.simulate (radiant.model's simulater/repeater, plus queues and custom functions)
 ---
 
-# Monte Carlo simulation (`pyrsm.model.simulate`)
+# Monte Carlo simulation (`pyrsm.decide.simulate`)
 
-This skill teaches how to express an uncertain business problem as a
-Monte Carlo workbook of named distributions plus derived formulas, run
-thousands of draws, and turn the per-column summary into a decision-
-grade interpretation. It is the standard tool whenever a Radiant student
-needs to reason about uncertainty, risk, or repeated outcomes without
-fitting a statistical model.
+Express an uncertain business problem as named inputs (constants and
+distributions) plus formulas, draw many rows, and read the summary. Use
+`repeat_simulate` when the question is about a total or summary over many
+periods or trials.
 
 ## When to use
 
-Reach for `simulate` when the prompt names uncertainty and asks for a
-probability, a distribution, or a robust choice:
+- "What price should we charge if demand is uncertain?" (grid search)
+- "What is the probability annual profit is below target?" (repeat)
+- "How long do customers wait with 2 tellers? With 3?" (queue + repeat grid)
+- "Which portfolio weights minimise risk?" (input data + grid + `sdw`)
 
-- "What price should we charge if demand is uncertain?"
-- "What is the probability annual profit is negative?"
-- "Compare three staffing levels under random arrivals."
-- "How much capital do we need to cover the worst week with 95%
-  confidence?"
+Use `pyrsm.decide.dtree` instead for a few discrete outcomes with known
+probabilities, and the model tools for fit/predict tasks.
 
-Do **not** use Monte Carlo when:
+## Spec
 
-- The problem is a clean decision tree with a few discrete outcomes — use
-  `pyrsm.model.dtree` and roll back expected values exactly.
-- The problem is a fit/predict task — use `regress`, `logistic`,
-  `rforest`, or `xgboost`.
-
-## Workbook vocabulary
-
-A simulation is a small JSON-safe workbook with two ordered sections.
-The deterministic planner reasons about both sections so the question
-cards reference variable / formula names directly.
-
-### `variables`
-
-Each entry is one named random (or constant) input. Use the smallest
-distribution that is honest about the uncertainty:
-
-| `kind` | Required fields | Use for |
-| ------ | --------------- | ------- |
-| `constant` | `value` | Knowns, base parameters, scenario flags |
-| `normal` | `mean`, `sd` | Symmetric noise, additive errors |
-| `uniform` | `low`, `high` | "Anywhere in this range, no preference" |
-| `binomial` | `n`, `p` | Counts of successes in `n` independent trials |
-| `poisson` | `mean` | Counts of independent arrivals/events |
-| `lognormal` | `mean`, `sd` | Strictly positive, right-skewed magnitudes |
-| `discrete` | `values`, `probs` | Named scenarios with explicit probabilities |
-| `sequence` | `values` | Deterministic per-period sweeps in repeated runs |
-
-Probabilities on a `discrete` variable should sum to 1.
-
-### `formulas`
-
-Each formula is `{name, expr}` and is evaluated in order against the
-sampled columns. Expressions support `+ - * / **`, parentheses, the
-standard math functions, comparisons (`< <= > >= == !=`) and logical
-operators. Comparisons produce boolean columns that double as risk
-flags. The compiler rejects attribute access, imports, and arbitrary
-function calls, so formulas are safe to evaluate.
-
-Pattern: lift every meaningful intermediate (demand, revenue, cost,
-profit) into a named formula. Lifting makes the planner's cards
-specific and lets the user click straight through to a sensitivity grid
-on the right variable.
-
-## Minimal example
-
-```yaml
-name: Pricing demo
-runs: 5000
-seed: 1234
-variables:
-  - {name: price, kind: discrete, values: [6, 8], probs: [0.3, 0.7]}
-  - {name: demand_error, kind: normal, mean: 0, sd: 100}
-  - {name: var_cost, kind: constant, value: 5}
-  - {name: fixed_cost, kind: constant, value: 1000}
-formulas:
-  - {name: demand, expr: 1000 - 50 * price + demand_error}
-  - {name: profit, expr: demand * (price - var_cost) - fixed_cost}
-  - {name: loss,   expr: profit < 0}
-```
-
-After `simulate.run`:
-
-- `summary_rows` shows `mean`, `sd`, `p5`, `p50`, `p95`, and (for
-  boolean formulas) the probability of `True`.
-- `histograms` provides per-column bin counts the UI renders directly.
-- `python_code` is the Polars-native reproducibility text.
-
-## Repeated simulation
-
-Use `simulate.repeat.run` when the question mentions accumulation over
-time or a portfolio of independent trials. Two questions tell the
-planner what to do:
-
-1. What is the period count? (12 months, 52 weeks, 100 trials.)
-2. Which variables should resample each period vs. stay fixed for the
-   whole horizon?
-
-```json
-{
-  "type": "simulate.repeat.run",
-  "spec": {"...": "same workbook"},
-  "periods": 12,
-  "resample": ["demand_error"]
+```python
+spec = {
+    "name": "simdat",          # the saved dataset (radiant.model's "Simulated data")
+    "runs": 1000,              # rows (ignored when there are grid variables)
+    "seed": 1234,
+    "variables": [...],
+    "form": "profit = demand * (price - cost)\nloss = profit < 0",
+    "functions": "",           # optional: def ... custom functions
+    "normal_exact": False,     # normal variables with exactly the mean / sd given
+    "correlations": [],        # [{"a": "x", "b": "y", "r": 0.5}] between normal variables
+    "data": "",                # dataset whose columns formulas can use (pass data=...)
 }
 ```
 
-Repeat aggregates each formula across periods so totals, averages, and
-risk flags are first-class outputs.
+### Variable types (`kind` and its fields)
 
-## Probability of loss / risk flags
+| kind | fields | use |
+|---|---|---|
+| `constant` | `value` | knowns, decision levers (a single number in formulas) |
+| `normal` | `mean`, `sd` | symmetric noise |
+| `lognormal` | `meanlog`, `sdlog` | positive, right-skewed |
+| `uniform` | `min`, `max` | anywhere in a range |
+| `triangular` | `min`, `mode`, `max` | min / most likely / max estimates |
+| `binomial` | `trials`, `prob` | successes in trials (`trials: 1` = a yes/no event) |
+| `poisson` | `rate` | counts of events (lambda) |
+| `exponential` | `rate` | time between arrivals, service times (mean = 1 / rate) |
+| `discrete` | `values`, `probs` | scenarios; probabilities may be fractions ("1/3") and must sum to 1 |
+| `sequence` | `min`, `max` | evenly spaced over the rows |
+| `grid` | `min`, `max`, `step` | every combination of all grid variables; sets the rows |
 
-The canonical risk question is "What is the probability that profit is
-negative?" Express it as a boolean formula and read the summary:
+Fields can be numbers or expressions of earlier names (`"mean": "base * 2"`);
+constants are evaluated first.
 
-```yaml
-formulas:
-  - {name: profit, expr: revenue - cost}
-  - {name: loss,   expr: profit < 0}
+### Formulas (`form`)
+
+One `name = expression` per line (`<-` works, `#` comments, `;` separates).
+They run in order, can update an existing variable, and may return one value
+per row or a single value (`avg = mean(profit)`).
+
+- Operators: `+ - * / ^ %%`, comparisons, `&`, `|`, `!` (R style) or `and/or/not`.
+- Per row: `ifelse`, `pmin`, `pmax`, `psum`, `pmean`, `pmedian`, `psd`, `pvar`,
+  `abs`, `sqrt`, `exp`, `log`/`ln`, `log10`, `square`, `round`, `floor`,
+  `ceiling`, `cumsum`, `cumprod`, `cummax`, `cummin`, `lag`, `lead`, `row_number()`.
+- One value: `sum`, `mean`, `median`, `min`, `max` (over all inputs, as R),
+  `sd`, `var`, `quantile(x, p)`, `prop`, `cor`, `cov`, `n()`,
+  `find_max(x, y)` / `find_min(x, y)` (y where x is largest / smallest),
+  `sdw(w1, ..., x1, ...)` (sd of a weighted sum, per row of weights).
+- Queues: `queue_wait(gap, service, servers)` and
+  `queue_length(gap, service, servers)` for a first-come-first-served queue.
+- Random draws: `rnorm`, `runif`, `rbinom`, `rpois`, `rexp`, `rlnorm`, `sample`.
+- Indexing: `wealth[n() - 1]` (from 0).
+
+### Custom functions (`functions`)
+
+Python syntax (`def`, `if`, `for`/`while`, `return`, `x[i] = ...`) with the
+same function library; no imports, attributes (`.`), strings or `__` names.
+A step budget stops runaway loops. Prefer vectorised formulas (`cumprod`,
+`queue_wait`) for long simulations; loops are for path-dependent logic.
+
+```python
+def calc_wealth(win, start, perc, mult):
+    wealth = zeros(len(win))
+    current = start
+    for day in range(len(win)):
+        bet = perc * current
+        current = current + mult * bet if win[day] == 1 else current - bet
+        wealth[day] = current
+    return wealth
 ```
 
-The pro-builder planner promotes this pattern automatically when the
-prompt mentions risk, loss, or threshold language.
+## Repeated simulation
 
-## Decision variables and grid search
+```python
+rsm.decide.repeat_simulate(
+    spec, reps=365, vars=["E", "price"], sum_vars=["profit"],
+    by="sim", fun=["sum"], form="low = profit_sum < 36500",
+)
+```
 
-When the workbook contains a controllable input (price, staffing,
-capacity), surface it as a `constant` variable so the user can sweep it.
-The planner proposes a sensitivity / grid action when:
+- `vars`: re-simulated each repetition (others keep their first values); every
+  formula is re-evaluated.
+- `by="sim"`: one value per simulation row across repetitions (e.g. 1,000
+  simulated years of 365 days); `by="rep"`: one value per repetition across rows.
+- `fun`: any of sum, mean, median, min, max, sd, var, sdprop, varprop, p01,
+  p025, p05, p10, p25, p75, p90, p95, p975, p99, first, last, or "none".
+  Columns are `{variable}_{function}`.
+- `grid` (by="rep"): `[{"name": "tellers", "min": 1, "max": 4, "step": 1}]`
+  replaces a constant in each repetition; the number of grid values sets `reps`.
 
-- a controllable constant is present, and
-- a risk metric or profit formula already exists.
+In Radiant the actions are `simulate.run` (`spec`, `dec`) and
+`simulate.repeat.run` (`spec`, `reps`, `vars`, `sum_vars`, `by`, `fun`, `form`,
+`grid`, `seed`, `name`, `dec`); the simulated and repeated data are saved as
+datasets (`spec.name`, `name`).
 
-Grid search is not yet a built-in pyrsm action; the planner asks for
-realistic min/max/step and the host code stitches together a series of
-`simulate.run` calls per cell.
+## Examples
 
-## Queueing / process simulation (future submode)
+`rsm.decide.simulate_examples()`: profit, optimal-price, bank-queue,
+gamblers-ruin, stock-returns, portfolio (notebooks in
+`examples/decide/simulate-tutorial`).
 
-If the prompt mentions arrivals, waiting, service times, capacity,
-abandonment, or shifts, the planner should classify it as a future
-process/queue submode and ask:
+## Interpretation
 
-1. What is the arrival rate / pattern?
-2. What is the service time distribution?
-3. How many servers / what capacity?
-4. What is the service target (avg wait, p90 wait, abandonment)?
-
-Do not expose SimPy or Ciw abstractions directly; the future submode
-will ship its own typed action and pyrsm helpers.
-
-## Interpretation rules
-
-- Lead with the most decision-relevant number — expected profit, risk
-  probability, or a quantile that names the bad tail.
-- Separate decision controls (constants the user can change) from
-  exogenous uncertainty (distributions the user cannot change).
-- Name explicitly what the simulation does NOT capture (competitor
-  reactions, regime changes, correlation the workbook assumes away).
-- Recommend repeated simulation when accumulation is implied even if
-  the user did not ask for it directly.
+- Lead with the decision-relevant number: expected profit, a probability
+  (the share of `True` for a logical), or a tail quantile.
+- Separate decision levers (constants, grid values) from uncertainty.
+- Say what the model leaves out (competitor reactions, correlations assumed
+  away, a queue's warm-up period).
+- Match the horizon: daily risk can be large while a year's total is safe.

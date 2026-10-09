@@ -663,7 +663,9 @@ class Interpreter:
         try:
             tree = ast.parse(r_to_python(expr).strip(), mode="eval")
         except SyntaxError as exc:
-            raise SimLangError(f"cannot read '{expr}': {exc.msg}") from exc
+            raise SimLangError(
+                f"cannot read '{expr}': is something missing or mistyped? ({exc.msg})"
+            ) from exc
         _check_expression(tree)
         return self.eval(tree, {})
 
