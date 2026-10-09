@@ -137,3 +137,9 @@ def test_sensitivity_decisions_and_plot(tmp_path):
     assert set(tv) == {900000}
     assert res.to_dict()["base_options"] == ["Sign with Movie Company", "Sign with TV Network"]
     res.plot().save(tmp_path / "sens.png", dpi=40, verbose=False)
+
+
+def test_r_power_operator_in_formulas():
+    tree = dtree("name: t\nvariables:\n    base: 10\n    squared: base^2\ntype: decision\na:\n    payoff: squared\nb:\n    payoff: 0\n")
+    assert tree.vars["squared"] == 100
+    assert tree.payoff == 100

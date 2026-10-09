@@ -156,7 +156,9 @@ def safe_eval(
     if not isinstance(expr, str):
         return float(expr)
 
-    text = expr.strip()
+    # R's power operator (radiant.model formulas): ``2^3`` is ``2**3``. There
+    # is no bitwise XOR in a decision tree.
+    text = expr.strip().replace("^", "**")
     if not text:
         raise UnsafeExpressionError("empty expression")
 
