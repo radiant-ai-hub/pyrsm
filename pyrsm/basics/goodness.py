@@ -38,8 +38,9 @@ class goodness:
     var : str
         Categorical variable to test.
     probs : tuple[float, ...] | None
-        Expected probabilities for each level (in sorted order). If None, uses
-        a uniform distribution across levels.
+        Expected probabilities for each level, in level order: the category
+        order of an Enum/Categorical variable (as R's factor levels), otherwise
+        sorted. If None, uses a uniform distribution across levels.
     figsize : tuple[float, float] | None
         Figure size for plots.
 
@@ -119,12 +120,15 @@ class goodness:
         # Get value counts using polars
         counts = self.data.group_by(self.var).len().sort(self.var)
         self.freq = dict(zip(counts[self.var].to_list(), counts["len"].to_list()))
+        # Level order: sorting an Enum/Categorical keeps its category order, so
+        # probs line up with the levels as declared (WS Journal before USA Today).
+        self.levels = list(self.freq.keys())
         self.nlev = len(self.freq)
         if self.probs is None:
             self.probs = [1 / self.nlev] * self.nlev
 
         # Build observed DataFrame using polars
-        sorted_keys = sorted(self.freq.keys())
+        sorted_keys = self.levels
         obs_data = {k: [self.freq[k]] for k in sorted_keys}
         self.observed = pl.DataFrame(obs_data)
         obs_total = sum(self.freq.values())
@@ -271,7 +275,7 @@ class goodness:
 
     def _summary_footer(self, dec: int = 3) -> None:
         """Print chi-squared test results."""
-        sorted_keys = sorted(self.freq.keys())
+        sorted_keys = self.levels
         chisquare = _get_scipy_chisquare()
         chisq, p_val = chisquare(
             [self.freq[key] for key in sorted_keys],
@@ -309,7 +313,8 @@ class goodness:
             """Reshape wide dataframe to long format for plotting."""
             cols = [c for c in df.columns if c != "Total"]
             values = [df[c].item() for c in cols]
-            return pl.DataFrame({self.var: cols, value_name: values})
+            # An Enum keeps the bars in level order (plotnine sorts strings).
+            return pl.DataFrame({self.var: pl.Series(cols, dtype=pl.Enum(cols)), value_name: values})
 
         plot_list = []
 
