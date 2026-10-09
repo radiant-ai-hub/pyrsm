@@ -101,3 +101,10 @@ def test_stats_match_the_summary():
     st = c.stats("mean")
     assert st["clt"]["sd"] == pytest.approx(1 / 12)
     assert st["simulated"]["mean"] == pytest.approx(c.stat("mean").mean())
+
+
+def test_summary_does_not_claim_normality_at_any_sample_size(capsys):
+    central_limit_theorem("Exponential", n=2, m=50, seed=1).summary(stat="mean")
+    out = capsys.readouterr().out
+    assert "approximately normal" not in out
+    assert "gets closer to normal as the sample size grows" in out
