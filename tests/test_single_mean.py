@@ -72,3 +72,16 @@ def test_single_mean_sim_plot_returns_object():
     plot = sm.plot(plots="sim")
     assert plot is not None
     assert plot.__class__.__name__ == "ggplot"
+
+
+def test_plot_accepts_a_list_and_composes():
+    import polars as pl
+    from plotnine import ggplot
+    from plotnine.composition import Compose
+
+    from pyrsm.basics.single_mean import single_mean
+
+    sm = single_mean({"d": pl.DataFrame({"x": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]})}, var="x", comp_value=3)
+    assert isinstance(sm.plot("hist"), ggplot)
+    assert isinstance(sm.plot(["hist"]), ggplot)
+    assert isinstance(sm.plot(["hist", "sim"]), Compose)

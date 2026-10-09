@@ -9,6 +9,7 @@ import pyrsm.basics.display_utils as du
 import pyrsm.basics.utils as bu
 from pyrsm.utils import check_dataframe, ifelse
 from pyrsm.data_scope import apply_scope, print_scope
+from pyrsm.plot_utils import plot_each
 from pyrsm.plot_style import ALPHA, FILL, REF, theme_pyrsm
 
 
@@ -550,7 +551,7 @@ class compare_means:
 
     def plot(
         self,
-        plots: Literal["scatter", "box", "density", "bar"] = "scatter",
+        plots: Literal["scatter", "box", "density", "bar"] | list[str] = "scatter",
         nobs: int = None,
     ):
         """
@@ -581,6 +582,10 @@ class compare_means:
         data = self.data.drop_nulls(subset=[self.var2])
         if nobs is not None and nobs != np.inf and nobs != -1 and nobs < data.height:
             data = data.sample(nobs)
+
+        combined = plot_each(lambda p: self.plot(plots=p, nobs=nobs), plots)
+        if combined is not None:
+            return combined
 
         if plots == "scatter":
             from plotnine import stat_summary

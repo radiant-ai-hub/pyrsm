@@ -8,6 +8,7 @@ import pyrsm.basics.display_utils as du
 import pyrsm.basics.utils as bu
 from pyrsm.utils import check_dataframe, ifelse, sig_stars
 from pyrsm.data_scope import apply_scope, print_scope
+from pyrsm.plot_utils import plot_each
 from pyrsm.plot_style import ALPHA, COMP, FILL, REF, theme_pyrsm
 
 
@@ -330,7 +331,7 @@ class single_prop:
             probs = [self.conf]
         return sims, np.quantile(sims, probs)
 
-    def plot(self, plots: str = "bar"):
+    def plot(self, plots: str | list[str] = "bar"):
         """
         Plot proportions for single proportion test.
 
@@ -342,8 +343,9 @@ class single_prop:
 
         Parameters
         ----------
-        plots : str
-            Plot type: ``"bar"`` (default) or ``"sim"``
+        plots : str | list[str]
+            Plot type: ``"bar"`` (default) or ``"sim"``, or a list of them to
+            show several in one figure
 
         Returns
         -------
@@ -360,6 +362,10 @@ class single_prop:
             scale_y_continuous,
         )
 
+
+        combined = plot_each(lambda p: self.plot(plots=p), plots)
+        if combined is not None:
+            return combined
 
         if plots == "bar":
             # Get value counts as proportions using polars

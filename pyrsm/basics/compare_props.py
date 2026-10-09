@@ -9,6 +9,7 @@ import pyrsm.basics.display_utils as du
 import pyrsm.basics.utils as bu
 from pyrsm.utils import check_dataframe, ifelse, sig_stars
 from pyrsm.data_scope import apply_scope, print_scope
+from pyrsm.plot_utils import plot_each
 from pyrsm.plot_style import ALPHA, FILL, theme_pyrsm
 
 
@@ -385,7 +386,7 @@ class compare_props:
         display(gt1)
         display(gt2)
 
-    def plot(self, plots: str = "bar"):
+    def plot(self, plots: str | list[str] = "bar"):
         """
         Plot proportions comparison.
 
@@ -408,6 +409,10 @@ class compare_props:
             position_dodge,
         )
 
+
+        combined = plot_each(lambda p: self.plot(plots=p), plots)
+        if combined is not None:
+            return combined
 
         if plots == "bar":
             # Compute mean proportions by var1
