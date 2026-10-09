@@ -42,6 +42,7 @@ from pyrsm.decide.simlang import (
     DEFAULT_BUDGET,
     Interpreter,
     SimLangError,
+    _check_expression,
     r_to_python,
     split_formulas,
 )
@@ -236,8 +237,6 @@ def compile_formula(expr: str, known: set[str] | None = None) -> ast.Expression:
     Unknown names are reported when ``known`` is given. Raises
     :class:`FormulaError` for anything the formula language does not allow.
     """
-    from pyrsm.decide.simlang import _check_expression
-
     if not isinstance(expr, str) or not expr.strip():
         raise FormulaError("formula expression cannot be empty")
     try:
