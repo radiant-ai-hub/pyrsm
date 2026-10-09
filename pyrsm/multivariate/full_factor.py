@@ -18,6 +18,7 @@ from ._correlation import heterogeneous_corr
 from ._labels import label_positions, text_repel_kwargs
 from ._plotting import as_plot_result, symmetric_limit
 from ._utils import (
+    ROTATIONS,
     apply_filter,
     as_numeric_matrix,
     does_vary,
@@ -107,22 +108,30 @@ class full_factor:
     vars : str | list[str]
         Variables to use; supports Radiant ranges such as ``"v1:v6"``.
     method : str, default "PCA"
-        ``"PCA"`` or ``"ML"`` (maximum-likelihood factor analysis).
+        ``"PCA"`` or ``"ML"`` (maximum-likelihood factor analysis; Radiant's
+        ``"maxlik"`` is accepted as an alias).
     hcor : bool, default False
         Treat categorical variables as ordinal (polychoric/polyserial).
     nr_fact : int, default 1
         Number of factors to extract.
     rotation : str, default "varimax"
-        ``"none"``, ``"varimax"``, ``"quartimax"``, ``"oblimin"`` or
-        ``"simplimax"``.
+        ``"none"``, ``"varimax"``, ``"quartimax"``, ``"equamax"``,
+        ``"promax"``, ``"oblimin"`` or ``"simplimax"`` (the choices in
+        Radiant's UI).
 
     Attributes
     ----------
     floadings : np.ndarray
         Factor loadings (p x nr_fact), sign- and order-aligned to ``psych``.
+        For oblique rotations these are the pattern loadings.
+    phi : np.ndarray | None
+        Factor correlations for the oblique rotations (promax, oblimin,
+        simplimax), ``None`` otherwise.
     communality, uniqueness, eigen, scores : np.ndarray
     fnames : list[str]
-        Factor column names (``RC*`` when rotated, ``PC*``/``ML*`` otherwise).
+        Factor column names as ``psych`` prints them: ``RC*`` for PCA with an
+        orthogonal rotation or promax, ``PC*`` for PCA otherwise, ``ML*`` for
+        maximum likelihood (in psych's, possibly permuted, order).
     data_filter : str, default ""
         Expression used to filter the data before the analysis, e.g.,
         "price > 5000 and cut in ['Ideal', 'Premium']". A bare name is a column
@@ -154,15 +163,16 @@ class full_factor:
             "maximum likelihood": "ML",
             "maximum-likelihood": "ML",
             "mle": "ML",
+            "maxlik": "ML",
         }
         key = str(method).strip().lower()
         if key not in _method_aliases:
             raise ValueError(
                 f"Unknown method '{method}'. Use 'PCA' or 'ML' "
-                "(aliases: 'maximum likelihood')."
+                "(aliases: 'maxlik', 'maximum likelihood')."
             )
         method = _method_aliases[key]
-        valid_rotations = ("none", "varimax", "quartimax", "oblimin", "simplimax")
+        valid_rotations = ROTATIONS
         if rotation not in valid_rotations:
             raise ValueError(
                 f"Unknown rotation '{rotation}'. Choose one of {valid_rotations}."
@@ -218,10 +228,8 @@ class full_factor:
         self.communality = pr["communality"]
         self.uniqueness = pr["uniqueness"]
         self.eigen = pr["values"]
-
-        rotated = rotation not in ("none", None, "") and self.nr_fact > 1
-        prefix = "RC" if rotated else ("PC" if method == "PCA" else "ML")
-        self.fnames = [f"{prefix}{i + 1}" for i in range(self.nr_fact)]
+        self.phi = pr["Phi"]
+        self.fnames = pr["names"]
 
         # factor scores
         M = as_numeric_matrix(sub, self.vars)
@@ -229,8 +237,10 @@ class full_factor:
         if method == "PCA":
             self.scores = factor_scores(Z, self.floadings)
         else:
-            # Thurstone regression scores: Z %*% solve(R) %*% loadings
-            self.scores = Z @ np.linalg.solve(self.cmat, self.floadings)
+            # Thurstone regression scores (psych::factor.scores):
+            # scale(x) %*% solve(cor(x), loadings %*% Phi)
+            S = self.floadings if self.phi is None else self.floadings @ self.phi
+            self.scores = Z @ np.linalg.solve(np.corrcoef(M, rowvar=False), S)
 
     # -- helpers --------------------------------------------------------------
 

@@ -70,3 +70,10 @@ try:
     globals()["single_prop"] = _single_prop
 except Exception:
     pass
+
+
+# ``from pyrsm.<pkg>.<name> import <name>`` must not hide the class behind its
+# submodule (see pyrsm/_package.py)
+from pyrsm._package import keep_classes  # noqa: E402
+
+keep_classes(__name__, [n for n, src in _EXPORTS.items() if src.endswith(f".{n}")])

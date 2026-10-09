@@ -90,6 +90,7 @@ class prmap:
         self.data_filter = data_filter
         self.sort = sort
         self.slice = slice
+        unscoped = self.data
         self.data = apply_scope(self.data, data_filter, sort, slice)
         self.brand = brand
         self.attr = get_vars(self.data.columns, attr)
@@ -100,7 +101,14 @@ class prmap:
         self.hcor = hcor
 
         sel = [brand] + self.attr + self.pref
-        sub = self.data.select(sel).drop_nulls()
+        # Original row positions (numbered before the scope) so ``store`` can
+        # put each respondent's scores back on its own row, as in full_factor.
+        work = apply_scope(
+            unscoped.with_row_index("__row_idx__"), data_filter, sort, slice
+        ).select(["__row_idx__", *sel]).drop_nulls()
+        self._orig_height = unscoped.height
+        self._row_idx = work["__row_idx__"].to_numpy()
+        sub = work.select(sel)
         brands = [str(x).strip() for x in sub[brand].to_list()]
         self.nobs = sub.height
 
@@ -115,9 +123,8 @@ class prmap:
         self.communality = pr["communality"]
         self.uniqueness = pr["uniqueness"]
         self.eigen = pr["values"]
-        self.fnames = [
-            f"RC{i + 1}" if self.nr_dim > 1 else "PC1" for i in range(self.nr_dim)
-        ]
+        # psych's labels, permuted along with the columns (e.g. RC1 RC3 RC2)
+        self.fnames = pr["names"]
 
         f_data = as_numeric_matrix(sub, self.attr)
         row_scores = factor_scores(standardize(f_data), self.loadings)
@@ -235,6 +242,43 @@ class prmap:
                 {" ": self.attr, "": [round(float(x), dec) for x in self.communality]}
             )
         )
+
+    def store(self, data=None, name: str | list[str] | None = None):
+        """Append the factor scores to the data, returning a Polars DataFrame.
+
+        Radiant's "Store factor scores" (``store.full_factor``, which prmap
+        objects inherit): the scores of every analysed *row* (not the brand
+        means in ``scores``) go into columns ``<name>1..<name>k`` (default
+        ``factor1..factorK``), where the number is taken from the factor label,
+        so with labels ``RC1 RC3 RC2`` the columns are ``name1 name3 name2``.
+        Rows dropped by the filter or by missing values get ``null``. A list
+        of ``nr_dim`` names is used as given.
+        """
+        if data is None:
+            target = self.data
+        else:
+            _, target = get_data(data)
+        if name is None or isinstance(name, str):
+            prefix = name or "factor"
+            name = [prefix + "".join(ch for ch in fn if ch.isdigit()) for fn in self.fnames]
+        if len(name) != self.nr_dim:
+            raise ValueError(f"Provide {self.nr_dim} names to store the factor scores.")
+
+        scores = self._row_scores
+        if target.height == scores.shape[0]:
+            series = [pl.Series(nm, scores[:, j]) for j, nm in enumerate(name)]
+        elif target.height == self._orig_height:
+            full = np.full((self._orig_height, self.nr_dim), np.nan)
+            full[self._row_idx] = scores
+            series = [
+                pl.Series(nm, full[:, j]).fill_nan(None) for j, nm in enumerate(name)
+            ]
+        else:
+            raise ValueError(
+                "Cannot store scores: row count of target data does not match "
+                "the analysis sample."
+            )
+        return target.with_columns(series)
 
     def plot(
         self,

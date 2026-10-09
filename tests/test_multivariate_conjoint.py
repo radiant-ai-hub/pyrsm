@@ -123,8 +123,12 @@ def test_conjoint_store_predictions(mv_data):
 
     df = mv_data("mp3")
     cj = conjoint({"mp3": df}, rvar="Rating", evar="Memory:Shape")
+    # as Radiant's store: one name stores the prediction; up to three names
+    # (comma separated) store the prediction and the lower/upper bound
     out = store_predictions(df, cj.predict(df, se=True), name="pref")
-    assert {"pref", "pref_lb", "pref_ub", "pref_me"}.issubset(out.columns)
+    assert out.columns == df.columns + ["pref"]
+    out = store_predictions(df, cj.predict(df, se=True), name="pref, pref_lb, pref_ub")
+    assert out.columns == df.columns + ["pref", "pref_lb", "pref_ub"]
     assert out.height == df.height
 
 
@@ -185,3 +189,97 @@ def test_conjoint_summary_plot_smoke(mv_data, capsys):
     assert "importance weights" in out
     assert cj.plot(plots="pw") is not None
     assert cj.plot(plots="iw") is not None
+
+
+# -- Radiant's by-level UI: Show, store wide PW / IW, additional output --------
+
+
+@pytest.mark.parametrize(
+    "case,dataset,evar,by,reverse",
+    [
+        ("by_mp3_radio", "mp3", ["Memory", "Price"], "Radio", False),
+        ("by_mp3_radio_rev", "mp3", ["Memory", "Price"], "Radio", True),
+        ("by_movie_sight_rev", "movie", ["price", "comfort", "food"], "sight", True),
+    ],
+)
+def test_conjoint_store_wide_matches_r(mv_data, mv_ref, case, dataset, evar, by, reverse):
+    ref = mv_ref(f"conjoint_compare_{case}")
+    rvar = "Rating" if dataset == "mp3" else "Ranking"
+    cj = conjoint({dataset: mv_data(dataset)}, rvar=rvar, evar=evar, by=by, reverse=reverse)
+    for what, key, tol in (("PW", "PW_wide", 1e-8), ("IW", "IW_wide", 1e-3)):
+        got = cj.store(what)
+        want = ref[key]
+        # R: one row per by-level with the by column, .Rsq and one column per
+        # coefficient (PW) or attribute (IW)
+        assert got.columns == want["columns"]
+        assert got[by].to_list() == want["data"][by]
+        for col in want["columns"][1:]:
+            assert np.allclose(got[col].to_numpy(), want["data"][col], atol=tol)
+
+
+def test_conjoint_store_long_without_by(mv_data):
+    cj = conjoint({"mp3": mv_data("mp3")}, rvar="Rating", evar="Memory:Shape")
+    assert cj.store("PW").columns == ["Attributes", "Levels", "PW"]
+    assert cj.store("IW").columns == ["Attributes", "IW"]
+
+
+def test_conjoint_show_level(mv_data, mv_ref, capsys):
+    ref = mv_ref("conjoint_compare_by_mp3_radio")
+    cj = conjoint({"mp3": mv_data("mp3")}, rvar="Rating", evar=["Memory", "Price"], by="Radio")
+    for lev in ref["bylevs"]:
+        cj.summary(show=lev, additional=True)
+        out = capsys.readouterr().out
+        assert f"Show                 : Radio == {lev}" in out
+        # every coefficient row of R's "Additional regression output" table:
+        # coefficient, std.error, t.value and p.value to 3 decimals
+        for line in ref["groups"][lev]["summary_additional"].splitlines():
+            cells = line.split()
+            if cells and ("|" in cells[0] or cells[0] == "(Intercept)") and len(cells) >= 5:
+                row = [c for c in out.splitlines() if c.strip("│ ").startswith(cells[0])]
+                assert row, cells[0]
+                nums = [c.strip() for c in row[0].strip("│ ").split("┆")[1:5]]
+                assert nums == cells[1:5]
+        plots = cj.plot(["pw", "iw"], show=lev)
+        assert [p.labels.get("title", None) for p in plots] == [
+            r["title"] for r in ref["groups"][lev]["plots"].values()
+        ]
+
+
+# -- predict returns the profiles (attribute columns) and Prediction, as R ------
+
+
+def _pred_case(cj, df, ref, key):
+    head = df.head(4)
+    calls = {
+        "pred_cmd": lambda: cj.predict(pred_cmd=ref["cmd"]),
+        "pred_cmd_partial": lambda: cj.predict(pred_cmd=ref["cmd_partial"]),
+        "pred_cmd_se": lambda: cj.predict(pred_cmd=ref["cmd"], se=True),
+        "pred_data": lambda: cj.predict(head),
+        "pred_data_cmd": lambda: cj.predict(head, pred_cmd=ref["data_cmd"]),
+        "pred_by_cmd": lambda: cj.predict(pred_cmd=ref["cmd_by"]),
+        "pred_by_data": lambda: cj.predict(head),
+    }
+    return calls[key]()
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["pred_cmd", "pred_cmd_partial", "pred_cmd_se", "pred_data", "pred_data_cmd",
+     "pred_by_cmd", "pred_by_data"],
+)
+def test_conjoint_predict_columns_match_r(mv_data, mv_ref, key):
+    ref = mv_ref("conjoint_predict_columns")
+    df = mv_data("mp3")
+    if key.startswith("pred_by"):
+        cj = conjoint({"mp3": df}, rvar="Rating", evar=["Memory", "Price"], by="Radio")
+    else:
+        cj = conjoint({"mp3": df}, rvar="Rating", evar="Memory:Shape")
+    got = _pred_case(cj, df, ref, key)
+    want = ref[key]
+    assert got.columns == want["columns"]
+    for col in want["columns"]:
+        vals = want["data"][col]
+        if isinstance(vals[0], str):
+            assert [str(x) for x in got[col].to_list()] == vals
+        else:
+            assert np.allclose(got[col].to_numpy(), vals, atol=1e-8)
