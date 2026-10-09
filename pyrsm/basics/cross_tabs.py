@@ -566,7 +566,11 @@ Chi-squared: {round(self.chisq_test[0], dec)} df({int(self.chisq_test[2])}), p.v
                             value_name: row_data[c].item(),
                         }
                     )
-            return pl.DataFrame(data_list)
+            # Enums keep the axis and legend in level order (plotnine sorts strings).
+            return pl.DataFrame(data_list).with_columns(
+                pl.col(self.var1).cast(pl.Enum([str(v) for v in self._var1_levels])),
+                pl.col(self.var2).cast(pl.Enum([str(v) for v in self._var2_levels])),
+            )
 
         def _stacked_bar(df, title, value_name):
             """Create stacked bar chart (normalized to percentages)."""

@@ -59,3 +59,14 @@ def test_bar_plots_show_confidence_and_standard_error_bars():
         assert len(bars) == 2
         assert bars[1].geom.aes_params.get("color") == "blue"
         p.draw()
+
+
+def test_cross_tabs_plot_keeps_the_level_order():
+    """Axis and legend follow the Enum levels, as the tables do (WS Journal before USA Today)."""
+    newspaper = pl.read_parquet("examples/data/basics/newspaper.parquet")
+    ct = cross_tabs({"newspaper": newspaper}, var1="Income", var2="Newspaper")
+    for kind in ("dev_std", "observed", "perc_col"):
+        p = ct.plot(plots=kind)
+        assert p.data["Newspaper"].dtype.categories.to_list() == ["WS Journal", "USA Today"]
+        assert p.data["Income"].dtype.categories.to_list() == ["Low Income", "High Income"]
+        p.draw()
