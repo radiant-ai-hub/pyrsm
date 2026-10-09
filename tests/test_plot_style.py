@@ -352,11 +352,11 @@ def _sp_sim():
     return single_prop({"salary": _salary()}, var="sex", lev="Male").plot(plots="sim")
 
 
-@case("basics.central_limit_theorem")
+@case("basics.clt")
 def _clt():
-    from pyrsm.basics.central_limit_theorem import central_limit_theorem
+    from pyrsm.basics import clt
 
-    return central_limit_theorem("Normal", n=50, m=40, seed=1).plot(bins=10)
+    return clt("Normal", n=50, m=40, seed=1).plot(bins=10)
 
 
 _PROB = {

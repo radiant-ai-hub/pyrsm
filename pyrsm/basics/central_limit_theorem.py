@@ -28,7 +28,7 @@ DISTRIBUTIONS = {
 }
 
 
-class central_limit_theorem:
+class clt:
     """
     Simulate the Central Limit Theorem (radiant.basics ``clt``).
 
@@ -65,7 +65,7 @@ class central_limit_theorem:
     Examples
     --------
     >>> import pyrsm as rsm
-    >>> clt = rsm.basics.central_limit_theorem("Uniform", n=10, m=20, unif_min=10, unif_max=20, seed=1)
+    >>> clt = rsm.basics.clt("Uniform", n=10, m=20, unif_min=10, unif_max=20, seed=1)
     >>> clt.sim.shape
     (10, 20)
     >>> sums = clt.stat("sum")
@@ -301,6 +301,3 @@ class central_limit_theorem:
             )
         return p
 
-
-# radiant.basics name
-clt = central_limit_theorem

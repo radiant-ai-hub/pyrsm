@@ -50,7 +50,7 @@ model_functions = [
 
 # basics classes that need wrappers (enforce use of .basics)
 basics_functions = [
-    "central_limit_theorem",
+    "clt",
     "compare_means",
     "compare_props",
     "correlation",

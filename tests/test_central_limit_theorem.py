@@ -1,10 +1,10 @@
-"""Tests for pyrsm.basics.central_limit_theorem (radiant.basics ``clt``)."""
+"""Tests for pyrsm.basics.clt (radiant.basics ``clt``)."""
 
 import numpy as np
 import pytest
 from plotnine.composition import Compose
 
-from pyrsm.basics import central_limit_theorem, clt
+from pyrsm.basics import clt
 
 
 @pytest.mark.parametrize(
@@ -17,7 +17,7 @@ from pyrsm.basics import central_limit_theorem, clt
     ],
 )
 def test_simulates_n_by_m_from_the_population(dist, kwargs, pop_mean):
-    c = central_limit_theorem(dist, n=200, m=300, seed=1, **kwargs)
+    c = clt(dist, n=200, m=300, seed=1, **kwargs)
     assert c.sim.shape == (200, 300)
     assert c.dist == dist
     assert c.population()[0] == pytest.approx(pop_mean)
@@ -27,12 +27,12 @@ def test_simulates_n_by_m_from_the_population(dist, kwargs, pop_mean):
 
 def test_exponential_uses_rate_not_scale():
     # R's rexp(rate = 4) has mean 1 / 4
-    c = central_limit_theorem("Exponential", n=1000, m=100, expo_rate=4, seed=2)
+    c = clt("Exponential", n=1000, m=100, expo_rate=4, seed=2)
     assert c.sim.mean() == pytest.approx(0.25, rel=0.05)
 
 
 def test_sum_and_mean_statistics():
-    c = central_limit_theorem("Uniform", n=50, m=40, seed=3)
+    c = clt("Uniform", n=50, m=40, seed=3)
     assert np.allclose(c.stat("sum"), c.sim.sum(axis=0))
     assert np.allclose(c.stat("mean"), c.sim.mean(axis=0))
     with pytest.raises(ValueError):
@@ -40,24 +40,26 @@ def test_sum_and_mean_statistics():
 
 
 def test_clt_spread_matches_theory():
-    c = central_limit_theorem("Binomial", n=100, m=2000, binom_size=10, binom_prob=0.2, seed=4)
+    c = clt("Binomial", n=100, m=2000, binom_size=10, binom_prob=0.2, seed=4)
     pop_mean, pop_sd = c.population()
     assert c.stat("sum").std(ddof=1) == pytest.approx(np.sqrt(100) * pop_sd, rel=0.1)
     assert c.stat("mean").std(ddof=1) == pytest.approx(pop_sd / np.sqrt(100), rel=0.1)
 
 
 def test_seed_makes_runs_reproducible():
-    a = central_limit_theorem("Normal", n=10, m=10, seed=7)
-    b = central_limit_theorem("Normal", n=10, m=10, seed=7)
+    a = clt("Normal", n=10, m=10, seed=7)
+    b = clt("Normal", n=10, m=10, seed=7)
     assert np.array_equal(a.sim, b.sim)
 
 
 def test_distribution_spellings_and_alias():
-    assert clt is central_limit_theorem
-    assert central_limit_theorem("norm", n=5, m=5).dist == "Normal"
-    assert central_limit_theorem("EXPONENTIAL", n=5, m=5).dist == "Exponential"
+    import pyrsm as rsm
+
+    assert rsm.basics.clt is clt and clt.__name__ == "clt"
+    assert clt("norm", n=5, m=5).dist == "Normal"
+    assert clt("EXPONENTIAL", n=5, m=5).dist == "Exponential"
     with pytest.raises(ValueError, match="Distribution must be one of"):
-        central_limit_theorem("Poisson")
+        clt("Poisson")
 
 
 @pytest.mark.parametrize(
@@ -74,11 +76,11 @@ def test_distribution_spellings_and_alias():
 )
 def test_input_checks(kwargs, message):
     with pytest.raises(ValueError, match=message):
-        central_limit_theorem(**kwargs)
+        clt(**kwargs)
 
 
 def test_summary_reports_simulated_and_clt_values(capsys):
-    central_limit_theorem("Uniform", n=12, m=50, unif_min=0, unif_max=1, seed=5).summary(
+    clt("Uniform", n=12, m=50, unif_min=0, unif_max=1, seed=5).summary(
         stat="mean"
     )
     out = capsys.readouterr().out
@@ -91,20 +93,20 @@ def test_summary_reports_simulated_and_clt_values(capsys):
 
 @pytest.mark.parametrize("stat", ["sum", "mean"])
 def test_plot_has_four_panels(stat):
-    c = central_limit_theorem("Exponential", n=30, m=40, seed=6)
+    c = clt("Exponential", n=30, m=40, seed=6)
     p = c.plot(stat=stat, bins=10)
     assert isinstance(p, Compose)
 
 
 def test_stats_match_the_summary():
-    c = central_limit_theorem("Uniform", n=12, m=50, seed=5)
+    c = clt("Uniform", n=12, m=50, seed=5)
     st = c.stats("mean")
     assert st["clt"]["sd"] == pytest.approx(1 / 12)
     assert st["simulated"]["mean"] == pytest.approx(c.stat("mean").mean())
 
 
 def test_summary_does_not_claim_normality_at_any_sample_size(capsys):
-    central_limit_theorem("Exponential", n=2, m=50, seed=1).summary(stat="mean")
+    clt("Exponential", n=2, m=50, seed=1).summary(stat="mean")
     out = capsys.readouterr().out
     assert "approximately normal" not in out
     assert "gets closer to normal as the sample size grows" in out
