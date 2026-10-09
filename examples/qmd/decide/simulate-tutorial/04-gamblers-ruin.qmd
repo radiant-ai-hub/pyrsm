@@ -1,0 +1,86 @@
+---
+title: "Gambler's ruin: a custom function"
+jupyter: python3
+---
+
+In Radiant: **Load example > Gambler's ruin (custom function)**.
+
+## Question
+
+> You start with $1,000 and each day bet 5% of what you have. You win with probability 0.2, and a win pays 5 times the bet; otherwise you lose the bet. What is your wealth after a year (365 bets)? How likely are you to end with less than you started with?
+
+```{python}
+import pyrsm as rsm
+```
+
+Each row is a day; `win` is 1 on a winning day. Wealth depends on yesterday's wealth, so it is calculated in a loop: a **custom function**. Functions use Python syntax (`def`, `for`, `if`, indexing from 0) and the same functions as formulas (`zeros`, `len`, `max`, ...); they cannot import modules, read files or use `.` attributes. Constants are single numbers, so they can be passed in as they are.
+
+```{python}
+functions = """
+def calc_wealth(win, start, perc_invest, win_mult):
+    # wealth at the end of each day: bet a share of what you have
+    wealth = zeros(len(win))
+    current = start
+    for day in range(len(win)):
+        bet = perc_invest * current
+        if win[day] == 1:
+            current = current + win_mult * bet
+        else:
+            current = current - bet
+        wealth[day] = current
+    return wealth
+"""
+
+formulas = """
+wealth = calc_wealth(win, start, perc_invest, win_mult)
+final = wealth[n() - 1]
+loss = final < start
+"""
+
+spec = {
+    "name": "gamble",
+    "runs": 365,
+    "seed": 1234,
+    "variables": [
+        {"name": "start", "kind": "constant", "value": 1000},
+        {"name": "perc_invest", "kind": "constant", "value": 0.05},
+        {"name": "win_mult", "kind": "constant", "value": 5},
+        {"name": "win", "kind": "binomial", "trials": 1, "prob": 0.2},
+    ],
+    "form": formulas,
+    "functions": functions,
+}
+```
+
+```{python}
+sim = rsm.decide.simulate(spec)
+sim.summary()
+```
+
+One simulated year is one path. Repeat it 1,000 times (**group by Repeat**) and keep the `last` value (wealth at the end of the year) and the `min` (the lowest point of the year):
+
+```{python}
+rep = rsm.decide.repeat_simulate(
+    spec,
+    reps=1000,
+    vars=['win'],
+    sum_vars=['wealth'],
+    by='rep',
+    fun=['last', 'min'],
+    form='loss = wealth_last < 1000\nruined = wealth_min < 100',
+    seed=1234,
+)
+rep.summary()
+```
+
+```{python}
+rep.plot()
+```
+
+A loop is easy to read but slow for long simulations. The same wealth without a loop: each day multiplies wealth by `1 + 5 x 0.05` or `1 - 0.05`, so
+
+```{python}
+fast = dict(spec, form="wealth = start * cumprod(ifelse(win == 1, 1 + win_mult * perc_invest, 1 - perc_invest))")
+fast.pop("functions")
+(rsm.decide.simulate(fast).data["wealth"] - sim.data["wealth"]).abs().max()
+```

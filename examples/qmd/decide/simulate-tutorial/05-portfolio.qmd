@@ -1,0 +1,80 @@
+---
+title: "Portfolio risk: correlated returns and input data"
+jupyter: python3
+---
+
+In Radiant: **Load example > Correlated stock returns**, press _Run simulation_ (saved as `returns`), then **Load example > Portfolio weights (input data and sdw)**.
+
+## Question
+
+> Simulate 1,000 monthly returns for three stocks with means 1%, 1.5% and 0.8%, standard deviations 5%, 8% and 3%, and correlations 0.3 (A-B), 0.1 (A-C) and 0.2 (B-C). Save the result as 'returns' to use it as input data for the portfolio example.
+
+```{python}
+import pyrsm as rsm
+```
+
+**Correlations** between normal variables are given per pair. With `normal_exact` the simulated returns have exactly the means, standard deviations and correlations given (radiant.model's "Use exact specifications").
+
+```{python}
+spec = {
+    "name": "returns",
+    "runs": 1000,
+    "seed": 1234,
+    "variables": [
+        {"name": "A", "kind": "normal", "mean": 0.01, "sd": 0.05},
+        {"name": "B", "kind": "normal", "mean": 0.015, "sd": 0.08},
+        {"name": "C", "kind": "normal", "mean": 0.008, "sd": 0.03},
+    ],
+    "normal_exact": True,
+    "correlations": [
+        {"a": "A", "b": "B", "r": 0.3},
+        {"a": "A", "b": "C", "r": 0.1},
+        {"a": "B", "b": "C", "r": 0.2},
+    ],
+}
+```
+
+```{python}
+returns = rsm.decide.simulate(spec).data
+returns.corr()
+```
+
+## Question
+
+> Using the simulated 'returns' as input data, which weights for stocks A and B (C gets the rest) give the lowest risk (standard deviation of the portfolio return)? Search weights from 0 to 1 in steps of 0.05.
+
+The simulated returns are the **input data**: their columns (`A`, `B`, `C`) can be used in the formulas but are not part of the result. A grid search over the weights of A and B gives 441 rows; `sdw(wA, wB, wC, A, B, C)` is, for each row of weights, the standard deviation of the weighted sum of the returns.
+
+```{python}
+formulas = """
+wC = 1 - wA - wB
+valid = wC >= 0
+risk = ifelse(valid, sdw(wA, wB, wC, A, B, C), 99)
+expected = wA * mean(A) + wB * mean(B) + wC * mean(C)
+min_risk_A = find_min(risk, wA)
+min_risk_B = find_min(risk, wB)
+"""
+
+pspec = {
+    "name": "portfolio",
+    "runs": 1000,
+    "seed": 1234,
+    "variables": [
+        {"name": "wA", "kind": "grid", "min": 0, "max": 1, "step": 0.05},
+        {"name": "wB", "kind": "grid", "min": 0, "max": 1, "step": 0.05},
+    ],
+    "data": "returns",
+    "form": formulas,
+}
+```
+
+```{python}
+port = rsm.decide.simulate(pspec, data=returns)
+port.summary(dec=3)
+```
+
+```{python}
+import polars as pl
+
+port.data.filter(pl.col("valid")).sort("risk").head(5)
+```

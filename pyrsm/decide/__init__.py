@@ -27,6 +27,8 @@ _LAZY_FUNCTIONS = {
     "dtree_parser": "dtree",
     "dtree_examples": "dtree_examples",
     "dtree_example": "dtree_examples",
+    "simulate_examples": "simulate_examples",
+    "simulate_example": "simulate_examples",
     "Constraint": "optimize",
     "DecisionVariable": "optimize",
     "RobustnessResult": "optimize",
