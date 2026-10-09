@@ -181,3 +181,20 @@ def test_kclus_hc_init_distance_method_matches_r(mv_data, mv_ref, key):
 def test_kclus_rejects_unknown_hc_distance(mv_data):
     with pytest.raises(ValueError, match="distance"):
         kclus({"shopping": mv_data("shopping")}, "v1:v6", distance="cosine")
+
+
+def test_kclus_single_variable_matches_r(mv_data, mv_ref, capsys):
+    ref = mv_ref("kclus_shopping_v1")
+    df = mv_data("shopping")
+    km = kclus({"shopping": df}, "v1", nr_clus=3)
+    assert km.cluster.tolist() == ref["cluster"]
+    assert km.sizes.tolist() == ref["sizes"]
+    assert np.allclose(km.withinss, ref["withinss"])
+    assert km.betweenss == pytest.approx(ref["betweenss"])
+    assert km.totss == pytest.approx(ref["totss"])
+    assert np.allclose(km.clus_means["v1"].to_numpy(), ref["clus_means"])
+    km.summary()
+    assert "Cluster means" in capsys.readouterr().out
+    for p in ("density", "bar", "scatter"):
+        assert km.plot(p) is not None
+    assert km.store(df).columns[-1] == "kclus3"

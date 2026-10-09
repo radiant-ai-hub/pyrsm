@@ -104,3 +104,16 @@ path <- file.path(OUT, "kclus_shopping_hc_init.json")
 writeLines(toJSON(list(dataset = "shopping", vars = paste0("v", 1:6), cases = kcases),
                   auto_unbox = TRUE, digits = NA, null = "null", na = "null"), path)
 cat("wrote", path, "\n")
+
+# ---- kclus: a single variable ------------------------------------------------
+
+res <- kclus(shopping, "v1", nr_clus = 3)
+km <- res$km_out
+path <- file.path(OUT, "kclus_shopping_v1.json")
+writeLines(toJSON(list(
+  vars = "v1", nr_clus = 3,
+  cluster = as.integer(km$cluster), sizes = as.integer(km$size),
+  withinss = as.numeric(km$withinss), betweenss = as.numeric(km$betweenss),
+  totss = as.numeric(km$totss), clus_means = as.numeric(res$clus_means$v1)
+), auto_unbox = TRUE, digits = NA), path)
+cat("wrote", path, "\n")

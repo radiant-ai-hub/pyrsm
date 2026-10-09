@@ -45,6 +45,7 @@ EXPECTED_FIXTURES = [
     "full_factor_toothpaste_rotations",
     "hclus_shopping_distances",
     "kclus_shopping_hc_init",
+    "kclus_shopping_v1",
     "prmap_store",
     "conjoint_predict_columns",
     "hclus_toothpaste_gower",
