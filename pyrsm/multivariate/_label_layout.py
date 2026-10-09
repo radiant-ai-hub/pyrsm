@@ -75,8 +75,13 @@ def measure_labels(base, labels, size: float):
     g = base + geom_text(probe, aes(x="x", y="y", label="label"), size=size)
     fig = g.draw()
     try:
-        fig.canvas.draw()
-        renderer = fig.canvas.get_renderer()
+        # Measure with an Agg canvas whatever the active backend is (a server
+        # process may run a backend whose canvas has no renderer).
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+        canvas = fig.canvas if isinstance(fig.canvas, FigureCanvasAgg) else FigureCanvasAgg(fig)
+        canvas.draw()
+        renderer = canvas.get_renderer()
         ax = fig.axes[0]
         dpi = fig.dpi
         bb = ax.get_window_extent(renderer)

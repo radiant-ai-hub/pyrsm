@@ -94,3 +94,21 @@ def test_maps_draw_every_label_once():
     g = pm.plot(plots=["brand", "attr", "pref"])
     texts = [layer for layer in g.layers if type(layer.geom).__name__ == "geom_text"]
     assert len(texts[0]._data) == 6 + 4 + 2
+
+
+def test_layout_works_with_a_backend_without_a_renderer():
+    """Server processes may run a backend whose canvas has no renderer."""
+    import os
+    import subprocess
+    import sys
+
+    code = (
+        "import polars as pl, pyrsm as rsm\n"
+        f"tp = pl.read_parquet({str(DATA / 'toothpaste.parquet')!r})\n"
+        "ff = rsm.multivariate.full_factor({'tp': tp}, vars=['v1','v2','v3','v4','v5','v6'], nr_fact=2)\n"
+        "ff.plot(plots=['resp', 'attr'])\n"
+        "print('ok')\n"
+    )
+    env = {**os.environ, "MPLBACKEND": "template"}
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env)
+    assert out.stdout.strip().endswith("ok"), out.stderr[-500:]
