@@ -15,7 +15,7 @@ import polars as pl
 from pyrsm.utils import format_nr
 
 from ._correlation import heterogeneous_corr
-from ._labels import loading_label_positions, text_repel_kwargs
+from ._label_layout import layout_labels
 from ._plotting import as_plot_result, symmetric_limit
 from ._utils import (
     ROTATIONS,
@@ -396,27 +396,17 @@ class full_factor:
 
         # Axes hold the (scaled) scores and the loadings with room for labels.
         if "resp" in plots and "attr" in plots:
-            lim = max(symmetric_limit(scores * resp_scale), symmetric_limit(loadings, pad=1.25))
+            lim = max(symmetric_limit(scores * resp_scale), symmetric_limit(loadings, pad=1.05))
         elif "resp" in plots:
             lim = symmetric_limit(scores * resp_scale)
         else:
-            lim = max(1.0, symmetric_limit(loadings, pad=1.25))
+            lim = max(1.0, symmetric_limit(loadings, pad=1.05))
 
         pairs = [
             (i, j)
             for i in range(self.nr_fact - 1)
             for j in range(i + 1, self.nr_fact)
         ]
-        if "attr" in plots:
-            # widen the axes until every label (not just its point) fits
-            width = np.array([len(str(v)) for v in self.vars], dtype=float)
-            for i, j in pairs:
-                pos = loading_label_positions(loadings[:, i], loadings[:, j], self.vars, lim=lim, size=fontsz * 2)
-                need = max(
-                    float(np.max(np.abs(pos[:, 0]) + lim * 0.0021 * fontsz * 2 * width)),
-                    float(np.max(np.abs(pos[:, 1]))) + lim * 0.05,
-                )
-                lim = max(lim, need * 1.03)
         out = [self._plot_pair(plots, i, j, lim, fontsz, seed) for i, j in pairs]
         return as_plot_result(out)
 
@@ -434,48 +424,31 @@ class full_factor:
 
         from ._plotting import add_square_axes
 
-        g = ggplot()
-        g = add_square_axes(g, lim)
         scale = getattr(self, "_resp_scale", 1.0)
+        x = self.floadings[:, i]
+        y = self.floadings[:, j]
+        adat = pl.DataFrame({"x": x, "y": y, "label": self.vars}).to_pandas()
+        sx = self.scores[:, i] * scale
+        sy = self.scores[:, j] * scale
 
-        if "resp" in plots:
-            sdat = pl.DataFrame(
-                {"x": self.scores[:, i] * scale, "y": self.scores[:, j] * scale}
-            ).to_pandas()
-            g = g + geom_point(sdat, aes(x="x", y="y"), alpha=ALPHA, color=MUTED)
-
-        if "attr" in plots:
-            x = self.floadings[:, i]
-            y = self.floadings[:, j]
-            lab_xy = loading_label_positions(x, y, self.vars, lim=lim, size=fontsz * 2)
-            adat = pl.DataFrame(
-                {
-                    "x": x,
-                    "y": y,
-                    "lx": lab_xy[:, 0],
-                    "ly": lab_xy[:, 1],
-                    "label": self.vars,
-                }
-            ).to_pandas()
-            repel = text_repel_kwargs(adat[["x", "y"]].to_numpy(), tight=True)
-            g = (
-                g
-                + geom_segment(
-                    adat,
-                    aes(x=0, y=0, xend="x", yend="y"),
-                    color=LINE,
-                    linetype="dashed",
-                    alpha=ALPHA,
+        def base(lim_):
+            g = add_square_axes(ggplot(), lim_)
+            if "resp" in plots:
+                sdat = pl.DataFrame({"x": sx, "y": sy}).to_pandas()
+                g = g + geom_point(sdat, aes(x="x", y="y"), alpha=ALPHA, color=MUTED)
+            if "attr" in plots:
+                g = (
+                    g
+                    + geom_segment(
+                        adat,
+                        aes(x=0, y=0, xend="x", yend="y"),
+                        color=LINE,
+                        linetype="dashed",
+                        alpha=ALPHA,
+                    )
+                    + geom_point(adat, aes(x="x", y="y"), color=LINE)
                 )
-                + geom_point(adat, aes(x="x", y="y"), color=LINE)
-                + geom_text(
-                    adat, aes(x="lx", y="ly", label="label"), size=fontsz * 2, **repel
-                )
-            )
-
-        g = (
-            g
-            + labs(
+            return g + labs(
                 title="Attribute loadings",
                 subtitle=(
                     f"Respondent scores x {scale:.2f}"
@@ -484,7 +457,26 @@ class full_factor:
                 ),
                 x=self.fnames[i],
                 y=self.fnames[j],
-            )
-            + theme_pyrsm()
+            ) + theme_pyrsm()
+
+        if "attr" not in plots:
+            return base(lim)
+
+        lay = layout_labels(
+            base, x, y, self.vars, size=fontsz * 2, lim=lim,
+            background=np.column_stack([sx, sy]) if "resp" in plots else None,
+            segments=[(0.0, 0.0, float(a), float(b)) for a, b in zip(x, y)],
+            segment_owner=list(range(len(x))),
+            seed=seed,
         )
-        return g
+        g = base(lay.lim)
+        if lay.leader.any():
+            ex, ey = lay.leader_ends()
+            ldat = pl.DataFrame(
+                {"x": lay.x[lay.leader], "y": lay.y[lay.leader],
+                 "xend": ex[lay.leader], "yend": ey[lay.leader]}
+            ).to_pandas()
+            g = g + geom_segment(ldat, aes(x="x", y="y", xend="xend", yend="yend"),
+                                 color=MUTED, size=0.3)
+        tdat = pl.DataFrame({"x": lay.lx, "y": lay.ly, "label": self.vars}).to_pandas()
+        return g + geom_text(tdat, aes(x="x", y="y", label="label"), size=fontsz * 2)
