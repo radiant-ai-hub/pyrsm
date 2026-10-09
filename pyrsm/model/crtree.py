@@ -1005,8 +1005,9 @@ class crtree:
     def _prune_plot(self):
         from plotnine import (
             aes, geom_hline, geom_line, geom_vline, ggplot, labs, scale_x_continuous,
-            theme_bw,
         )
+
+        from pyrsm.plot_style import LINE, theme_pyrsm
 
         fit = self.unpruned if self.unpruned is not None else self.fit
         cpt = fit.cptable
@@ -1028,12 +1029,12 @@ class crtree:
             + geom_line()
             + geom_vline(xintercept=size1[0], linetype="dashed")
             + geom_hline(yintercept=xerror.min(), linetype="dashed")
-            + geom_vline(xintercept=size2[0], linetype="dashdot", color="blue")
+            + geom_vline(xintercept=size2[0], linetype="dashdot", color=LINE)
             + geom_hline(yintercept=xerror[ind1] + xstd[ind1], linetype="dashdot",
-                         color="blue")
+                         color=LINE)
             + labs(title="Evaluate tree pruning based on cross-validation",
                    x="Number of nodes", y="Relative error")
-            + theme_bw()
+            + theme_pyrsm()
         )
         if cpt.shape[0] < 10:
             p = p + scale_x_continuous(breaks=list(nodes))
@@ -1049,7 +1050,9 @@ class crtree:
         return p + labs(caption=footnote)
 
     def _imp_plot(self):
-        from plotnine import aes, coord_flip, geom_bar, ggplot, labs, scale_x_discrete, theme_bw
+        from plotnine import aes, coord_flip, geom_bar, ggplot, labs, scale_x_discrete
+
+        from pyrsm.plot_style import FILL, theme_pyrsm
 
         imp = self.fit.variable_importance()
         if not imp:
@@ -1060,19 +1063,20 @@ class crtree:
         ).sort("imp")
         return (
             ggplot(df, aes(x="vars", y="imp"))
-            + geom_bar(stat="identity", fill="slateblue")
+            + geom_bar(stat="identity", fill=FILL)
             + coord_flip()
             + scale_x_discrete(limits=df["vars"].to_list())
             + labs(title="Variable importance", x="", y="Importance")
-            + theme_bw()
+            + theme_pyrsm()
         )
 
     def _pip(self, rep: int = 5):
         """Permutation importance (AUC or R-squared decrease)."""
         from plotnine import (
             aes, coord_flip, geom_bar, ggplot, ggtitle, labs, scale_x_discrete, theme,
-            theme_bw,
         )
+
+        from pyrsm.plot_style import FILL, theme_pyrsm
 
         from pyrsm.model.perf import auc
 
@@ -1101,12 +1105,12 @@ class crtree:
         )
         p = (
             ggplot(df, aes(x="variable", y="importance"))
-            + geom_bar(stat="identity", fill="slateblue")
+            + geom_bar(stat="identity", fill=FILL)
             + coord_flip()
             + scale_x_discrete(limits=df["variable"].to_list())
             + labs(x="", y=xlab)
             + ggtitle("Permutation Importance")
-            + theme_bw()
+            + theme_pyrsm()
             + theme(figure_size=(6, max(5, len(df) * 0.4)))
         )
         return p, df.sort("importance", descending=True)
