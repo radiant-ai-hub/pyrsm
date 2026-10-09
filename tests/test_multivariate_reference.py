@@ -46,6 +46,7 @@ EXPECTED_FIXTURES = [
     "hclus_shopping_distances",
     "kclus_shopping_hc_init",
     "prmap_store",
+    "conjoint_predict_columns",
     "hclus_toothpaste_gower",
     "kclus_toothpaste_kproto",
     "mds_city_metric_3d",

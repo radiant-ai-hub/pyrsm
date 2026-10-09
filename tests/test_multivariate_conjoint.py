@@ -243,3 +243,43 @@ def test_conjoint_show_level(mv_data, mv_ref, capsys):
         assert [p.labels.get("title", None) for p in plots] == [
             r["title"] for r in ref["groups"][lev]["plots"].values()
         ]
+
+
+# -- predict returns the profiles (attribute columns) and Prediction, as R ------
+
+
+def _pred_case(cj, df, ref, key):
+    head = df.head(4)
+    calls = {
+        "pred_cmd": lambda: cj.predict(pred_cmd=ref["cmd"]),
+        "pred_cmd_partial": lambda: cj.predict(pred_cmd=ref["cmd_partial"]),
+        "pred_cmd_se": lambda: cj.predict(pred_cmd=ref["cmd"], se=True),
+        "pred_data": lambda: cj.predict(head),
+        "pred_data_cmd": lambda: cj.predict(head, pred_cmd=ref["data_cmd"]),
+        "pred_by_cmd": lambda: cj.predict(pred_cmd=ref["cmd_by"]),
+        "pred_by_data": lambda: cj.predict(head),
+    }
+    return calls[key]()
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["pred_cmd", "pred_cmd_partial", "pred_cmd_se", "pred_data", "pred_data_cmd",
+     "pred_by_cmd", "pred_by_data"],
+)
+def test_conjoint_predict_columns_match_r(mv_data, mv_ref, key):
+    ref = mv_ref("conjoint_predict_columns")
+    df = mv_data("mp3")
+    if key.startswith("pred_by"):
+        cj = conjoint({"mp3": df}, rvar="Rating", evar=["Memory", "Price"], by="Radio")
+    else:
+        cj = conjoint({"mp3": df}, rvar="Rating", evar="Memory:Shape")
+    got = _pred_case(cj, df, ref, key)
+    want = ref[key]
+    assert got.columns == want["columns"]
+    for col in want["columns"]:
+        vals = want["data"][col]
+        if isinstance(vals[0], str):
+            assert [str(x) for x in got[col].to_list()] == vals
+        else:
+            assert np.allclose(got[col].to_numpy(), vals, atol=1e-8)
