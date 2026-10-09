@@ -253,16 +253,17 @@ class compare_props:
         cl = bu.ci_label(self.alt_hyp, self.conf)
         self.comp_stats = pl.DataFrame(
             comp_stats,
+            # Typed, as compare_means: polars renames a bare "" to "column_8".
             schema=[
-                "Null hyp.",
-                "Alt. hyp.",
-                "diff",
-                "p.value",
-                "chisq.value",
-                "df",
-                cl[0],
-                cl[1],
-                "",
+                ("Null hyp.", pl.Utf8),
+                ("Alt. hyp.", pl.Utf8),
+                ("diff", pl.Float64),
+                ("p.value", pl.Float64),
+                ("chisq.value", pl.Float64),
+                ("df", pl.Int64),
+                (cl[0], pl.Float64),
+                (cl[1], pl.Float64),
+                ("", pl.Utf8),
             ],
             orient="row",
         )
