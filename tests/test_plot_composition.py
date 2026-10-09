@@ -28,3 +28,18 @@ def test_goodness_plot_composes_multiple():
     gd = goodness(data, var="category", probs=[0.2, 0.3, 0.5])
     composed = gd.plot(plots=["observed", "expected", "chisq"])
     assert composed is not None
+
+
+def test_list_of_plots_compose_for_every_basics_test():
+    import polars as pl
+    from plotnine.composition import Compose
+
+    from pyrsm.basics.compare_means import compare_means
+    from pyrsm.basics.compare_props import compare_props
+    from pyrsm.basics.single_prop import single_prop
+
+    data = pl.DataFrame({"g": ["a", "b"] * 20, "y": [float(i % 7) for i in range(40)],
+                         "z": ["yes", "no", "no", "yes"] * 10})
+    assert isinstance(single_prop({"d": data}, var="z", lev="yes").plot(["bar", "sim"]), Compose)
+    assert isinstance(compare_props({"d": data}, var1="g", var2="z", lev="yes").plot(["bar", "dodge"]), Compose)
+    assert isinstance(compare_means({"d": data}, var1="g", var2="y").plot(["scatter", "box"]), Compose)

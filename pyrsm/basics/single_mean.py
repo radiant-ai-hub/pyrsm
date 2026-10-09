@@ -8,6 +8,7 @@ import pyrsm.basics.display_utils as du
 import pyrsm.basics.utils as bu
 from pyrsm.utils import check_dataframe, ifelse, sig_stars
 from pyrsm.data_scope import apply_scope, print_scope
+from pyrsm.plot_utils import plot_each
 from pyrsm.plot_style import COMP, FILL, REF, theme_pyrsm
 
 
@@ -347,7 +348,7 @@ class single_mean:
 
     def plot(
         self,
-        plots: Literal["hist", "sim"] = "hist",
+        plots: Literal["hist", "sim"] | list[str] = "hist",
         theme: Literal["modern", "publication", "minimal", "classic"] = "modern",
         backend: Literal["plotnine"] = "plotnine",
     ):
@@ -362,8 +363,9 @@ class single_mean:
 
         Parameters
         ----------
-        plots : str
-            The type of plot to generate (default is 'hist').
+        plots : str | list[str]
+            The plot to generate, 'hist' (default) or 'sim', or a list such as
+            ``["hist", "sim"]`` to show both in one figure.
         theme : str
             Kept for backward compatibility; every pyrsm plot uses the one
             pyrsm style (``pyrsm.plot_style.theme_pyrsm``).
@@ -385,6 +387,10 @@ class single_mean:
                 UserWarning,
                 stacklevel=2,
             )
+
+        combined = plot_each(lambda p: self.plot(plots=p, theme=theme, backend=backend), plots)
+        if combined is not None:
+            return combined
 
         if plots == "hist":
             from plotnine import aes, geom_histogram, ggplot, labs
