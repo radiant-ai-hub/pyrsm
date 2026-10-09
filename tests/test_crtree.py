@@ -457,3 +457,10 @@ def test_node_table_regression_splits_add_up_to_r_squared():
     assert nodes["removed"].drop_nulls().sum() == pytest.approx(r2)
     y = d["Sales"].to_numpy()
     assert nodes["rmse"][0] == pytest.approx(float(np.sqrt(np.mean((y - y.mean()) ** 2))))
+    # SSE adds up where RMSE does not: parent = left + right + what the split removes
+    rows = {r["node"]: r for r in nodes.iter_rows(named=True)}
+    for node, row in rows.items():
+        if row["leaf"]:
+            continue
+        children = rows[2 * node]["sse"] + rows[2 * node + 1]["sse"]
+        assert row["sse"] == pytest.approx(children + row["removed"] * rows[1]["sse"])

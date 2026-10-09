@@ -867,7 +867,9 @@ class crtree:
             plot, or the node mean). A classification tree adds ``counts`` (per
             level, in ``ylevels`` order) and ``error`` (share not in the node's
             most common level); a regression tree adds ``rmse`` (of the node
-            mean). ``removed`` is the share of the root's impurity that the
+            mean) and ``sse`` (its sum of squared errors, which -- unlike the
+            RMSE -- adds up: a node's sse is its children's plus what its split
+            removes). ``removed`` is the share of the root's impurity that the
             node's split removes (Gini, prior-weighted as rpart's split
             criterion; or the sum of squared errors, so the splits add up to
             R-squared); empty for terminal nodes.
@@ -942,6 +944,7 @@ class crtree:
                 row["error"] = float(1 - c.max() / c.sum())
             else:
                 row["rmse"] = math.sqrt(float(r["dev"]) / float(r["wt"]))
+                row["sse"] = float(r["dev"])
             row["removed"] = None if r["leaf"] else removed(nid)
             rows.append(row)
         return pl.DataFrame(rows)
