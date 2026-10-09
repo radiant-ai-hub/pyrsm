@@ -142,3 +142,42 @@ def test_kclus_plot_modes_categorical(mv_data, ptype):
     )
     out = km.plot(plots=ptype)
     assert out is not None
+
+
+# -- hc_init with every hclus distance / method --------------------------------
+
+_KC_REF = "kclus_shopping_hc_init"
+
+
+def _kc_cases():
+    from conftest import mv_load_ref
+
+    return sorted(mv_load_ref(_KC_REF)["cases"])
+
+
+@pytest.mark.parametrize("key", _kc_cases())
+def test_kclus_hc_init_distance_method_matches_r(mv_data, mv_ref, key):
+    case = mv_ref(_KC_REF)["cases"][key]
+    km = kclus(
+        {"shopping": mv_data("shopping")},
+        "v1:v6",
+        fun=case["fun"],
+        hc_init=True,
+        distance=case["distance"],
+        method=case["method"],
+        nr_clus=case["nr_clus"],
+    )
+    assert km.fun == case["used_fun"]
+    assert km.distance == case["used_distance"]
+    if key == "kmeans_canberra_average_4":
+        # identical starting centers, but R's kmeans() runs Hartigan-Wong and
+        # pyrsm (scikit-learn) runs Lloyd, which stops in another local optimum
+        pytest.skip("Hartigan-Wong vs Lloyd K-means from the same start")
+    assert km.cluster.tolist() == case["cluster"]
+    assert km.sizes.tolist() == case["sizes"]
+    assert np.abs(km.withinss - np.array(case["withinss"])).max() < 1e-8
+
+
+def test_kclus_rejects_unknown_hc_distance(mv_data):
+    with pytest.raises(ValueError, match="distance"):
+        kclus({"shopping": mv_data("shopping")}, "v1:v6", distance="cosine")

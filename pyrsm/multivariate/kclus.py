@@ -22,7 +22,7 @@ from pyrsm.utils import format_nr
 from ._plotting import as_plot_result
 from ._utils import does_vary, get_data, get_vars, is_categorical
 from pyrsm.data_scope import apply_scope, print_scope
-from ._utils import standardize as _standardize
+from ._utils import r_scale as _standardize
 
 __all__ = ["kclus"]
 
@@ -65,7 +65,13 @@ class kclus:
     hc_init : bool, default True
         Initialize from hierarchical-clustering centers (Radiant default; makes
         results deterministic).
-    distance, method : passed to ``hclus`` for the initialization step.
+    distance, method : passed to ``hclus`` for the initialization step; any of
+        ``hclus``'s distances (``"sq.euclidian"``, ``"binary"``,
+        ``"canberra"``, ``"euclidean"``, ``"gower"``, ``"manhattan"``,
+        ``"maximum"``, ``"minkowski"``) and methods (``"ward.D"``,
+        ``"single"``, ``"complete"``, ``"average"``, ``"mcquitty"``,
+        ``"median"``, ``"centroid"``, ``"ward.D2"``). ``fun="kproto"`` with
+        ``hc_init`` always uses Gower, as in Radiant.
     seed : int, default 1234
         Used only when ``hc_init`` is False (random init).
     lambda_ : float | None
@@ -191,7 +197,7 @@ class kclus:
             hc = hclus(
                 {self.name: sub},
                 self.num_vars,
-                distance=distance if distance != "gower" else "sq.euclidian",
+                distance=distance,
                 method=method,
                 max_cases=10**9,
                 standardize=standardize,

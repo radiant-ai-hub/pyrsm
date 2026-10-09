@@ -19,6 +19,7 @@ __all__ = [
     "get_vars",
     "as_numeric_matrix",
     "standardize",
+    "r_scale",
     "varimax",
     "rotate_loadings",
     "ROTATIONS",
@@ -157,6 +158,25 @@ def standardize(M: np.ndarray, ddof: int = 1) -> np.ndarray:
     sd = M.std(axis=0, ddof=ddof)
     sd = np.where(sd == 0, 1.0, sd)
     return (M - mu) / sd
+
+
+def r_scale(M: np.ndarray) -> np.ndarray:
+    """Z-score columns exactly as R's ``scale()`` does, to the last bit.
+
+    R sums sequentially in long double (``colMeans``, ``sum``), so tied
+    distances computed from standardized data stay tied the same way they do
+    in R, which decides the merge order of ``hclust``. Zero-variance columns
+    are left centered (divided by 1).
+    """
+    M = np.asarray(M, dtype=float)
+    if M.ndim == 1:
+        return r_scale(M[:, None])[:, 0]
+    n = M.shape[0]
+    mu = (np.cumsum(M.astype(np.longdouble), axis=0)[-1] / n).astype(float)
+    X = M - mu
+    ss = np.cumsum((X * X).astype(np.longdouble), axis=0)[-1].astype(float)
+    sd = np.sqrt(ss / max(1, n - 1))
+    return X / np.where(sd == 0, 1.0, sd)
 
 
 def varimax(
@@ -526,9 +546,11 @@ def gower_dist(
 
     Reproduces ``gower::gower_dist`` as used by ``radiant.multivariate::hclus``:
     numeric variables are range-normalized absolute differences (optionally
-    standardized first, matching Radiant), categorical variables contribute the
-    simple-matching distance (0 if equal, 1 otherwise), and the per-pair
-    distance is the unweighted mean across variables.
+    standardized first with R's ``scale``, matching Radiant), categorical
+    variables contribute the simple-matching distance (0 if equal, 1
+    otherwise), and the per-pair distance is the unweighted mean across
+    variables. As in gower's C code the similarities are summed and the
+    distance is ``1 - mean similarity``, so ties fall the same way as in R.
 
     Returns a condensed (SciPy ``pdist``-style) distance vector.
     """
@@ -550,24 +572,24 @@ def gower_dist(
             num_cols.append(arr)
 
     if standardize and num_cols:
-        std = []
-        for arr in num_cols:
-            mu = arr.mean()
-            sd = arr.std(ddof=1)
-            sd = sd if sd != 0 else 1.0
-            std.append((arr - mu) / sd)
-        num_cols = std
+        num_cols = [r_scale(arr) for arr in num_cols]
 
-    nvar = len(num_cols) + len(cat_cols)
-    D = np.zeros((n, n))
-    for arr in num_cols:
-        rng = arr.max() - arr.min()
-        if rng == 0:
-            continue
-        D += np.abs(arr[:, None] - arr[None, :]) / rng
-    for arr in cat_cols:
-        D += (arr[:, None] != arr[None, :]).astype(float)
-    D /= nvar
+    # variables are summed in their selected order, like gower's C loop
+    nvar = 0
+    S = np.zeros((n, n))
+    for v in vars:
+        s = data[v]
+        if is_categorical(s):
+            arr = cat_cols.pop(0)
+            S += (arr[:, None] == arr[None, :]).astype(float)
+            nvar += 1
+        else:
+            arr = num_cols.pop(0)
+            rng = arr.max() - arr.min()
+            # a constant variable: every pair is fully similar
+            S += 1.0 if rng == 0 else 1.0 - np.abs(arr[:, None] - arr[None, :]) / rng
+            nvar += 1
+    D = 1.0 - S / max(nvar, 1)
     np.fill_diagonal(D, 0.0)
     return squareform(D, checks=False)
 
