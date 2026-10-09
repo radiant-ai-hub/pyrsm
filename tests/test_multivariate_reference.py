@@ -42,6 +42,7 @@ EXPECTED_FIXTURES = [
     "full_factor_shopping_2_simplimax",
     "full_factor_shopping_ml2",
     "full_factor_toothpaste_ml2",
+    "full_factor_toothpaste_rotations",
     "hclus_toothpaste_gower",
     "kclus_toothpaste_kproto",
     "mds_city_metric_3d",
