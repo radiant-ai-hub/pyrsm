@@ -43,3 +43,19 @@ def test_list_of_plots_compose_for_every_basics_test():
     assert isinstance(single_prop({"d": data}, var="z", lev="yes").plot(["bar", "sim"]), Compose)
     assert isinstance(compare_props({"d": data}, var1="g", var2="z", lev="yes").plot(["bar", "dodge"]), Compose)
     assert isinstance(compare_means({"d": data}, var1="g", var2="y").plot(["scatter", "box"]), Compose)
+
+
+def test_bar_plots_show_confidence_and_standard_error_bars():
+    """radiant.basics: compare means/props bars carry a CI (black) and an SE (blue) bar."""
+    import pyrsm as rsm
+    from plotnine import geom_errorbar
+
+    salary = pl.read_parquet("examples/data/basics/salary.parquet")
+    titanic = pl.read_parquet("examples/data/model/titanic.parquet")
+    cm = rsm.basics.compare_means({"salary": salary}, var1="rank", var2="salary")
+    cp = rsm.basics.compare_props({"titanic": titanic}, var1="pclass", var2="survived", lev="Yes")
+    for p in (cm.plot(plots="bar"), cp.plot(plots="bar")):
+        bars = [layer for layer in p.layers if isinstance(layer.geom, geom_errorbar)]
+        assert len(bars) == 2
+        assert bars[1].geom.aes_params.get("color") == "blue"
+        p.draw()

@@ -403,6 +403,7 @@ class compare_props:
         from plotnine import (
             aes,
             geom_col,
+            geom_errorbar,
             ggplot,
             ggtitle,
             labs,
@@ -423,11 +424,20 @@ class compare_props:
                 .alias("proportion")
             )
             means = data.group_by(self.var1).agg(
-                pl.col("proportion").mean().alias("mean_prop")
+                pl.col("proportion").mean().alias("mean_prop"),
+                pl.len().alias("n"),
             )
+            # Confidence interval (black, p +/- me) and standard error (blue),
+            # as radiant.basics draws them.
+            zscore = _get_scipy_stats().norm.ppf((1 + self.conf) / 2)
+            means = means.with_columns(
+                (pl.col("mean_prop") * (1 - pl.col("mean_prop")) / pl.col("n")).sqrt().alias("se")
+            ).with_columns((pl.col("se") * zscore).alias("me"))
             p = (
                 ggplot(means, aes(x=self.var1, y="mean_prop"))
                 + geom_col(fill=FILL, alpha=ALPHA)
+                + geom_errorbar(aes(ymin="mean_prop - me", ymax="mean_prop + me"), width=0.1)
+                + geom_errorbar(aes(ymin="mean_prop - se", ymax="mean_prop + se"), width=0.05, color="blue")
                 + labs(x=self.var1, y=f"Proportion ({self.lev})")
                 + ggtitle(f'Proportion comparison: "{self.lev}" in {self.var2}')
                 + theme_pyrsm()
