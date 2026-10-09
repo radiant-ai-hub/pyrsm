@@ -1,0 +1,63 @@
+name: open new store
+variables:
+    fixed cost: 2000000
+    popup cost: 500000
+    P(S): 0.6
+    P(F): 1 - P(S)
+    P(+|S): 0.8
+    P(-|S): 1 - P(+|S)
+    P(-|F): 0.9
+    P(+|F): 1 - P(-|F)
+    P(+): P(+|S) * P(S) + P(+|F) * P(F)
+    P(-): P(-|F) * P(F) + P(-|S) * P(S)
+    P(S|+): P(+|S) * P(S) / P(+)
+    P(F|+): 1 - P(S|+)
+    P(F|-): P(-|F) * P(F) / P(-)
+    P(S|-): 1 - P(F|-)
+    payoff_S: 5000000
+    payoff_F: -1000000
+type: decision
+open:
+    cost: fixed cost
+    type: chance
+    success:
+        p: P(S)
+        payoff: payoff_S
+    failure:
+        p: P(F)
+        payoff: payoff_F
+popup test:
+    cost: popup cost
+    type: chance
+    test positive:
+        p: P(+)
+        type: decision
+        open:
+            cost: fixed cost
+            type: chance
+            success:
+                p: P(S|+)
+                payoff: payoff_S
+            failure:
+                p: P(F|+)
+                payoff: payoff_F
+        not open:
+            payoff: 0
+
+    test negative:
+        p: P(-)
+        type: decision
+        open:
+            cost: fixed cost
+            type: chance
+            success:
+                p: P(S|-)
+                payoff: payoff_S
+            failure:
+                p: P(F|-)
+                payoff: payoff_F
+        not open:
+            payoff: 0
+not open:
+    payoff: 0
+

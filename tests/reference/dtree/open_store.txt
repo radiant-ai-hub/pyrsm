@@ -1,0 +1,16 @@
+
+Initial decision tree:
+                  Probability        Payoff         Cost     Type
+ open a new store                                                
+  ¦--open                                   2,000,000.00 decision
+  ¦   ¦--success      60.00 %  5,000,000.00                chance
+  ¦   °--failure      40.00 % -1,000,000.00                chance
+  °--not open                          0.00              decision
+
+Final decision tree:
+                  Probability        Payoff         Cost     Type
+ open a new store                600,000.00                      
+  ¦--open                        600,000.00 2,000,000.00 decision
+  ¦   ¦--success      60.00 %  5,000,000.00                chance
+  ¦   °--failure      40.00 % -1,000,000.00                chance
+  °--not open                          0.00              decision

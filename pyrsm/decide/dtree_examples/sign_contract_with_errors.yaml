@@ -1,0 +1,15 @@
+name: Sign contract
+type: decision
+Sign with Movie Company:
+type: chance
+    Small Box Office:
+        p: 0.3
+        payoff: 200000
+    Medium Box Office:
+    p: 0.6
+        payoff: 1000000
+    Large Box Office:
+        p:
+        payoff
+Sign with TV Network:
+    payoff: 900000

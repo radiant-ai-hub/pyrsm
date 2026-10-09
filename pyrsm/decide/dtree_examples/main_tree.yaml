@@ -1,0 +1,9 @@
+name: Sign contract
+variables:
+    legal fees: 5000
+    sign_mc: dtree('sub_tree')
+type: decision
+Sign with Movie Company:
+    payoff: sign_mc
+Sign with TV Network:
+    payoff: 900000

@@ -109,11 +109,33 @@ class UnresolvedVariableError(ValueError):
 
 
 class UnknownSubtreeError(ValueError):
-    """Raised when ``subtree("name")`` refers to a name not in the library."""
+    """Raised when ``dtree("name")`` refers to a name not in the library."""
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, detail: str = ""):
         super().__init__(name)
         self.name = name
+        self.detail = detail
+
+
+#: A reference to another tree: R's ``dtree("name")`` (pyrsm also accepts
+#: ``subtree("name")``).
+_TREE_REF_RE = re.compile(r"\b(dtree|subtree)\(\s*[\"']([^\"']+)[\"']\s*\)")
+
+
+def _is_tree_ref(value: Any) -> bool:
+    return isinstance(value, str) and bool(_TREE_REF_RE.search(value))
+
+
+def _library_entry(entry: Any) -> tuple[Any, str]:
+    """(YAML text or dict, opt) for a ``subtree_library`` value."""
+    if isinstance(entry, str):
+        return entry, "max"
+    if isinstance(entry, dict) and ("yaml_text" in entry or "yl" in entry):
+        opt = entry.get("opt", "max")
+        return entry.get("yaml_text", entry.get("yl", "")), opt if opt in ("max", "min") else "max"
+    if isinstance(entry, dict):
+        return entry, "max"
+    return getattr(entry, "yl", ""), getattr(entry, "opt", "max")
 
 
 def safe_eval(
@@ -166,7 +188,7 @@ def safe_eval(
             # back-door for arbitrary kwargs.
             if (
                 isinstance(node.func, ast.Name)
-                and node.func.id == "subtree"
+                and node.func.id in ("subtree", "dtree")
                 and subtree_resolver is not None
                 and len(node.args) == 1
                 and not node.keywords
@@ -254,6 +276,12 @@ def _resolve_variables(
     for label, expr in raw_vars.items():
         safe_name = label_to_safe[str(label)]
         try:
+            if subtree_resolver is not None and _is_tree_ref(expr):
+                # dtree("name") -> the EMV of that tree, before label
+                # substitution can touch the quoted name
+                expr = _TREE_REF_RE.sub(
+                    lambda m: repr(float(subtree_resolver(m.group(2)))), str(expr)
+                )
             substituted = _substitute_labels(expr, label_to_safe)
             value = safe_eval(substituted, safe_vars, subtree_resolver=subtree_resolver)
         except UnknownSubtreeError as exc:
@@ -262,8 +290,10 @@ def _resolve_variables(
                     severity="error",
                     code="unknown_subtree",
                     message=(
-                        f"Variable '{label}' references unknown subtree '{exc.name}'. "
-                        "Add it to the project, or fix the name."
+                        f"Variable '{label}': {exc.detail}"
+                        if exc.detail
+                        else f"Variable '{label}' references unknown tree '{exc.name}'. "
+                        "Add a tree with that name, or fix the name."
                     ),
                     path=["variables", str(label)],
                 )
@@ -437,6 +467,100 @@ class _IdAllocator:
         return f"n{self._next}"
 
 
+def dtree_parser(yl: str) -> tuple[str, list[str]]:
+    """Check and clean tree input as radiant.model's ``dtree_parser``.
+
+    Returns the cleaned text and a list of problems, each a message that
+    names the line(s) to fix: a missing ``:``, a node type other than
+    chance/decision, a node type not followed by a node name, and
+    indentation that does not match. Cleaning: tabs become four spaces,
+    accented characters become plain ASCII, a space is added after ``:``,
+    ``p: .4`` becomes ``p: 0.4``, the keywords are made lower case, and
+    brackets and similar characters in node names become ``/``.
+    """
+    import unicodedata
+
+    lines = str(yl).split("\n")
+    lines = [
+        unicodedata.normalize("NFKD", ln).encode("ascii", "ignore").decode("ascii").replace("\t", "    ")
+        for ln in lines
+    ]
+    err: list[str] = []
+
+    missing = [i + 1 for i, ln in enumerate(lines) if not (":" in ln or not ln.strip() or ln.lstrip().startswith("#"))]
+    if missing:
+        err.append(
+            "Each line in the tree input must have a ':'. Add a ':' in line(s): "
+            + ", ".join(map(str, missing))
+        )
+
+    lines = [re.sub(r":\s{2,}", ": ", re.sub(r":([^ $])", r": \1", ln)) for ln in lines]
+    lines = [re.sub(r"(^\s*p\s*:)\s*(\.[0-9]+$)", r"\1 0\2", ln) for ln in lines]
+    for key in ("name", "variables", "type", "p", "payoff", "cost"):
+        lines = [re.sub(rf"(^\s*){key}(\s*:)", rf"\g<1>{key}\2", ln, flags=re.I) for ln in lines]
+
+    type_id = [i for i, ln in enumerate(lines) if re.match(r"^\s*type\s*:\s*(.*)$", ln)]
+    type_cid = [i for i, ln in enumerate(lines) if re.match(r"^\s*type\s*:\s*((chance)|(decision)|())\s*$", ln)]
+    if type_id != type_cid:
+        bad = [i + 1 for i in type_id if i not in type_cid]
+        err.append("Node type should be 'type: chance', or 'type: decision' in line(s): " + ", ".join(map(str, bad)))
+
+    nc_id = [i for i, ln in enumerate(lines) if not re.match(r"^\s*#", ln)]
+    for i in nc_id:
+        lines[i] = re.sub(r"(^\s*)[!`@%&*\-+]*\s*", r"\1", lines[i].replace("#", "//"), count=1)
+
+    def _blank_value(ln: str) -> str:
+        for key in ("p", "type", "cost", "payoff"):
+            ln = re.sub(rf"(^\s*{key}\s*:\s*$)", r"\1 0", ln)
+        return ln
+
+    nn_id = [i for i, ln in enumerate(lines) if re.match(r"^\s*[^#]+:\s*$", _blank_value(ln))]
+    for i in nn_id:
+        lines[i] = re.sub(r"[(){}\[\]<>@;~]", "/", lines[i])
+
+    def indent(i: int | None) -> int | None:
+        if i is None or i >= len(lines):
+            return None
+        return len(lines[i]) - len(lines[i].lstrip(" "))
+
+    after_type = [next((j for j in nc_id if j > i), None) for i in type_cid]
+    not_named = [type_cid[k] + 1 for k, j in enumerate(after_type) if j not in nn_id]
+    if not_named:
+        err.append(
+            "The node types defined on line(s) "
+            + ", ".join(map(str, not_named))
+            + " must be followed by a node name.\nA valid node name could be 'mud slide:'"
+        )
+
+    next_name = [next((j for j in nn_id if j > i), None) for i in type_cid]
+    bad_type_indent = [
+        type_cid[k] + 2
+        for k, j in enumerate(next_name)
+        if j is not None and indent(type_cid[k]) != indent(j)
+    ]
+    if bad_type_indent:
+        err.append(
+            "Indent issue in line(s): "
+            + ", ".join(map(str, bad_type_indent))
+            + "\nUse the tab key to ensure a node name is indented the same amount\n"
+            "as the node type on the preceding line. Check the level of indentation\n"
+            "on each line shown, as well as the indentation on the preceding lines"
+        )
+
+    bad_name_indent = []
+    for i in nn_id:
+        nxt = indent(i + 1)
+        if nxt is None or indent(i) >= nxt:
+            bad_name_indent.append(i + 2)
+    if bad_name_indent:
+        err.append(
+            "Indent issue in line(s): "
+            + ", ".join(map(str, bad_name_indent))
+            + "\nAlways use the tab key to indent the line(s) after specifying a node name."
+        )
+    return "\n".join(lines), err
+
+
 def _yaml_to_dict(yl: str | dict[str, Any]) -> tuple[dict[str, Any] | None, list[Diagnostic]]:
     diagnostics: list[Diagnostic] = []
     if isinstance(yl, dict):
@@ -452,8 +576,13 @@ def _yaml_to_dict(yl: str | dict[str, Any]) -> tuple[dict[str, Any] | None, list
             )
         )
         return None, diagnostics
+    cleaned, problems = dtree_parser(yl)
+    if problems:
+        for problem in problems:
+            diagnostics.append(Diagnostic(severity="error", code="input_format", message=problem))
+        return None, diagnostics
     try:
-        data = yaml.safe_load(yl)
+        data = yaml.safe_load(cleaned)
     except yaml.YAMLError as exc:
         diagnostics.append(
             Diagnostic(
@@ -835,6 +964,74 @@ def _strip_solved_values(node: DecisionNode) -> None:
 
 
 # ---------------------------------------------------------------------------
+# radiant.model's text layout
+# ---------------------------------------------------------------------------
+
+
+def _r_format_column(values: list, digits: int = 7, scipen: int = 0) -> list[str]:
+    """Numbers formatted as R prints a column (``formatReal``)."""
+    finite = [v for v in values if v is not None and math.isfinite(v)]
+    if not finite:
+        return ["" for _ in values]
+    neg = any(v < 0 for v in finite)
+    sig, left, right = [], [], []
+    for v in finite:
+        if v == 0:
+            sig.append(1), left.append(1), right.append(0)
+            continue
+        mant, exp = f"{abs(v):.{digits - 1}e}".split("e")
+        exp = int(exp)
+        s_ = len(mant.replace(".", "").rstrip("0")) or 1
+        sig.append(s_)
+        left.append(max(1, exp + 1))
+        right.append(max(0, s_ - 1 - exp))
+    rgt = max(right)
+    fixed_width = neg + max(left) + (rgt + 1 if rgt > 0 else 0)
+    mf = max(sig) - 1
+    sci_width = neg + (mf + 1 if mf > 0 else 0) + 5
+    out = []
+    for v in values:
+        if v is None or not math.isfinite(v):
+            out.append("")
+        elif fixed_width <= sci_width + scipen:
+            out.append(f"{v:.{rgt}f}")
+        else:
+            out.append(f"{v:.{mf}e}")
+    return out
+
+
+def _r_tree_table(root: DecisionNode | None, dec: int = 2) -> str:
+    """A tree as radiant.model prints it (data.tree level names and columns)."""
+    if root is None:
+        return "  (empty)"
+    rows: list[tuple[str, str, str, str, str]] = []
+
+    def money(x: float | None) -> str:
+        return "" if x is None else f"{x:,.{dec}f}"
+
+    def walk(node: DecisionNode, prefix: str, is_last: bool, parent: DecisionNode | None) -> None:
+        if parent is None:
+            name = node.label
+            child_prefix = ""
+        else:
+            name = prefix + (" \u00b0--" if is_last else " \u00a6--") + node.label
+            child_prefix = prefix + ("    " if is_last else " \u00a6  ")
+        prob = "" if node.p is None or parent is None or parent.kind != "chance" else f"{100 * node.p:.2f} %"
+        ptype = "" if parent is None else parent.kind
+        rows.append((name, prob, money(node.payoff), money(node.cost), ptype))
+        for i, child in enumerate(node.children):
+            walk(child, child_prefix, i == len(node.children) - 1, node)
+
+    walk(root, "", True, None)
+    header = ("", "Probability", "Payoff", "Cost", "Type")
+    widths = [max(len(header[i]), *(len(r[i]) for r in rows)) for i in range(5)]
+    lines = [" " + " " * widths[0] + "".join(" " + header[i].rjust(widths[i]) for i in range(1, 5))]
+    for r in rows:
+        lines.append(" " + r[0].ljust(widths[0]) + "".join(" " + r[i].rjust(widths[i]) for i in range(1, 5)))
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Solution table
 # ---------------------------------------------------------------------------
 
@@ -966,15 +1163,16 @@ def _node_to_yaml_dict(
     out: dict[str, Any] = {}
     if is_root:
         out["name"] = node.label
-    if node.kind in ("decision", "chance"):
-        out["type"] = node.kind
     if parent_kind == "chance" and node.p is not None:
         out["p"] = node.p
-    if node.cost is not None and not is_root:
-        # cost is allowed on the root too, but most trees don't use it.
+    if node.cost is not None:
         out["cost"] = node.cost
     if node.kind == "terminal" and node.payoff is not None:
         out["payoff"] = node.payoff
+    # ``type:`` comes last, right before the branches it describes, as
+    # radiant.model's input rules require
+    if node.kind in ("decision", "chance"):
+        out["type"] = node.kind
     for c in node.children:
         out[c.label] = _node_to_yaml_dict(c, is_root=False, parent_kind=node.kind)
     return out
@@ -1016,6 +1214,8 @@ class SensitivityCell:
     chosen_labels: list[str]
     errors: list[Diagnostic] = field(default_factory=list)
     warnings: list[Diagnostic] = field(default_factory=list)
+    #: EMV of each node by label (first occurrence), e.g. each decision
+    decision_payoffs: dict[str, float] = field(default_factory=dict)
 
     @property
     def is_solved(self) -> bool:
@@ -1031,6 +1231,8 @@ class SensitivityResult:
     opt: Literal["max", "min"]
     base_payoff: float | None
     base_chosen: list[str]
+    #: The options of the tree's first node (what ``plot()`` shows by default)
+    base_options: list[str] = field(default_factory=list)
 
     @property
     def shape(self) -> tuple[int, ...]:
@@ -1089,6 +1291,48 @@ class SensitivityResult:
             prev = cell
         return flips
 
+    def plot(self, decisions: list[str] | None = None, symbol: str = "$"):
+        """EMV of each decision across a one-variable sweep, as radiant.model.
+
+        Parameters
+        ----------
+        decisions : list[str], optional
+            Node labels to show, e.g. the options of the first decision
+            ("Sign with Movie Company", "Sign with TV Network"). Defaults to
+            the options of the first decision in the tree.
+        symbol : str, default "$"
+            Currency symbol for the axis.
+
+        Returns
+        -------
+        plotnine.ggplot
+        """
+        from plotnine import aes, geom_line, geom_point, ggplot, labs, scale_y_continuous
+
+        from pyrsm.plot_style import theme_pyrsm
+
+        if len(self.specs) != 1:
+            raise ValueError("plot() shows a one-variable sweep; run one variable at a time")
+        name = self.specs[0].name
+        decisions = list(decisions or self.base_options or [])
+        rows = [
+            {name: c.inputs[name], "Decision": d, "EMV": c.decision_payoffs[d]}
+            for c in self.cells
+            for d in decisions
+            if d in c.decision_payoffs
+        ]
+        if not rows:
+            raise ValueError(f"None of {decisions} has a payoff in the sweep")
+        df = pd.DataFrame(rows)
+        return (
+            ggplot(df, aes(x=name, y="EMV", color="Decision"))
+            + geom_line()
+            + geom_point()
+            + scale_y_continuous(labels=lambda v: [f"{symbol}{x:,.0f}" for x in v])
+            + labs(x=name, y="Payoff", color="Decision")
+            + theme_pyrsm()
+        )
+
     def to_dict(self) -> dict[str, Any]:
         """JSON-safe snapshot (for serializing alongside the tree state)."""
         return {
@@ -1107,9 +1351,11 @@ class SensitivityResult:
                     "errors": [d.to_dict() for d in c.errors],
                     "warnings": [d.to_dict() for d in c.warnings],
                     "is_solved": c.is_solved,
+                    "decision_payoffs": dict(c.decision_payoffs),
                 }
                 for c in self.cells
             ],
+            "base_options": list(self.base_options),
         }
 
 
@@ -1188,6 +1434,26 @@ class dtree:
         the tree.
     opt : {"max", "min"}, default "max"
         Decision-node optimization direction.
+    subtree_library : dict, optional
+        Other trees by name, for R's ``dtree("name")`` references and
+        ``variables: name`` imports. Values can be YAML text, a parsed dict,
+        or a ``dtree`` object (its YAML and ``opt`` are used).
+    base : dict, optional
+        Variables passed down by a tree that references this one (R's
+        ``base``): they override this tree's variables of the same name and
+        are added when missing. Used internally for ``dtree("name")``.
+
+    Notes
+    -----
+    Combining trees works as in radiant.model:
+
+    * ``x: dtree("name")`` in the ``variables:`` section re-evaluates tree
+      ``name`` with *this* tree's variables (except other ``dtree()``
+      references) overriding the referenced tree's own, and uses its
+      expected value. A sensitivity analysis on a variable therefore flows
+      through to the sub-trees that use it.
+    * ``variables: name`` (a tree name instead of a list) uses the variables
+      of tree ``name``, except its ``dtree()`` references.
 
     Attributes
     ----------
@@ -1222,7 +1488,9 @@ class dtree:
         yl: str | dict[str, Any],
         opt: str = "max",
         *,
-        subtree_library: dict[str, dtree] | None = None,
+        subtree_library: dict[str, Any] | None = None,
+        base: dict[str, Any] | None = None,
+        _stack: tuple[str, ...] = (),
     ) -> None:
         if opt not in {"max", "min"}:
             raise ValueError(f"opt must be 'max' or 'min', got {opt!r}")
@@ -1241,20 +1509,49 @@ class dtree:
         self.name: str = ""
         self.normalized: DecisionNode | None = None
         self.initial_tree: DecisionNode | None = None
-        self.subtree_library: dict[str, dtree] = dict(subtree_library or {})
+        self.subtree_library: dict[str, Any] = dict(subtree_library or {})
         # Track which subtree refs were actually consumed so the consumer
         # (and the UI) can show "this tree depends on lawsuit_tree".
         self.subtree_refs: dict[str, float] = {}
+        #: Every tree this one needs, directly or through its sub-trees
+        self.used_trees: list[str] = []
+        #: The tree whose variables ``variables: name`` imported, if any
+        self.variables_from: str = ""
+        #: The variables as entered (after imports and base overrides)
+        self.raw_vars: dict[str, Any] = {}
+        self._stack = tuple(_stack)
+
+        def _use(name: str) -> None:
+            if name not in self.used_trees:
+                self.used_trees.append(name)
 
         def _resolve_subtree(name: str) -> float:
+            if name in self._stack:
+                raise UnknownSubtreeError(
+                    name,
+                    f"tree '{name}' refers back to itself through "
+                    f"{' -> '.join([*self._stack, name])}. Trees cannot reference each other in a circle.",
+                )
             entry = self.subtree_library.get(name)
             if entry is None:
                 raise UnknownSubtreeError(name)
-            value = getattr(entry, "payoff", None)
-            if value is None:
-                raise UnknownSubtreeError(name)
-            self.subtree_refs[name] = float(value)
-            return float(value)
+            text, sub_opt = _library_entry(entry)
+            child_base = {k: v for k, v in self.raw_vars.items() if not _is_tree_ref(v)}
+            sub = dtree(
+                text,
+                opt=sub_opt,
+                subtree_library=self.subtree_library,
+                base=child_base,
+                _stack=(*self._stack, name),
+            )
+            if sub.payoff is None:
+                first = sub.errors[0].message if sub.errors else "it did not solve"
+                raise UnknownSubtreeError(name, f"tree '{name}' could not be evaluated: {first}")
+            _use(name)
+            for used in sub.used_trees:
+                _use(used)
+            self.subtree_refs[name] = float(sub.payoff)
+            return float(sub.payoff)
 
         # Always install the resolver — even without a library — so a
         # ``subtree("name")`` call without a backing tree surfaces as the
@@ -1266,6 +1563,43 @@ class dtree:
             # Pull out the tree-level metadata.
             self.name = str(raw_dict.get("name") or "")
             raw_vars = raw_dict.get("variables")
+            if isinstance(raw_vars, str) and raw_vars.strip():
+                # radiant.model: ``variables: other_tree`` uses that tree's
+                # variables, except its dtree() references
+                source = raw_vars.strip()
+                imported = None
+                if source in self.subtree_library:
+                    src_dict, _ = _yaml_to_dict(_library_entry(self.subtree_library[source])[0])
+                    if src_dict is not None and isinstance(src_dict.get("variables"), dict):
+                        imported = {
+                            k: v for k, v in src_dict["variables"].items() if not _is_tree_ref(v)
+                        }
+                if imported is None:
+                    diagnostics.append(
+                        Diagnostic(
+                            severity="error",
+                            code="unknown_variables_tree",
+                            message=(
+                                f"The tree referenced in the 'variables:' section ('{source}') is "
+                                "not available or has no variables. Correct the name and try again."
+                            ),
+                            path=["variables"],
+                        )
+                    )
+                    raw_vars = None
+                else:
+                    raw_vars = imported
+                    self.variables_from = source
+                    _use(source)
+            base_vars = {k: v for k, v in (base or {}).items() if not _is_tree_ref(v)}
+            if base_vars:
+                if isinstance(raw_vars, dict):
+                    raw_vars = {**raw_vars}
+                    raw_vars.update(base_vars)
+                elif not raw_vars:
+                    raw_vars = dict(base_vars)
+            if isinstance(raw_vars, dict):
+                self.raw_vars = dict(raw_vars)
             resolved_vars, safe_vars, label_to_safe, var_diags = _resolve_variables(
                 raw_vars, subtree_resolver=resolver
             )
@@ -1345,16 +1679,28 @@ class dtree:
         return df
 
     def _build_python_code(self) -> str:
-        lines = [
-            "import pyrsm as rsm",
-            "",
+        lines = ["import pyrsm as rsm", ""]
+        library = ""
+        if self.used_trees:
+            # The other trees this one uses (dtree("name") / variables: name)
+            lines.append("trees = {")
+            for name in self.used_trees:
+                text, _ = _library_entry(self.subtree_library.get(name, ""))
+                if isinstance(text, dict):
+                    text = _yaml_dump(text)
+                lines.append(f"    {name!r}: '''")
+                lines.append(str(text).rstrip())
+                lines.append("''',")
+            lines.append("}")
+            lines.append("")
+            library = ", subtree_library=trees"
+        lines += [
             "yaml_text = '''",
             self.yl.rstrip() + "\n",
             "'''",
             "",
-            f"tree = rsm.decide.dtree(yaml_text, opt={self.opt!r})",
+            f"tree = rsm.decide.dtree(yaml_text, opt={self.opt!r}{library})",
             "tree.summary(input=True, output=True)",
-            "print(tree.solution_df)",
             "print(tree.to_mermaid(final=True))",
         ]
         return "\n".join(lines)
@@ -1364,7 +1710,13 @@ class dtree:
     # ------------------------------------------------------------------
 
     def summary(self, input: bool = True, output: bool = False, dec: int = 2) -> None:
-        """Print a Radiant-style summary of the decision tree."""
+        """Print the decision tree as radiant.model's ``summary.dtree``.
+
+        ``input`` prints the tree specification. ``output`` adds the
+        resolved variable values and the initial and final trees as R
+        prints them: one row per node with its probability, payoff, cost and
+        the type of node it branches from.
+        """
         buf = StringIO()
         if self.errors:
             buf.write("Decision tree errors:\n")
@@ -1381,62 +1733,21 @@ class dtree:
         if input:
             buf.write("Decision tree input:\n")
             buf.write(self.yl.rstrip() + "\n\n")
-        if self.vars:
-            buf.write("Variable values:\n")
-            for k, v in self.vars.items():
-                buf.write(f"  {k}: {v:.{dec}f}\n")
-            buf.write("\n")
-        if output and self.normalized is not None:
-            buf.write(f"Optimization direction: {self.opt}\n")
-            if self.payoff is not None:
-                buf.write(f"Root payoff ('{self.normalized.label}'): {self.payoff:,.{dec}f}\n\n")
-
-            buf.write("Initial decision tree:\n")
-            self._print_tree(buf, self.initial_tree, dec=dec, show_payoff=False)
-            buf.write("\n")
-
-            buf.write("Final decision tree:\n")
-            self._print_tree(buf, self.normalized, dec=dec, show_payoff=True)
-            buf.write("\n")
+        if output and self.vars:
+            buf.write("Variable input values:\n")
+            names = list(self.vars)
+            values = _r_format_column(list(self.vars.values()), digits=7, scipen=100)
+            nw = max(len(n) for n in names)
+            vw = max(len(v) for v in values)
+            buf.write(" " * (nw + 1 + vw) + "\n")
+            for n, v in zip(names, values):
+                buf.write(f"{n.ljust(nw)} {v.rjust(vw)}\n")
+        if output and self.normalized is not None and not self.errors:
+            buf.write("\nInitial decision tree:\n")
+            buf.write(_r_tree_table(self.initial_tree, dec=dec) + "\n")
+            buf.write("\nFinal decision tree:\n")
+            buf.write(_r_tree_table(self.normalized, dec=dec) + "\n")
         print(buf.getvalue().rstrip())
-
-    def _print_tree(
-        self,
-        buf: StringIO,
-        node: DecisionNode | None,
-        *,
-        dec: int,
-        show_payoff: bool,
-        prefix: str = "",
-    ) -> None:
-        if node is None:
-            buf.write("  (empty)\n")
-            return
-        marker = ""
-        if node.kind == "decision":
-            marker = "[D]"
-        elif node.kind == "chance":
-            marker = "(C)"
-        else:
-            marker = " T "
-        bits: list[str] = [f"{prefix}{marker} {node.label}"]
-        if node.p is not None:
-            bits.append(f"p={node.p:.{dec + 2}f}")
-        if node.cost is not None:
-            bits.append(f"cost={node.cost:,.{dec}f}")
-        if show_payoff and node.payoff is not None:
-            bits.append(f"payoff={node.payoff:,.{dec}f}")
-        elif not show_payoff and node.kind == "terminal" and node.payoff is not None:
-            bits.append(f"payoff={node.payoff:,.{dec}f}")
-        buf.write("  " + "  ".join(bits) + "\n")
-        for c in node.children:
-            self._print_tree(
-                buf,
-                c,
-                dec=dec,
-                show_payoff=show_payoff,
-                prefix=prefix + "  ",
-            )
 
     def to_mermaid(
         self,
@@ -1518,9 +1829,14 @@ class dtree:
                 f"got diagnostics: {[d.code for d in parse_diags]}"
             )
 
-        base_vars = base_dict.get("variables") or {}
-        if not isinstance(base_vars, dict):
-            raise ValueError("sensitivity requires a `variables:` mapping in the tree YAML")
+        # The variables in effect: the tree's own, those imported with
+        # ``variables: other_tree``, and any passed down by a parent tree
+        base_vars = dict(self.raw_vars)
+        if not base_vars:
+            raise ValueError(
+                "sensitivity variables must already exist in a `variables:` section of the "
+                "tree YAML (its own, or one it imports)"
+            )
         missing = [s.name for s in parsed if s.name not in base_vars]
         if missing:
             raise ValueError(
@@ -1544,8 +1860,7 @@ class dtree:
         for combo in itertools.product(*(s.values for s in parsed)):
             inputs = {s.name: v for s, v in zip(parsed, combo)}
             cell_dict = copy.deepcopy(base_dict)
-            for name, value in inputs.items():
-                cell_dict["variables"][name] = value
+            cell_dict["variables"] = {**copy.deepcopy(base_vars), **inputs}
             cell_tree = dtree(cell_dict, opt=self.opt, subtree_library=self.subtree_library)
             chosen: list[str] = []
             if cell_tree.normalized is not None:
@@ -1554,6 +1869,16 @@ class dtree:
                     for c in cell_tree.normalized.children
                     if c.id in cell_tree.normalized.chosen_child_ids
                 ]
+            node_payoffs: dict[str, float] = {}
+            if cell_tree.is_solved and cell_tree.normalized is not None:
+
+                def _collect(n: DecisionNode) -> None:
+                    if n.payoff is not None and n.label not in node_payoffs:
+                        node_payoffs[n.label] = float(n.payoff)
+                    for c in n.children:
+                        _collect(c)
+
+                _collect(cell_tree.normalized)
             cells.append(
                 SensitivityCell(
                     inputs=inputs,
@@ -1561,6 +1886,7 @@ class dtree:
                     chosen_labels=chosen,
                     errors=list(cell_tree.errors),
                     warnings=list(cell_tree.warnings),
+                    decision_payoffs=node_payoffs,
                 )
             )
 
@@ -1570,6 +1896,7 @@ class dtree:
             opt=self.opt,
             base_payoff=self.payoff,
             base_chosen=base_chosen,
+            base_options=[c.label for c in self.normalized.children] if self.normalized else [],
         )
 
     # ------------------------------------------------------------------
@@ -1606,6 +1933,7 @@ class dtree:
 
 
 __all__ = [
+    "dtree_parser",
     "DecisionNode",
     "Diagnostic",
     "SensitivityCell",
