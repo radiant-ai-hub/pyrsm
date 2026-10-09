@@ -410,3 +410,50 @@ def test_node_table_lists_every_node_in_print_order():
     # a leaf's prediction is the one rules() reports for it
     rules = dict(zip(ct.rules()["node"], ct.rules()["prediction"]))
     assert all(rules[n] == p for n, p in zip(leaves["node"], leaves["prediction"]))
+
+
+@pytest.mark.parametrize("prior", [None, 0.5])
+def test_node_table_removed_is_rpart_improvement_over_root_impurity(prior):
+    d = load("titanic")
+    ct = crtree({"titanic": d}, rvar="survived", lev="Yes", evar=["pclass", "sex", "age"],
+                prior=prior, cp=0.005)
+    nodes = ct.node_table()
+    root = np.asarray(ct.fit.frame[0]["yval2"][1:3], dtype=float)
+    shares = np.array([0.5, 0.5]) if prior else root / root.sum()
+    root_impurity = root.sum() * (1 - np.sum(shares**2))
+    improve = {r["id"]: r["node"].primary[0].improve for r in ct.fit.frame if not r["leaf"]}
+    for node, removed in zip(nodes["node"], nodes["removed"]):
+        if node in improve:
+            assert abs(removed - improve[node] / root_impurity) < 1e-12
+        else:
+            assert removed is None
+
+
+def test_node_table_counts_without_a_prior_recompute_everything():
+    d = load("titanic")
+    ct = crtree({"titanic": d}, rvar="survived", lev="Yes", evar=["pclass", "sex", "age"],
+                cp=0.005)
+    rows = {r["node"]: r for r in ct.node_table().iter_rows(named=True)}
+    yes, no = rows[2]["counts"]
+    assert (yes, no) == (290, 96)
+    assert rows[2]["prediction"] == pytest.approx(yes / (yes + no))
+    assert rows[2]["error"] == pytest.approx(no / (yes + no))
+
+    def gini(node):
+        y, n = rows[node]["counts"]
+        p = y / (y + n)
+        return (y + n) * 2 * p * (1 - p)
+
+    assert rows[1]["removed"] == pytest.approx((gini(1) - gini(2) - gini(3)) / gini(1))
+
+
+def test_node_table_regression_splits_add_up_to_r_squared():
+    d = load("catalog")
+    ct = crtree({"catalog": d}, rvar="Sales", evar=["Income", "HH_size", "Age"], cp=0.02)
+    nodes = ct.node_table()
+    dev = {r["id"]: r["dev"] for r in ct.fit.frame}
+    leaves = [r["id"] for r in ct.fit.frame if r["leaf"]]
+    r2 = 1 - sum(dev[k] for k in leaves) / dev[1]
+    assert nodes["removed"].drop_nulls().sum() == pytest.approx(r2)
+    y = d["Sales"].to_numpy()
+    assert nodes["rmse"][0] == pytest.approx(float(np.sqrt(np.mean((y - y.mean()) ** 2))))

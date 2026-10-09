@@ -864,7 +864,13 @@ class crtree:
             e.g. ``age >= 10``; empty for the root), ``last`` (True for the
             second child of a parent), ``leaf``, ``n``, ``share`` and
             ``prediction`` (probability of ``lev``, prior-adjusted as in the
-            plot, or the node mean).
+            plot, or the node mean). A classification tree adds ``counts`` (per
+            level, in ``ylevels`` order) and ``error`` (share not in the node's
+            most common level); a regression tree adds ``rmse`` (of the node
+            mean). ``removed`` is the share of the root's impurity that the
+            node's split removes (Gini, prior-weighted as rpart's split
+            criterion; or the sum of squared errors, so the splits add up to
+            R-squared); empty for terminal nodes.
         """
         frame = self.fit.frame
         byid = {r["id"]: r for r in frame}
@@ -883,21 +889,61 @@ class crtree:
                 return var + (" = " if len(levels) == 1 else " in ") + ", ".join(levels)
             return f"{var} {op} {_fmt_cut(float(value))}"
 
+        # What each split removed, as a share of the root's impurity: Gini for a
+        # classification tree (the split criterion; class shares weighted by a
+        # prior when one is set, as rpart does), the sum of squared errors for
+        # a regression tree (so the splits add up to the tree's R-squared).
+        if nclass:
+            counts = {r["id"]: np.asarray(r["yval2"][1 : 1 + nclass], dtype=float) for r in frame}
+            root_counts = counts[1]
+            if self.prior is not None and self.cost is None and nclass == 2:
+                weight = np.array([self.prior, 1 - self.prior]) / root_counts
+            else:
+                weight = np.ones(nclass)
+
+            def shares(nid: int) -> np.ndarray:
+                w = counts[nid] * weight
+                return w / w.sum()
+
+            def gini(nid: int) -> float:
+                return float(1 - np.sum(shares(nid) ** 2))
+
+            def mass(nid: int) -> float:
+                return float(np.sum(counts[nid] * weight))
+
+            def removed(nid: int) -> float:
+                left, right = 2 * nid, 2 * nid + 1
+                drop = gini(nid) - (
+                    mass(left) * gini(left) + mass(right) * gini(right)
+                ) / mass(nid)
+                return mass(nid) / mass(1) * drop / gini(1)
+        else:
+            dev = {r["id"]: float(r["dev"]) for r in frame}
+
+            def removed(nid: int) -> float:
+                return (dev[nid] - dev[2 * nid] - dev[2 * nid + 1]) / dev[1]
+
         rows = []
         for r in frame:
             nid = r["id"]
-            rows.append(
-                {
-                    "node": int(nid),
-                    "depth": int(nid).bit_length() - 1,
-                    "split": split_text(nid),
-                    "last": nid > 1 and nid % 2 == 1,
-                    "leaf": bool(r["leaf"]),
-                    "n": int(r["n"]),
-                    "share": r["n"] / root_n,
-                    "prediction": float(r["yval2"][1 + nclass]) if nclass else float(r["yval"]),
-                }
-            )
+            row = {
+                "node": int(nid),
+                "depth": int(nid).bit_length() - 1,
+                "split": split_text(nid),
+                "last": nid > 1 and nid % 2 == 1,
+                "leaf": bool(r["leaf"]),
+                "n": int(r["n"]),
+                "share": r["n"] / root_n,
+                "prediction": float(r["yval2"][1 + nclass]) if nclass else float(r["yval"]),
+            }
+            if nclass:
+                c = counts[nid]
+                row["counts"] = [int(round(v)) for v in c]
+                row["error"] = float(1 - c.max() / c.sum())
+            else:
+                row["rmse"] = math.sqrt(float(r["dev"]) / float(r["wt"]))
+            row["removed"] = None if r["leaf"] else removed(nid)
+            rows.append(row)
         return pl.DataFrame(rows)
 
     def _condition(self, var: str, lab: str) -> tuple[str, str, float | str]:
