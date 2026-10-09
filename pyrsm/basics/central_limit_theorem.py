@@ -237,8 +237,11 @@ class central_limit_theorem:
         for row in cells:
             print(f"{row[0]:<{widths[0]}}  {row[1]:>{widths[1]}}  {row[2]:>{widths[2]}}")
         print(
-            f"\nCLT: with a sample size of {self.n}, the sample {label} are approximately "
-            f"normal with mean {fmt(float(clt_mean))} and st. dev {fmt(float(clt_sd))}."
+            # The CLT gives the mean and st. dev at every sample size; how close
+            # to normal the distribution is depends on n and on the population.
+            f"\nCLT: with a sample size of {self.n}, the sample {label} have mean "
+            f"{fmt(float(clt_mean))} and st. dev {fmt(float(clt_sd))}; their distribution "
+            f"gets closer to normal as the sample size grows."
         )
 
     def plot(self, stat: str = "sum", bins: int = 15):
