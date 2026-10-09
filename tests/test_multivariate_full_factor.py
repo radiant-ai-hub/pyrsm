@@ -1,6 +1,9 @@
 """Tests for pyrsm.multivariate.full_factor against radiant.multivariate."""
 
+from pathlib import Path
+
 import numpy as np
+import polars as pl
 import pytest
 from conftest import mv_mat, mv_sign_align, mv_to_ordered_enum
 
@@ -221,3 +224,18 @@ def test_full_factor_new_rotations_summary_and_plot(mv_data, capsys, rot):
     out = capsys.readouterr().out
     assert f"Rotation    : {rot}" in out
     assert ff.plot(plots=["attr", "resp"]) is not None
+
+
+def test_respondent_scale():
+    tp = pl.read_parquet(Path(__file__).resolve().parents[1] / "examples" / "data" / "multivariate" / "toothpaste.parquet")
+    ff = full_factor({"tp": tp}, vars=["v1", "v2", "v3", "v4", "v5", "v6"], nr_fact=2)
+    p = ff.plot(plots=["resp", "attr"])
+    # default: the scores are shrunk to the range of the loadings
+    expected = np.abs(ff.floadings).max() / np.abs(ff.scores).max()
+    assert np.isclose(ff._resp_scale, expected)
+    assert p.labels.get("subtitle", "").startswith("Respondent scores x ")
+    ff.plot(plots=["resp", "attr"], resp_scale=0.25)
+    assert ff._resp_scale == 0.25
+    # respondents alone are drawn as they are
+    ff.plot(plots="resp")
+    assert ff._resp_scale == 1.0
