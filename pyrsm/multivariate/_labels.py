@@ -99,11 +99,32 @@ def arrow_label_positions(x, y, scale: float = 1.08):
     return x * scale, y * scale
 
 
+def loading_label_positions(x, y, labels, lim: float = 1.0, char: float = 0.017):
+    """Label positions just beyond each loading's endpoint, away from the origin.
+
+    The label's center sits past the point by a small gap plus about half the
+    label's width (``char`` is the half-width of one character as a share of
+    the axis half-range), so the text starts right next to its point and on the
+    outside of the arrow. Overlaps are left to a light repel.
+    """
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    r = np.hypot(x, y)
+    r = np.where(r > 0, r, 1.0)
+    ux, uy = x / r, y / r
+    width = np.array([len(str(lab)) for lab in labels], dtype=float)
+    # horizontal room for the text, vertical room for its height
+    dx = lim * (0.04 + char * width) * ux
+    dy = lim * 0.06 * uy
+    return np.column_stack([x + dx, y + dy])
+
+
 def text_repel_kwargs(
     anchors,
     arrow_color: str = MUTED,
     arrow_lw: float = 0.4,
     iter_lim: int = 800,
+    tight: bool = False,
 ):
     """Keyword arguments for plotnine's ``geom_text(adjust_text=...)``.
 
@@ -118,6 +139,28 @@ def text_repel_kwargs(
         return {}
 
     P = np.asarray(anchors, dtype=float)
+    if tight:
+        # Labels that start next to their point: only separate the ones that
+        # overlap and keep them close (a strong pull back, little push apart).
+        opts = {
+            "force_text": (0.2, 0.3),
+            "force_static": (0.05, 0.1),
+            "force_pull": (0.2, 0.2),
+            "force_explode": (0.05, 0.1),
+            "expand": (1.1, 1.2),
+            "max_move": (10, 10),
+            "ensure_inside_axes": True,
+            "prevent_crossings": True,
+            "iter_lim": iter_lim,
+            "min_arrow_len": 8,
+            "arrowprops": {"arrowstyle": "-", "color": arrow_color, "linewidth": arrow_lw},
+        }
+        if P.size:
+            opts["x"] = P[:, 0]
+            opts["y"] = P[:, 1]
+            opts["target_x"] = P[:, 0]
+            opts["target_y"] = P[:, 1]
+        return {"adjust_text": opts}
     opts = {
         "force_text": (0.45, 0.70),
         "force_static": (0.15, 0.25),
