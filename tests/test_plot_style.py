@@ -188,6 +188,7 @@ def _salary():
 def _model(kind, mod_type="classification"):
     # import each class from its own module: once a test imports e.g.
     # ``pyrsm.model.rforest`` the package attribute can be the submodule
+    from pyrsm.model.crtree import crtree
     from pyrsm.model.logistic import logistic
     from pyrsm.model.mlp import mlp
     from pyrsm.model.regress import regress
@@ -217,6 +218,8 @@ def _model(kind, mod_type="classification"):
             evar=["yrs_since_phd", "rank"],
             mod_type="regression",
         )
+    if kind == "crtree":
+        return crtree(**args, cp=0.01)
     if kind == "rforest":
         return rforest(**args, n_estimators=10)
     if kind == "xgboost":
@@ -423,6 +426,18 @@ for _kind in ("rforest", "xgboost", "mlp"):
     @case(f"model.{_kind}-dashboard")
     def _ml_dash(kind=_kind):
         return _model(kind, "regression").plot(plots="dashboard")
+
+
+for _p in ("prune", "imp", "pip", "pred", "pdp"):
+
+    @case(f"model.crtree-{_p}")
+    def _ct(p=_p):
+        return _model("crtree").plot(plots=p)
+
+
+@case("model.crtree-dashboard")
+def _ct_dash():
+    return _model("crtree", "regression").plot(plots="dashboard")
 
 
 _PERF = {
