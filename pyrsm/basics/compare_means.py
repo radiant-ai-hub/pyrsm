@@ -628,11 +628,26 @@ class compare_means:
             )
 
         elif plots == "bar":
-            # Calculate means per group
-            means = data.group_by(self.var1).agg(pl.col(self.var2).mean().alias("mean"))
+            from plotnine import geom_errorbar
+
+            # Group means with the confidence interval (black, mean +/- me) and
+            # the standard error (blue), as radiant.basics draws them.
+            means = data.group_by(self.var1).agg(
+                pl.col(self.var2).mean().alias("mean"),
+                pl.col(self.var2).std().alias("sd"),
+                pl.col(self.var2).count().alias("n"),
+            )
+            tscore = _get_scipy_stats().t.ppf((1 + self.conf) / 2, means["n"].to_numpy() - 1)
+            means = means.with_columns(
+                (pl.col("sd") / pl.col("n").sqrt()).alias("se")
+            ).with_columns(
+                (pl.col("se") * pl.Series(tscore)).alias("me")
+            )
             p = (
                 ggplot(means, aes(x=self.var1, y="mean"))
                 + geom_col(fill=FILL, alpha=ALPHA)
+                + geom_errorbar(aes(ymin="mean - me", ymax="mean + me"), width=0.1)
+                + geom_errorbar(aes(ymin="mean - se", ymax="mean + se"), width=0.05, color="blue")
                 + labs(x=self.var1, y=f"Mean {self.var2}")
                 + theme_pyrsm()
             )

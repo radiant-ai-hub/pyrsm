@@ -344,3 +344,20 @@ class TestGoodnessPlot:
             warnings.simplefilter("ignore", UserWarning)
             p = gf.plot(plots=["observed", "expected", "chisq", "dev_std"])
         assert p is not None
+
+
+def test_probs_follow_the_enum_level_order(newspaper_data):
+    """R's factor-level order: 0.45 is WS Journal, 0.55 USA Today (radiant.basics example)."""
+    gf = goodness({"newspaper": newspaper_data}, var="Newspaper", probs=(0.45, 0.55))
+    assert gf.levels == ["WS Journal", "USA Today"]
+    assert gf.observed.columns[:2] == ["WS Journal", "USA Today"]
+    assert gf.expected["WS Journal"].item() == pytest.approx(261.0)
+    out = io.StringIO()
+    sys.stdout, old = out, sys.stdout
+    try:
+        gf.summary(output=["chisq"])
+    finally:
+        sys.stdout = old
+    assert "Chi-squared: 0.028 df (1), p.value 0.867" in out.getvalue()
+    p = gf.plot(plots="observed")
+    assert p.data["Newspaper"].dtype.categories.to_list() == ["WS Journal", "USA Today"]

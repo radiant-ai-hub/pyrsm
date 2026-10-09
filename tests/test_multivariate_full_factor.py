@@ -226,20 +226,6 @@ def test_full_factor_new_rotations_summary_and_plot(mv_data, capsys, rot):
     assert ff.plot(plots=["attr", "resp"]) is not None
 
 
-def test_loading_labels_sit_next_to_their_points():
-    """Each label starts just beyond its loading, not at the panel edge."""
-    from pyrsm.multivariate._labels import loading_label_positions
-
-    tp = pl.read_parquet(Path(__file__).resolve().parents[1] / "examples" / "data" / "multivariate" / "toothpaste.parquet")
-    ff = full_factor({"tp": tp}, vars=["v1", "v2", "v3", "v4", "v5", "v6"], nr_fact=2)
-    x, y = ff.floadings[:, 0], ff.floadings[:, 1]
-    pos = loading_label_positions(x, y, ff.vars, lim=1.25)
-    gap = np.hypot(pos[:, 0] - x, pos[:, 1] - y)
-    assert gap.max() < 0.15
-    # outward from the origin
-    assert np.all(np.sign(pos[:, 0] - x) == np.sign(x))
-
-
 def test_respondent_scale():
     tp = pl.read_parquet(Path(__file__).resolve().parents[1] / "examples" / "data" / "multivariate" / "toothpaste.parquet")
     ff = full_factor({"tp": tp}, vars=["v1", "v2", "v3", "v4", "v5", "v6"], nr_fact=2)

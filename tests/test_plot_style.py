@@ -89,9 +89,16 @@ def test_only_plot_style_picks_a_theme():
     )
 
 
+# Modules that use matplotlib only to measure and close a plotnine figure (no
+# plotting): label placement draws the plot once to measure text and panel.
+MEASURE_ONLY = {"pyrsm/multivariate/_label_layout.py"}
+
+
 def test_no_other_plotting_library():
     offenders = []
     for path in _py_files():
+        if _rel(path) in MEASURE_ONLY:
+            continue
         for node in ast.walk(_parse(path)):
             mods = []
             if isinstance(node, ast.Import):
