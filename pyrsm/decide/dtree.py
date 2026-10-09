@@ -23,7 +23,7 @@ import yaml
 NodeKind = Literal["decision", "chance", "terminal"]
 Severity = Literal["error", "warning"]
 
-_RESERVED_KEYS = {"name", "variables", "type", "p", "payoff", "cost"}
+_RESERVED_KEYS = {"name", "variables", "type", "p", "payoff", "cost", "tree", "with"}
 
 
 @dataclass
@@ -60,6 +60,10 @@ class DecisionNode:
     raw_payoff: str | None = None
     children: list[DecisionNode] = field(default_factory=list)
     chosen_child_ids: list[str] = field(default_factory=list)
+    #: The tree this branch grafts (``tree: name``), if any
+    source_tree: str | None = None
+    #: The ``with:`` values used for that tree, by variable name
+    tree_with: dict[str, float] = field(default_factory=dict)
 
     def is_leaf(self) -> bool:
         return not self.children
@@ -74,6 +78,8 @@ class DecisionNode:
             "cost": self.cost,
             "payoff": self.payoff,
             "chosen_child_ids": list(self.chosen_child_ids),
+            "source_tree": self.source_tree,
+            "tree_with": dict(self.tree_with),
             "children": [c.to_dict() for c in self.children],
         }
 
@@ -225,6 +231,7 @@ def _resolve_variables(
     raw_vars: dict[str, Any] | None,
     *,
     subtree_resolver: Callable[[str], float] | None = None,
+    forward: bool = False,
 ) -> tuple[dict[str, float], dict[str, float], dict[str, str], list[Diagnostic]]:
     """Resolve the ``variables:`` block.
 
@@ -237,7 +244,10 @@ def _resolve_variables(
     - ``diagnostics``: list of diagnostics for anything that failed.
 
     ``subtree_resolver`` is forwarded to ``safe_eval`` so a variable
-    expression may include ``subtree("name")`` calls.
+    expression may include ``subtree("name")`` calls. With ``forward`` a
+    variable may use one defined further down (the merged variables of a
+    grafted sub-tree are not in dependency order); otherwise they resolve in
+    order, as in radiant.model.
     """
     diagnostics: list[Diagnostic] = []
     resolved: dict[str, float] = {}
@@ -275,74 +285,79 @@ def _resolve_variables(
         used.add(candidate)
         label_to_safe[str(label)] = candidate
 
-    for label, expr in raw_vars.items():
+    def _resolve_one(label: Any, expr: Any) -> Diagnostic | None:
         safe_name = label_to_safe[str(label)]
         try:
             if subtree_resolver is not None and _is_tree_ref(expr):
                 # dtree("name") -> the EMV of that tree, before label
                 # substitution can touch the quoted name
                 expr = _TREE_REF_RE.sub(
-                    lambda m: repr(float(subtree_resolver(m.group(2)))), str(expr)
+                lambda m: repr(float(subtree_resolver(m.group(2)))), str(expr)
                 )
             substituted = _substitute_labels(expr, label_to_safe)
             value = safe_eval(substituted, safe_vars, subtree_resolver=subtree_resolver)
         except UnknownSubtreeError as exc:
-            diagnostics.append(
-                Diagnostic(
-                    severity="error",
-                    code="unknown_subtree",
-                    message=(
-                        f"Variable '{label}': {exc.detail}"
-                        if exc.detail
-                        else f"Variable '{label}' references unknown tree '{exc.name}'. "
-                        "Add a tree with that name, or fix the name."
-                    ),
-                    path=["variables", str(label)],
-                )
+            return Diagnostic(
+                severity="error",
+                code="unknown_subtree",
+                message=(
+                    f"Variable '{label}': {exc.detail}"
+                    if exc.detail
+                    else f"Variable '{label}' references unknown tree '{exc.name}'. "
+                    "Add a tree with that name, or fix the name."
+                ),
+                path=["variables", str(label)],
             )
-            continue
         except UnresolvedVariableError as exc:
-            diagnostics.append(
-                Diagnostic(
-                    severity="error",
-                    code="unresolved_variable",
-                    message=(f"Variable '{label}' references unknown name '{exc.name}'."),
-                    path=["variables", str(label)],
-                )
+            return Diagnostic(
+                severity="error",
+                code="unresolved_variable",
+                message=(f"Variable '{label}' references unknown name '{exc.name}'."),
+                path=["variables", str(label)],
             )
-            continue
         except UnsafeExpressionError as exc:
-            diagnostics.append(
-                Diagnostic(
-                    severity="error",
-                    code="unsafe_expression",
-                    message=(f"Variable '{label}' has an unsafe or invalid expression: {exc}"),
-                    path=["variables", str(label)],
-                )
+            return Diagnostic(
+                severity="error",
+                code="unsafe_expression",
+                message=(f"Variable '{label}' has an unsafe or invalid expression: {exc}"),
+                path=["variables", str(label)],
             )
-            continue
         except ZeroDivisionError:
-            diagnostics.append(
-                Diagnostic(
-                    severity="error",
-                    code="division_by_zero",
-                    message=f"Variable '{label}' divides by zero.",
-                    path=["variables", str(label)],
-                )
+            return Diagnostic(
+                severity="error",
+                code="division_by_zero",
+                message=f"Variable '{label}' divides by zero.",
+                path=["variables", str(label)],
             )
-            continue
         if not math.isfinite(value):
-            diagnostics.append(
-                Diagnostic(
-                    severity="error",
-                    code="non_finite_variable",
-                    message=f"Variable '{label}' evaluates to {value!r}.",
-                    path=["variables", str(label)],
-                )
+            return Diagnostic(
+                severity="error",
+                code="non_finite_variable",
+                message=f"Variable '{label}' evaluates to {value!r}.",
+                path=["variables", str(label)],
             )
-            continue
         safe_vars[safe_name] = value
         resolved[str(label)] = value
+        return None
+
+    pending = list(raw_vars.items())
+    while pending:
+        retry: list[tuple[Any, Any]] = []
+        failed: list[Diagnostic] = []
+        for label, expr in pending:
+            diag = _resolve_one(label, expr)
+            if diag is None:
+                continue
+            if forward and diag.code == "unresolved_variable":
+                retry.append((label, expr))
+            failed.append(diag)
+        if not retry or len(retry) == len(pending):
+            diagnostics.extend(failed)
+            break
+        # a variable that uses one defined further down: try again now that
+        # more names are known
+        diagnostics.extend(d for d in failed if d.code != "unresolved_variable")
+        pending = retry
 
     return resolved, safe_vars, label_to_safe, diagnostics
 
@@ -629,8 +644,16 @@ def _build_nodes(
     inherited_cost: Any = None,
     diagnostics: list[Diagnostic] | None = None,
     subtree_resolver: Callable[[str], float] | None = None,
+    graft: Callable[..., DecisionNode | None] | None = None,
+    scope_vars: dict[str, Any] | None = None,
+    stack: tuple[str, ...] = (),
 ) -> DecisionNode | None:
-    """Recursively convert a nested YAML mapping into ``DecisionNode``s."""
+    """Recursively convert a nested YAML mapping into ``DecisionNode``s.
+
+    A branch with ``tree: name`` is handed to ``graft``, which builds that
+    tree in its place (in the variables of ``scope_vars`` and its ``with:``
+    values); ``stack`` holds the trees grafted on the way here.
+    """
     if diagnostics is None:
         diagnostics = []
 
@@ -797,18 +820,48 @@ def _build_nodes(
         return node
 
     for ck in child_keys:
-        child = _build_nodes(
-            raw[ck] if isinstance(raw[ck], dict) else {"payoff": raw[ck]},
-            safe_vars,
-            label_to_safe,
-            id_alloc=id_alloc,
-            label=ck,
-            path=path + [ck],
-            level=level + 1,
-            parent_kind=kind,
-            diagnostics=diagnostics,
-            subtree_resolver=subtree_resolver,
-        )
+        child_raw = raw[ck] if isinstance(raw[ck], dict) else {"payoff": raw[ck]}
+        if graft is not None and "tree" in child_raw:
+            child = graft(
+                child_raw,
+                safe_vars,
+                label_to_safe,
+                id_alloc=id_alloc,
+                label=ck,
+                path=path + [ck],
+                level=level + 1,
+                diagnostics=diagnostics,
+                scope_vars=scope_vars or {},
+                stack=stack,
+            )
+        else:
+            if "with" in child_raw:
+                diagnostics.append(
+                    Diagnostic(
+                        severity="error",
+                        code="with_without_tree",
+                        message=(
+                            f"Branch '{ck}' has `with:` but no `tree:`. `with:` sets values "
+                            "for the tree a branch uses."
+                        ),
+                        path=path + [ck],
+                    )
+                )
+            child = _build_nodes(
+                child_raw,
+                safe_vars,
+                label_to_safe,
+                id_alloc=id_alloc,
+                label=ck,
+                path=path + [ck],
+                level=level + 1,
+                parent_kind=kind,
+                diagnostics=diagnostics,
+                subtree_resolver=subtree_resolver,
+                graft=graft,
+                scope_vars=scope_vars,
+                stack=stack,
+            )
         if child is not None:
             node.children.append(child)
 
@@ -952,6 +1005,8 @@ def _clone_tree(node: DecisionNode) -> DecisionNode:
         raw_payoff=node.raw_payoff,
         children=[_clone_tree(c) for c in node.children],
         chosen_child_ids=list(node.chosen_child_ids),
+        source_tree=node.source_tree,
+        tree_with=dict(node.tree_with),
     )
     return clone
 
@@ -1052,6 +1107,7 @@ def _solution_rows(node: DecisionNode) -> list[dict[str, Any]]:
                 "cost": n.cost,
                 "id": n.id,
                 "chosen": list(n.chosen_child_ids),
+                "tree": n.source_tree,
             }
         )
         for c in n.children:
@@ -1096,6 +1152,75 @@ def _mermaid_edge(parent: DecisionNode, child: DecisionNode, final: bool, dec: i
     return f'{parent.id} --- |"{text}"| {child.id}'
 
 
+def _tooltip_money(value: float | None, symbol: str, dec: int) -> str:
+    return _format_money(value, symbol, dec).replace('"', "'")
+
+
+def _node_tooltip(
+    node: DecisionNode,
+    parent: DecisionNode | None,
+    *,
+    final: bool,
+    opt: str,
+    symbol: str,
+    dec: int,
+) -> list[tuple[str, str]]:
+    """Hover text for a node: (bold label, text) parts.
+
+    The final tree shows how each value was folded back (a chance node's
+    probability-weighted sum, a decision node's best option); both trees show
+    the inputs as entered, with the values of any formulas.
+    """
+
+    def money(x: float | None) -> str:
+        return _tooltip_money(x, symbol, dec)
+
+    def num(x: float | None) -> str:
+        return "" if x is None else f"{x:.{dec + 2}f}".rstrip("0").rstrip(".")
+
+    kinds = {"decision": "Decision node", "chance": "Chance node", "terminal": "End node"}
+    parts: list[tuple[str, str]] = [(node.label, kinds[node.kind])]
+    if node.source_tree:
+        parts.append(("Tree", node.source_tree))
+        for k, v in node.tree_with.items():
+            parts.append(("With", f"{k} = {num(v)}"))
+    if parent is not None and parent.kind == "chance" and node.p is not None:
+        raw = f"{node.raw_p} = " if node.raw_p else ""
+        parts.append(("p", f"{raw}{num(node.p)}"))
+    if node.cost is not None:
+        raw = f"{node.raw_cost} = " if node.raw_cost else ""
+        parts.append(("Cost", f"{raw}{money(node.cost)}"))
+
+    if node.kind == "terminal":
+        payoff = node.payoff
+        if final and payoff is not None and node.cost is not None:
+            # the final payoff already has the cost taken off
+            payoff = payoff + node.cost
+        raw = f"{node.raw_payoff} = " if node.raw_payoff else ""
+        parts.append(("Payoff", f"{raw}{money(payoff)}"))
+        if final and node.cost is not None:
+            parts.append(("Net", f"{money(payoff)} − {money(node.cost)} = {money(node.payoff)}"))
+        return parts
+    if not final or node.payoff is None:
+        return parts
+
+    if node.kind == "chance":
+        terms = " + ".join(f"{num(c.p)} × {money(c.payoff)}" for c in node.children)
+        cost = f" − {money(node.cost)}" if node.cost is not None else ""
+        parts.append(("EMV", f"{terms}{cost} = {money(node.payoff)}"))
+        return parts
+
+    best = "highest" if opt == "max" else "lowest"
+    options = "; ".join(f"{c.label} {money(c.payoff)}" for c in node.children)
+    chosen = [c.label for c in node.children if c.id in node.chosen_child_ids]
+    parts.append(("Options", options))
+    parts.append(("Choose", f"{' or '.join(chosen)} ({best} value)"))
+    if node.cost is not None:
+        gross = node.payoff + node.cost
+        parts.append(("Value", f"{money(gross)} − {money(node.cost)} = {money(node.payoff)}"))
+    return parts
+
+
 def _to_mermaid(
     root: DecisionNode,
     *,
@@ -1103,6 +1228,9 @@ def _to_mermaid(
     orient: str,
     dec: int,
     symbol: str,
+    opt: str = "max",
+    tooltips: bool = True,
+    subgraphs: bool = True,
 ) -> str:
     if orient not in {"LR", "TD"}:
         orient = "LR"
@@ -1112,20 +1240,67 @@ def _to_mermaid(
     chance_plain: list[str] = []
     chance_cost: list[str] = []
     chosen_edges: list[tuple[str, str]] = []
+    tips: list[str] = []
 
-    def _walk(n: DecisionNode) -> None:
+    def _walk(n: DecisionNode, parent: DecisionNode | None = None) -> None:
         if n.kind == "decision":
             (decisions_cost if n.cost is not None else decisions_plain).append(n.id)
         elif n.kind == "chance":
             (chance_cost if n.cost is not None else chance_plain).append(n.id)
         lines.append(f"    {_mermaid_label(n, final, symbol, dec)}")
+        if tooltips:
+            parts = _node_tooltip(n, parent, final=final, opt=opt, symbol=symbol, dec=dec)
+            text = "<br>".join(f"<b>{k}</b> {v}" for k, v in parts).replace('"', "'")
+            tips.append(f'    click {n.id} callback "{text}"')
         for c in n.children:
             lines.append(f"    {_mermaid_edge(n, c, final, dec)}")
             if final and n.kind == "decision" and c.id in n.chosen_child_ids:
                 chosen_edges.append((n.id, c.id))
-            _walk(c)
+            _walk(c, n)
 
     _walk(root)
+
+    # A branch that uses another tree (``tree: name``) is drawn in a box
+    # named after that tree, so the parts of a combined tree stay visible
+    if subgraphs:
+        counter = [0]
+        boxes: list[str] = []
+
+        def _box(n: DecisionNode, indent: str) -> None:
+            counter[0] += 1
+            box_id = f"tree{counter[0]}"
+            title = n.source_tree or ""
+            if n.tree_with:
+                values = ", ".join(f"{k} = {v:.4g}" for k, v in n.tree_with.items())
+                title = f"{title} · {values}"
+            title = title.replace('"', "'")
+            lines.append(f'{indent}subgraph {box_id} ["{title}"]')
+            boxes.append(box_id)
+
+            def _members(m: DecisionNode) -> None:
+                lines.append(f"{indent}    {m.id}")
+                for c in m.children:
+                    if c.source_tree:
+                        _box(c, indent + "    ")
+                    else:
+                        _members(c)
+
+            _members(n)
+            lines.append(f"{indent}end")
+
+        def _find(n: DecisionNode) -> None:
+            for c in n.children:
+                if c.source_tree:
+                    _box(c, "    ")
+                else:
+                    _find(c)
+
+        _find(root)
+        for box_id in boxes:
+            lines.append(
+                f"    style {box_id} fill:#f8f9fa,stroke:#6c757d,stroke-width:1px,"
+                "stroke-dasharray:3 3"
+            )
 
     if decisions_plain:
         lines.append("    classDef decision fill:#9ACD32,stroke:#333,stroke-width:1px;")
@@ -1147,6 +1322,8 @@ def _to_mermaid(
         lines.append(f"    class {','.join(chance_cost)} chance_with_cost;")
     if final and chosen_edges:
         lines.append("    %% chosen branches drawn with === (highlighted in final tree)")
+    # radiant.model's hover text: ``click id callback "text"`` lines
+    lines.extend(tips)
 
     return "\n".join(lines)
 
@@ -1361,6 +1538,89 @@ class SensitivityResult:
         }
 
 
+@dataclass
+class TornadoResult:
+    """One-at-a-time sensitivity: each variable at its low and high value
+    with the others at their base values, ranked by the swing in EMV."""
+
+    base_payoff: float | None
+    base_chosen: list[str]
+    rows: list[dict[str, Any]]
+
+    def to_frame(self) -> pd.DataFrame:
+        """One row per variable, largest swing first."""
+        out = []
+        for r in self.rows:
+            out.append(
+                {
+                    "variable": r["name"],
+                    "base": r["base_value"],
+                    "low": r["low"]["value"],
+                    "high": r["high"]["value"],
+                    "EMV low": r["low"]["payoff"],
+                    "EMV high": r["high"]["payoff"],
+                    "swing": r["swing"],
+                    "decision low": " / ".join(r["low"]["chosen_labels"]),
+                    "decision high": " / ".join(r["high"]["chosen_labels"]),
+                }
+            )
+        return pd.DataFrame(out)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "base_payoff": self.base_payoff,
+            "base_chosen": list(self.base_chosen),
+            "vars": [dict(r) for r in self.rows],
+        }
+
+    def plot(self, symbol: str = "$"):
+        """Tornado chart: the change in EMV from the base value when each
+        variable is at its low (red) and high (green) value."""
+        from plotnine import (
+            aes,
+            coord_flip,
+            geom_col,
+            geom_hline,
+            ggplot,
+            labs,
+            scale_fill_manual,
+            scale_x_discrete,
+            scale_y_continuous,
+        )
+
+        from pyrsm.plot_style import REF, theme_pyrsm
+
+        base = self.base_payoff or 0.0
+        data = []
+        for r in self.rows:
+            for side, label in (("low", "Low input"), ("high", "High input")):
+                payoff = r[side]["payoff"]
+                if payoff is not None:
+                    data.append({"variable": r["name"], "input": label, "change": payoff - base})
+        if not data:
+            raise ValueError("No variable has a solved low or high value")
+        df = pd.DataFrame(data)
+        # largest swing at the top
+        order = [r["name"] for r in reversed(self.rows)]
+        df["variable"] = pd.Categorical(df["variable"], categories=order, ordered=True)
+        df["input"] = pd.Categorical(df["input"], categories=["Low input", "High input"])
+        return (
+            ggplot(df, aes(x="variable", y="change", fill="input"))
+            + geom_col(position="identity", width=0.6, color=REF)
+            + geom_hline(yintercept=0)
+            + coord_flip()
+            + scale_x_discrete(limits=order)
+            + scale_fill_manual(values={"Low input": "#d62728", "High input": "#2ca02c"})
+            + scale_y_continuous(labels=lambda v: [f"{symbol}{x:,.0f}" for x in v])
+            + labs(
+                x="",
+                y=f"Change in EMV from the base value ({symbol}{base:,.0f})",
+                fill="",
+            )
+            + theme_pyrsm()
+        )
+
+
 def _make_sensitivity_spec(name: str, body: Any) -> SensitivitySpec:
     """Normalize one variable spec from dict/list input.
 
@@ -1437,8 +1697,8 @@ class dtree:
     opt : {"max", "min"}, default "max"
         Decision-node optimization direction.
     subtree_library : dict, optional
-        Other trees by name, for R's ``dtree("name")`` references and
-        ``variables: name`` imports. Values can be YAML text, a parsed dict,
+        Other trees by name, for ``tree: name`` branches, R's
+        ``dtree("name")`` references and ``variables: name`` imports. Values can be YAML text, a parsed dict,
         or a ``dtree`` object (its YAML and ``opt`` are used).
     base : dict, optional
         Variables passed down by a tree that references this one (R's
@@ -1447,7 +1707,27 @@ class dtree:
 
     Notes
     -----
-    Combining trees works as in radiant.model:
+    A branch can be another tree: ``tree: name`` puts tree ``name`` at that
+    branch, so the combined tree is solved, printed and plotted as one. The
+    branch keeps its label and ``p:``; a ``cost:`` on it is added to the
+    cost of the other tree's first node. The other tree keeps its own
+    variables as defaults; this tree's variables replace those with the same
+    name, and a ``with:`` list on the branch sets values for that use only
+    (evaluated in this tree), for example::
+
+        Positive result:
+            p: P(pos)
+            type: decision
+            Launch:
+                tree: launch
+                with:
+                    P(high): P(high|pos)
+            Do not launch:
+                payoff: 0
+
+    ``tree_uses`` lists every such branch with its values and EMV.
+
+    The radiant.model ways to combine trees also work:
 
     * ``x: dtree("name")`` in the ``variables:`` section re-evaluates tree
       ``name`` with *this* tree's variables (except other ``dtree()``
@@ -1560,6 +1840,12 @@ class dtree:
         # specific ``unknown_subtree`` diagnostic rather than falling
         # through to the generic ``unsafe_expression`` path.
         resolver = _resolve_subtree
+        self._resolver = resolver
+        self._use = _use
+        #: Each ``tree:`` branch: the tree, where it is used, its ``with:``
+        #: values and (once solved) the EMV it contributes
+        self.tree_uses: list[dict[str, Any]] = []
+        self._graft_nodes: list[DecisionNode | None] = []
 
         if raw_dict is not None:
             # Pull out the tree-level metadata.
@@ -1569,13 +1855,7 @@ class dtree:
                 # radiant.model: ``variables: other_tree`` uses that tree's
                 # variables, except its dtree() references
                 source = raw_vars.strip()
-                imported = None
-                if source in self.subtree_library:
-                    src_dict, _ = _yaml_to_dict(_library_entry(self.subtree_library[source])[0])
-                    if src_dict is not None and isinstance(src_dict.get("variables"), dict):
-                        imported = {
-                            k: v for k, v in src_dict["variables"].items() if not _is_tree_ref(v)
-                        }
+                imported = self._import_variables(source)
                 if imported is None:
                     diagnostics.append(
                         Diagnostic(
@@ -1625,6 +1905,9 @@ class dtree:
                 level=1,
                 diagnostics=diagnostics,
                 subtree_resolver=resolver,
+                graft=self._graft,
+                scope_vars=self.raw_vars,
+                stack=self._stack,
             )
 
             _validate(root, diagnostics)
@@ -1638,11 +1921,209 @@ class dtree:
                 self.normalized = root
 
         self.diagnostics: list[Diagnostic] = diagnostics
+        for use, node in zip(self.tree_uses, self._graft_nodes):
+            solved = node is not None and self.normalized is not None and not self.errors
+            use["emv"] = node.payoff if solved else None
         self.tree = self.normalized
         self.payoff: float | None = self.normalized.payoff if self.normalized is not None else None
         self.prob: dict[str, float | None] = self._build_prob_map()
         self.solution_df: pd.DataFrame = self._build_solution_df()
         self.python_code: str = self._build_python_code()
+
+    def _import_variables(self, source: str) -> dict[str, Any] | None:
+        """The variables of tree ``source`` (``variables: source``), without
+        its ``dtree()`` references; ``None`` when it has none."""
+        if source not in self.subtree_library:
+            return None
+        src_dict, _ = _yaml_to_dict(_library_entry(self.subtree_library[source])[0])
+        if src_dict is None or not isinstance(src_dict.get("variables"), dict):
+            return None
+        return {k: v for k, v in src_dict["variables"].items() if not _is_tree_ref(v)}
+
+    def _graft(
+        self,
+        branch: dict[str, Any],
+        safe_vars: dict[str, float],
+        label_to_safe: dict[str, str],
+        *,
+        id_alloc: _IdAllocator,
+        label: str,
+        path: list[str],
+        level: int,
+        diagnostics: list[Diagnostic],
+        scope_vars: dict[str, Any],
+        stack: tuple[str, ...],
+    ) -> DecisionNode | None:
+        """Build the tree a ``tree: name`` branch uses in that branch's place.
+
+        The other tree keeps its own variables as defaults; the variables of
+        the tree that uses it replace those with the same name, and the
+        branch's ``with:`` values (evaluated here, in the using tree) replace
+        both. The branch keeps its label and its ``p:``; a ``cost:`` on the
+        branch is added to the cost of the other tree's first node.
+        """
+        name = str(branch.get("tree") or "").strip()
+
+        def fail(code: str, message: str) -> None:
+            diagnostics.append(Diagnostic("error", code, message, list(path)))
+
+        if not name:
+            fail("tree_name_missing", f"Branch '{label}' has `tree:` without a tree name.")
+            return None
+        extra = [k for k in branch if isinstance(k, str) and k not in _RESERVED_KEYS]
+        if extra:
+            fail(
+                "tree_branch_has_children",
+                f"Branch '{label}' uses tree '{name}', so it cannot also have its own "
+                f"branches ({', '.join(extra)}). Put them in tree '{name}', or remove `tree:`.",
+            )
+            return None
+        for key in ("payoff", "type"):
+            if key in branch:
+                fail(
+                    f"tree_branch_has_{key}",
+                    f"Branch '{label}' uses tree '{name}', so its `{key}:` comes from that "
+                    f"tree. Remove `{key}:` from the branch.",
+                )
+                return None
+        if name in stack:
+            fail(
+                "tree_cycle",
+                f"Tree '{name}' uses itself through {' -> '.join([*stack, name])}. "
+                "Trees cannot use each other in a circle.",
+            )
+            return None
+        entry = self.subtree_library.get(name)
+        if entry is None:
+            known = ", ".join(sorted(self.subtree_library)) or "none"
+            fail(
+                "unknown_tree",
+                f"Branch '{label}' uses tree '{name}', which does not exist. "
+                f"Trees in this project: {known}.",
+            )
+            return None
+        text, _ = _library_entry(entry)
+        sub_dict, sub_diags = (
+            (text, []) if isinstance(text, dict) else _yaml_to_dict(text)
+        )
+        sub_errors = [d for d in sub_diags if d.severity == "error"]
+        if sub_dict is None or sub_errors:
+            first = sub_errors[0].message if sub_errors else "it is empty"
+            fail("tree_has_errors", f"Tree '{name}' (used at '{label}') has errors: {first}")
+            return None
+
+        # Values set by this use, evaluated in the tree that uses it
+        with_raw = branch.get("with")
+        with_vals: dict[str, float] = {}
+        if with_raw is not None and not isinstance(with_raw, dict):
+            fail(
+                "with_not_mapping",
+                f"`with:` under '{label}' must list values, one per line "
+                "(for example `P(high): 0.7`).",
+            )
+            return None
+        for key, expr in (with_raw or {}).items():
+            value, diag = _eval_numeric_field(
+                expr,
+                safe_vars,
+                label_to_safe,
+                path + ["with", str(key)],
+                str(key),
+                subtree_resolver=self._resolver,
+            )
+            if diag is not None:
+                diagnostics.append(diag)
+                return None
+            with_vals[str(key)] = float(value)  # type: ignore[arg-type]
+
+        own = sub_dict.get("variables")
+        if isinstance(own, str) and own.strip():
+            imported = self._import_variables(own.strip())
+            if imported is None:
+                fail(
+                    "unknown_variables_tree",
+                    f"Tree '{name}' (used at '{label}') takes its variables from "
+                    f"'{own.strip()}', which is not available or has no variables.",
+                )
+                return None
+            # the reproducible code needs that tree too
+            self._use(own.strip())
+            own = imported
+        merged: dict[str, Any] = dict(own) if isinstance(own, dict) else {}
+        merged.update({k: v for k, v in scope_vars.items() if not _is_tree_ref(v)})
+        unknown_with = [k for k in with_vals if k not in merged]
+        if unknown_with:
+            fail(
+                "unknown_with_variable",
+                f"`with:` under '{label}' sets {', '.join(unknown_with)}, which tree '{name}' "
+                "does not use as a variable.",
+            )
+            return None
+        merged.update(with_vals)
+        _, sub_safe, sub_l2s, var_diags = _resolve_variables(
+            merged, subtree_resolver=self._resolver, forward=True
+        )
+        for d in var_diags:
+            d.message = f"Tree '{name}' (used at '{label}'): {d.message}"
+            d.path = list(path)
+        diagnostics.extend(var_diags)
+        if any(d.severity == "error" for d in var_diags):
+            return None
+
+        # The branch's own p and cost belong to the tree that uses it
+        p_value = cost_value = None
+        for key in ("p", "cost"):
+            if key not in branch:
+                continue
+            value, diag = _eval_numeric_field(
+                branch[key], safe_vars, label_to_safe, path, key, subtree_resolver=self._resolver
+            )
+            if diag is not None:
+                diagnostics.append(diag)
+                return None
+            if key == "p":
+                p_value = value
+            else:
+                cost_value = value
+
+        body = {k: v for k, v in sub_dict.items() if k not in ("name", "variables", "p")}
+        # listed in the order the branches appear (outer uses first)
+        use: dict[str, Any] = {"tree": name, "at": list(path), "with": dict(with_vals)}
+        slot = len(self.tree_uses)
+        self.tree_uses.append(use)
+        self._graft_nodes.append(None)
+        node = _build_nodes(
+            body,
+            sub_safe,
+            sub_l2s,
+            id_alloc=id_alloc,
+            label=label,
+            path=path,
+            level=level,
+            diagnostics=diagnostics,
+            subtree_resolver=self._resolver,
+            graft=self._graft,
+            scope_vars=merged,
+            stack=(*stack, name),
+        )
+        if node is None:
+            del self.tree_uses[slot]
+            del self._graft_nodes[slot]
+            return None
+        self._graft_nodes[slot] = node
+        node.source_tree = name
+        node.tree_with = with_vals
+        if p_value is not None:
+            node.p = p_value
+            raw_p = branch["p"]
+            node.raw_p = None if isinstance(raw_p, int | float) else str(raw_p)
+        if cost_value is not None:
+            raw_cost = branch["cost"]
+            raws = [r for r in (node.raw_cost, None if isinstance(raw_cost, int | float) else str(raw_cost)) if r]
+            node.cost = (node.cost or 0.0) + cost_value
+            node.raw_cost = " + ".join(raws) if raws else None
+        self._use(name)
+        return node
 
     # ------------------------------------------------------------------
     # Convenience views
@@ -1744,6 +2225,13 @@ class dtree:
             buf.write(" " * (nw + 1 + vw) + "\n")
             for n, v in zip(names, values):
                 buf.write(f"{n.ljust(nw)} {v.rjust(vw)}\n")
+        if output and self.tree_uses:
+            buf.write("\nTrees used:\n")
+            for use in self.tree_uses:
+                at = " > ".join(use["at"][1:]) or use["at"][0]
+                values = ", ".join(f"{k} = {v:.4g}" for k, v in use["with"].items())
+                emv = "" if use.get("emv") is None else f": {use['emv']:,.{dec}f}"
+                buf.write(f"  {at} uses '{use['tree']}'{f' with {values}' if values else ''}{emv}\n")
         if output and self.normalized is not None and not self.errors:
             buf.write("\nInitial decision tree:\n")
             buf.write(_r_tree_table(self.initial_tree, dec=dec) + "\n")
@@ -1757,14 +2245,31 @@ class dtree:
         orient: str = "LR",
         dec: int = 2,
         symbol: str = "$",
+        tooltips: bool = True,
+        subgraphs: bool = True,
     ) -> str:
-        """Return Mermaid-flowchart source for the (initial or final) tree."""
+        """Return Mermaid-flowchart source for the (initial or final) tree.
+
+        ``tooltips`` adds hover text for each node as radiant.model does
+        (``click id callback "text"`` lines): the inputs, and in the final
+        tree how its value was calculated. ``subgraphs`` draws a branch that
+        uses another tree (``tree: name``) in a box named after that tree.
+        """
         if self.normalized is None:
             return 'graph LR\n    err["Tree could not be parsed"]'
         tree = self.normalized if final else self.initial_tree
         if tree is None:
             return 'graph LR\n    err["Tree could not be parsed"]'
-        return _to_mermaid(tree, final=final, orient=orient, dec=dec, symbol=symbol)
+        return _to_mermaid(
+            tree,
+            final=final,
+            orient=orient,
+            dec=dec,
+            symbol=symbol,
+            opt=self.opt,
+            tooltips=tooltips,
+            subgraphs=subgraphs,
+        )
 
     def to_yaml(self) -> str:
         """Serialize the normalized tree back to YAML text."""
@@ -1874,13 +2379,14 @@ class dtree:
             node_payoffs: dict[str, float] = {}
             if cell_tree.is_solved and cell_tree.normalized is not None:
 
-                def _collect(n: DecisionNode) -> None:
+                # level by level, so a label repeated deeper in the tree (a
+                # second "Do not launch") does not hide the first-level option
+                queue = [cell_tree.normalized]
+                while queue:
+                    n = queue.pop(0)
                     if n.payoff is not None and n.label not in node_payoffs:
                         node_payoffs[n.label] = float(n.payoff)
-                    for c in n.children:
-                        _collect(c)
-
-                _collect(cell_tree.normalized)
+                    queue.extend(n.children)
             cells.append(
                 SensitivityCell(
                     inputs=inputs,
@@ -1900,6 +2406,61 @@ class dtree:
             base_chosen=base_chosen,
             base_options=[c.label for c in self.normalized.children] if self.normalized else [],
         )
+
+    def tornado(self, specs: dict[str, Any] | list[Any]) -> TornadoResult:
+        """Evaluate several variables at once, one at a time (a tornado chart).
+
+        Each variable is set to its low and its high value while the others
+        stay at their base values; the result ranks the variables by how far
+        the EMV of the tree moves.
+
+        Parameters
+        ----------
+        specs : dict or list
+            ``{"P(high)": (0.3, 0.5), "margin": {"low": 40, "high": 60}}`` or
+            ``[{"name": "P(high)", "low": 0.3, "high": 0.5}, ...]``.
+
+        Returns
+        -------
+        TornadoResult
+            ``to_frame()`` for the table, ``plot()`` for the chart.
+        """
+        if isinstance(specs, dict):
+            items = []
+            for name, body in specs.items():
+                if isinstance(body, dict):
+                    items.append({"name": name, "low": body.get("low"), "high": body.get("high")})
+                else:
+                    low, high = body
+                    items.append({"name": name, "low": low, "high": high})
+        else:
+            items = [dict(x) for x in specs]
+        if not items:
+            raise ValueError("tornado requires at least one variable")
+        rows: list[dict[str, Any]] = []
+        for item in items:
+            name = str(item["name"])
+            low, high = float(item["low"]), float(item["high"])
+            sweep = self.sensitivity({name: {"values": [low, high]}})
+            row: dict[str, Any] = {"name": name, "base_value": self.vars.get(name)}
+            for side, value in (("low", low), ("high", high)):
+                cell = next((c for c in sweep.cells if c.inputs.get(name) == value), None)
+                row[side] = {
+                    "value": value,
+                    "payoff": cell.payoff if cell else None,
+                    "chosen_labels": list(cell.chosen_labels) if cell else [],
+                    "error_codes": [d.code for d in (cell.errors if cell else [])],
+                }
+            lo, hi = row["low"]["payoff"], row["high"]["payoff"]
+            row["swing"] = abs(hi - lo) if lo is not None and hi is not None else None
+            rows.append(row)
+        rows.sort(key=lambda r: -1.0 if r["swing"] is None else r["swing"], reverse=True)
+        base_chosen = []
+        if self.normalized is not None:
+            base_chosen = [
+                c.label for c in self.normalized.children if c.id in self.normalized.chosen_child_ids
+            ]
+        return TornadoResult(base_payoff=self.payoff, base_chosen=base_chosen, rows=rows)
 
     # ------------------------------------------------------------------
     # JSON-safe state
@@ -1928,6 +2489,7 @@ class dtree:
             "mermaid_initial": self.to_mermaid(final=False),
             "mermaid_final": self.to_mermaid(final=True),
             "vars": dict(self.vars),
+            "tree_uses": [dict(u) for u in self.tree_uses],
             "python_code": self.python_code,
             "payoff": self.payoff,
             "is_solved": self.is_solved,
@@ -1941,6 +2503,7 @@ __all__ = [
     "SensitivityCell",
     "SensitivityResult",
     "SensitivitySpec",
+    "TornadoResult",
     "UnknownSubtreeError",
     "UnresolvedVariableError",
     "UnsafeExpressionError",

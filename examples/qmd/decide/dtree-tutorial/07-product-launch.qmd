@@ -1,0 +1,137 @@
+---
+title: "Product launch: sub-trees and a tornado chart"
+jupyter: python3
+---
+
+In Radiant: **Load example > Product launch**. Three trees: the main tree `product launch` with every variable, and two sub-trees, `launch` (what happens after a launch) and `test market` (a test market, then a launch decision).
+
+## Example 5
+
+> You are deciding whether to launch a new product. Launching costs $4 million (fixed cost) and each unit sold earns a $50 margin. Demand will be high (200,000 units) with probability 0.4, or low (20,000 units). Before deciding, you can run a test market for $300,000. A test market is not perfect: it comes back positive for 85% of products with high demand and for 20% of products with low demand. Should you launch now, test the market first, or not launch? What is the EMV of the best strategy, and which inputs matter most for that answer?
+
+```{python}
+import pyrsm as rsm
+from IPython.display import Markdown
+
+
+def show(tree, final=True):
+    """Draw a decision tree (Mermaid; rendered by JupyterLab, VS Code, Quarto)."""
+    return Markdown(f"```mermaid\n{tree.to_mermaid(final=final)}\n```")
+```
+
+A branch can *be* another tree: `tree: launch` puts the tree `launch` at that branch. The branch keeps its own label, `p:` and `cost:`, and the combined tree is solved, printed and plotted as one. The sub-trees take their variables from the main tree (`variables: product launch`) so each part can also be calculated on its own.
+
+```{python}
+product_launch = """name: Product launch
+variables:
+    fixed cost: 4000000
+    margin: 50
+    sales high: 200000
+    sales low: 20000
+    P(high): 0.4
+    test cost: 300000
+    P(pos|high): 0.85
+    P(pos|low): 0.2
+    P(pos): P(pos|high) * P(high) + P(pos|low) * (1 - P(high))
+    P(high|pos): P(pos|high) * P(high) / P(pos)
+    P(high|neg): (1 - P(pos|high)) * P(high) / (1 - P(pos))
+type: decision
+Launch now:
+    tree: launch
+Test market first:
+    cost: test cost
+    tree: test market
+Do not launch:
+    payoff: 0
+"""
+```
+
+```{python}
+launch = """name: Launch
+variables: product launch
+cost: fixed cost
+type: chance
+High demand:
+    p: P(high)
+    payoff: margin * sales high
+Low demand:
+    p: 1 - P(high)
+    payoff: margin * sales low
+"""
+```
+
+After a test market the probability of high demand is no longer 0.4. `with:` sets values for one use of a tree: after a positive test `launch` is evaluated with `P(high)` equal to `P(high|pos)` (Bayes' rule, in the main tree's variables).
+
+```{python}
+test_market = """name: Test market
+variables: product launch
+type: chance
+Positive result:
+    p: P(pos)
+    type: decision
+    Launch:
+        tree: launch
+        with:
+            P(high): P(high|pos)
+    Do not launch:
+        payoff: 0
+Negative result:
+    p: 1 - P(pos)
+    type: decision
+    Launch:
+        tree: launch
+        with:
+            P(high): P(high|neg)
+    Do not launch:
+        payoff: 0
+"""
+```
+
+```{python}
+trees = {"product launch": product_launch, "launch": launch, "test market": test_market}
+tree = rsm.decide.dtree(product_launch, subtree_library=trees)
+tree.summary(input=False, output=True)
+```
+
+Test the market first: EMV **$1,380,000**, against $600,000 for launching right away. Launch only after a positive test. `tree_uses` lists each use of a sub-tree and the EMV it contributes:
+
+```{python}
+import pandas as pd
+pd.DataFrame(tree.tree_uses)
+```
+
+The plot draws each sub-tree in its own box. In JupyterLab, VS Code and Radiant, hovering over a node shows how its value was calculated.
+
+```{python}
+show(tree)
+```
+
+## How sure are we? One variable
+
+How does the best strategy change with the probability of high demand? Below 0.2 do not launch, above 0.6 launch right away, and in between test the market first.
+
+```{python}
+sens = tree.sensitivity({"P(high)": {"min": 0.1, "max": 0.7, "step": 0.05}})
+sens.plot(["Launch now", "Test market first", "Do not launch"])
+```
+
+## Several variables at once: a tornado chart
+
+Set each variable to a low and a high value, one at a time, with the others at their base values. The bars show how far the EMV moves; the longest bar is the input that matters most.
+
+```{python}
+tor = tree.tornado({
+    "P(high)": (0.3, 0.5),
+    "margin": (40, 60),
+    "fixed cost": (3_500_000, 4_500_000),
+    "P(pos|high)": (0.75, 0.95),
+    "test cost": (200_000, 400_000),
+})
+tor.to_frame()
+```
+
+```{python}
+tor.plot()
+```
+
+The margin and the probability of high demand move the EMV the most, but within these ranges the decision stays the same: test the market first. Getting a better estimate of the margin is worth more than haggling over the cost of the test.

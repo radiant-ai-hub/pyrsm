@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Generate the decision-tree tutorial notebooks (examples/decide/dtree-tutorial).
 
-Python versions of the decision-tree materials of the Radiant Tutorial Series
-(https://www.youtube.com/playlist?list=PLNhtaetb48EdKRIY7MewCyvb_1x7dV3xw):
-the questions, the trees and the solutions, using ``pyrsm.decide.dtree``.
+Worked decision-analysis examples: the questions, the trees and the
+solutions, using ``pyrsm.decide.dtree``.
 Trees come from ``pyrsm/decide/dtree_examples`` so the notebooks, the tests
 and Radiant's "Load example" menu use the same text.
 
@@ -66,10 +65,10 @@ def nb(name: str, title: str, cells: list[tuple[str, str]]) -> None:
 # ---------------------------------------------------------------------------
 nb(
     "01-construct-a-tree",
-    "Construct a decision tree (video #2)",
+    "Construct a decision tree",
     [
-        ("md", "Python version of *Using Radiant to Construct a Decision Tree (#2)*. In Radiant use "
-         "_Model > Decide > Decision analysis_ and pick **Load example > Open a new store**."),
+        ("md", "In Radiant use _Model > Decide > Decision analysis_ and pick **Load example > "
+         "Open a new store**."),
         ("md", "## Example 1\n\n" + question(1)),
         ("code", SETUP),
         ("md", "Rules for decision-tree input (as in Radiant):\n\n"
@@ -93,10 +92,9 @@ nb(
 
 nb(
     "02-trees-in-a-report",
-    "Decision trees in a report (video #3)",
+    "Decision trees in a report",
     [
-        ("md", "Python version of *How to Write Decision Tree Results into a Report (#3)*. In Radiant: "
-         "**Load example > Sign a contract** loads the three trees used here; each tree has its own "
+        ("md", "In Radiant: **Load example > Sign a contract** loads the three trees used here; each tree has its own "
          "name, and the report icon adds its Python code to the report."),
         ("md", "## Example 2\n\n" + question(2)),
         ("code", SETUP),
@@ -123,10 +121,9 @@ nb(
 
 nb(
     "03-sensitivity",
-    "Sensitivity analysis (video #4)",
+    "Sensitivity analysis",
     [
-        ("md", "Python version of *Sensitivity Analysis of Decision Tree (#4)*. In Radiant: "
-         "**Load example > Sensitivity analysis**, then the _Sensitivity_ tab."),
+        ("md", "In Radiant: **Load example > Sign a contract: sensitivity analysis**, then the _Sensitivity_ tab."),
         ("md", "## Example 2\n\n" + question(2)),
         ("code", SETUP),
         ("md", "## Method 1: edit the value\n\n### Legal fees of $5,000"),
@@ -152,10 +149,9 @@ nb(
 
 nb(
     "04-debug-tree-input",
-    "Debug decision tree input (video #5)",
+    "Debug decision tree input",
     [
-        ("md", "Python version of *How to Debug Decision Tree Input (#5)*. In Radiant: "
-         "**Load example > Debug decision tree input** and press _Calculate_."),
+        ("md", "In Radiant: **Load example > Sign a contract: debug the input** and press _Calculate_."),
         ("code", SETUP),
         ("md", "The tree below has the four most common problems: a missing colon, a missing value, "
          "and two indentation mistakes."),
@@ -175,11 +171,9 @@ nb(
 
 nb(
     "05-imperfect-information",
-    "Decision trees with imperfect information (videos #6 and #7)",
+    "Decision trees with imperfect information",
     [
-        ("md", "Python version of *Decision Trees with Imperfect Information (#6)* and *Solving a "
-         "Decision Tree with Imperfect Information (#7)*. In Radiant: **Load example > Imperfect "
-         "information: a popup store**."),
+        ("md", "In Radiant: **Load example > Imperfect information: a popup store**."),
         ("md", "## Example 3\n\n" + question(3)),
         ("code", SETUP),
         ("md", "Bayes' rule: P(S|+) = P(+|S) P(S) / P(+), with P(+) = P(+|S) P(S) + P(+|F) P(F)."),
@@ -201,10 +195,10 @@ nb(
 
 nb(
     "06-subtrees",
-    "Combine decision trees: sub-trees (videos #7 and #8)",
+    "Combine decision trees: dtree() references",
     [
-        ("md", "Python version of *Building a Decision Tree with Sub-trees in Radiant (#8)*. In "
-         "Radiant: **Load example > Sub-trees** (and **Imperfect information: a popup store** for the "
+        ("md", "The `dtree(\"name\")` way to combine trees, which also works in Radiant for R "
+         "(notebook 07 has the newer `tree:` branches). In Radiant: **Load example > Sign a contract: dtree() references** (and **Imperfect information: a popup store** for the "
          "second example). Each tree has a name in the tree list; a tree uses another with "
          "`dtree(\"name\")` in its `variables:` section."),
         ("md", "Two ways to combine trees, as in Radiant:\n\n"
@@ -238,6 +232,62 @@ nb(
         ("md", "Same answer as the single tree in the previous notebook: run the popup test, EMV "
          "**$820,000**. Splitting a large tree into parts keeps each part readable; move the "
          "variables into the main tree once the parts work."),
+    ],
+)
+
+
+nb(
+    "07-product-launch",
+    "Product launch: sub-trees and a tornado chart",
+    [
+        ("md", "In Radiant: **Load example > Product launch**. Three trees: the main tree "
+         "`product launch` with every variable, and two sub-trees, `launch` (what happens after "
+         "a launch) and `test market` (a test market, then a launch decision)."),
+        ("md", "## Example 5\n\n" + question(5)),
+        ("code", SETUP),
+        ("md", "A branch can *be* another tree: `tree: launch` puts the tree `launch` at that "
+         "branch. The branch keeps its own label, `p:` and `cost:`, and the combined tree is "
+         "solved, printed and plotted as one. The sub-trees take their variables from the main "
+         "tree (`variables: product launch`) so each part can also be calculated on its own."),
+        ("code", tree_cell("product_launch", "product-launch", "product launch")),
+        ("code", tree_cell("launch", "product-launch", "launch")),
+        ("md", "After a test market the probability of high demand is no longer 0.4. "
+         "`with:` sets values for one use of a tree: after a positive test `launch` is "
+         "evaluated with `P(high)` equal to `P(high|pos)` (Bayes' rule, in the main tree's "
+         "variables)."),
+        ("code", tree_cell("test_market", "product-launch", "test market")),
+        ("code", 'trees = {"product launch": product_launch, "launch": launch, '
+                 '"test market": test_market}\n'
+                 'tree = rsm.decide.dtree(product_launch, subtree_library=trees)\n'
+                 'tree.summary(input=False, output=True)'),
+        ("md", "Test the market first: EMV **$1,380,000**, against $600,000 for launching right "
+         "away. Launch only after a positive test. `tree_uses` lists each use of a sub-tree and "
+         "the EMV it contributes:"),
+        ("code", "import pandas as pd\n"
+                 "pd.DataFrame(tree.tree_uses)"),
+        ("md", "The plot draws each sub-tree in its own box. In JupyterLab, VS Code and Radiant, "
+         "hovering over a node shows how its value was calculated."),
+        ("code", "show(tree)"),
+        ("md", "## How sure are we? One variable\n\nHow does the best strategy change with the "
+         "probability of high demand? Below 0.2 do not launch, above 0.6 launch right away, and "
+         "in between test the market first."),
+        ("code", 'sens = tree.sensitivity({"P(high)": {"min": 0.1, "max": 0.7, "step": 0.05}})\n'
+                 'sens.plot(["Launch now", "Test market first", "Do not launch"])'),
+        ("md", "## Several variables at once: a tornado chart\n\nSet each variable to a low and a "
+         "high value, one at a time, with the others at their base values. The bars show how far "
+         "the EMV moves; the longest bar is the input that matters most."),
+        ("code", 'tor = tree.tornado({\n'
+                 '    "P(high)": (0.3, 0.5),\n'
+                 '    "margin": (40, 60),\n'
+                 '    "fixed cost": (3_500_000, 4_500_000),\n'
+                 '    "P(pos|high)": (0.75, 0.95),\n'
+                 '    "test cost": (200_000, 400_000),\n'
+                 '})\n'
+                 'tor.to_frame()'),
+        ("code", "tor.plot()"),
+        ("md", "The margin and the probability of high demand move the EMV the most, but within "
+         "these ranges the decision stays the same: test the market first. Getting a better "
+         "estimate of the margin is worth more than haggling over the cost of the test."),
     ],
 )
 
@@ -309,23 +359,19 @@ def readme() -> None:
     lines = [
         "# Decision analysis tutorial (Python)",
         "",
-        "Python versions of the decision-tree materials of the "
-        "[Radiant Tutorial Series](https://www.youtube.com/playlist?list=PLNhtaetb48EdKRIY7MewCyvb_1x7dV3xw), "
-        "using `pyrsm.decide.dtree`. The trees are also available in Radiant under "
-        "_Model > Decide > Decision analysis > Load example_ and in Python with "
-        "`rsm.decide.dtree_examples()`.",
+        "Worked decision-analysis examples using `pyrsm.decide.dtree`. The trees are also "
+        "available in Radiant under _Model > Decide > Decision analysis > Load example_ and in "
+        "Python with `rsm.decide.dtree_examples()`.",
         "",
-        "| Notebook | Video | Example |",
+        "| Notebook | Topic | Example |",
         "|---|---|---|",
-        "| [01-construct-a-tree](01-construct-a-tree.ipynb) | [#2 Using Radiant to Construct a Decision Tree](https://youtu.be/dBySH3z2Paw) | 1 |",
-        "| [02-trees-in-a-report](02-trees-in-a-report.ipynb) | [#3 How to Write Decision Tree Results into a Report](https://youtu.be/NlvWCU8UhTc) | 2 |",
-        "| [03-sensitivity](03-sensitivity.ipynb) | [#4 Sensitivity Analysis of Decision Tree](https://youtu.be/c_pCCCn6FEw) | 2 |",
-        "| [04-debug-tree-input](04-debug-tree-input.ipynb) | [#5 How to Debug Decision Tree Input](https://youtu.be/oiwv15bbjzs) | 2 |",
-        "| [05-imperfect-information](05-imperfect-information.ipynb) | [#6](https://youtu.be/xuv9zgAcvCQ) and [#7 Decision Trees with Imperfect Information](https://youtu.be/cVrYFFX3xN0) | 3, 4 |",
-        "| [06-subtrees](06-subtrees.ipynb) | [#8 Building a Decision Tree with Sub-trees](https://youtu.be/Mi-eZEoU9TE) | 2, 4 |",
-        "",
-        "Start with [#1 Introduction to Decision Analysis](https://youtu.be/plSeVJ7c-Iw) (solving a "
-        "tree by hand).",
+        "| [01-construct-a-tree](01-construct-a-tree.ipynb) | Enter and solve a tree | 1 |",
+        "| [02-trees-in-a-report](02-trees-in-a-report.ipynb) | Several trees, results in a report | 2 |",
+        "| [03-sensitivity](03-sensitivity.ipynb) | Sensitivity analysis | 2 |",
+        "| [04-debug-tree-input](04-debug-tree-input.ipynb) | Fix input errors | 2 |",
+        "| [05-imperfect-information](05-imperfect-information.ipynb) | Imperfect information, Bayes' rule | 3, 4 |",
+        "| [06-subtrees](06-subtrees.ipynb) | Combine trees with `dtree()` | 2, 4 |",
+        "| [07-product-launch](07-product-launch.ipynb) | Sub-trees with `tree:` and `with:`, tornado chart | 5 |",
         "",
         "## Questions",
         "",

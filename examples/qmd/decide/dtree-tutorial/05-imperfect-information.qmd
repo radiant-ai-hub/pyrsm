@@ -1,9 +1,9 @@
 ---
-title: "Decision trees with imperfect information (videos #6 and #7)"
+title: "Decision trees with imperfect information"
 jupyter: python3
 ---
 
-Python version of *Decision Trees with Imperfect Information (#6)* and *Solving a Decision Tree with Imperfect Information (#7)*. In Radiant: **Load example > Imperfect information: a popup store**.
+In Radiant: **Load example > Imperfect information: a popup store**.
 
 ## Example 3
 

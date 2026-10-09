@@ -1,0 +1,10 @@
+name: Launch
+variables: product launch
+cost: fixed cost
+type: chance
+High demand:
+    p: P(high)
+    payoff: margin * sales high
+Low demand:
+    p: 1 - P(high)
+    payoff: margin * sales low

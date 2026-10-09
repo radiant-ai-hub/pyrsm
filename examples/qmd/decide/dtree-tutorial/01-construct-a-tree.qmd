@@ -1,9 +1,9 @@
 ---
-title: "Construct a decision tree (video #2)"
+title: "Construct a decision tree"
 jupyter: python3
 ---
 
-Python version of *Using Radiant to Construct a Decision Tree (#2)*. In Radiant use _Model > Decide > Decision analysis_ and pick **Load example > Open a new store**.
+In Radiant use _Model > Decide > Decision analysis_ and pick **Load example > Open a new store**.
 
 ## Example 1
 

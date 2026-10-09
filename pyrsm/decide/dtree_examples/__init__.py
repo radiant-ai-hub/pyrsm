@@ -1,10 +1,9 @@
-"""Decision analysis examples from the Radiant tutorial series, for Python.
+"""Decision analysis examples for ``pyrsm.decide.dtree``.
 
-The questions, trees and expected answers of the decision-tree videos in the
-Radiant Tutorial Series (https://www.youtube.com/playlist?list=PLNhtaetb48EdKRIY7MewCyvb_1x7dV3xw),
-recreated for ``pyrsm.decide.dtree``. Each example is a set of named trees:
-trees that reference each other (``dtree("name")`` or ``variables: name``)
-are in the same set under the names they use.
+The questions, trees and expected answers of worked decision-analysis
+examples. Each example is a set of named trees: trees that use each other
+(``tree: name``, ``dtree("name")`` or ``variables: name``) are in the same set
+under the names they use.
 
 >>> import pyrsm as rsm
 >>> ex = rsm.decide.dtree_example("subtrees")
@@ -62,6 +61,15 @@ QUESTIONS = {
         "failures 90% of the time. What is the optimal strategy? What is the EMV "
         "associated with your strategy?"
     ),
+    5: (
+        "You are deciding whether to launch a new product. Launching costs $4 million "
+        "(fixed cost) and each unit sold earns a $50 margin. Demand will be high (200,000 "
+        "units) with probability 0.4, or low (20,000 units). Before deciding, you can run "
+        "a test market for $300,000. A test market is not perfect: it comes back positive "
+        "for 85% of products with high demand and for 20% of products with low demand. "
+        "Should you launch now, test the market first, or not launch? What is the EMV of "
+        "the best strategy, and which inputs matter most for that answer?"
+    ),
 }
 
 #: id -> description; ``trees`` maps the tree name used in the workspace (and
@@ -69,8 +77,7 @@ QUESTIONS = {
 EXAMPLES: list[dict[str, Any]] = [
     {
         "id": "open-store",
-        "title": "Open a new store (Example 1)",
-        "video": "Using Radiant to Construct a Decision Tree (#2)",
+        "title": "Open a new store",
         "question": 1,
         "trees": {"open store": "open_store.yaml"},
         "main": "open store",
@@ -78,8 +85,7 @@ EXAMPLES: list[dict[str, Any]] = [
     },
     {
         "id": "sign-contract",
-        "title": "Sign a contract (Example 2)",
-        "video": "How to Write Decision Tree Results into a Report (#3)",
+        "title": "Sign a contract",
         "question": 2,
         "trees": {
             "sign contract": "sign_contract.yaml",
@@ -95,8 +101,7 @@ EXAMPLES: list[dict[str, Any]] = [
     },
     {
         "id": "sensitivity",
-        "title": "Sensitivity analysis (Example 2)",
-        "video": "Sensitivity Analysis of Decision Tree (#4)",
+        "title": "Sign a contract: sensitivity analysis",
         "question": 2,
         "trees": {
             "fees 5000": "sign_contract_fees_5000.yaml",
@@ -117,8 +122,7 @@ EXAMPLES: list[dict[str, Any]] = [
     },
     {
         "id": "debug",
-        "title": "Debug decision tree input (Example 2)",
-        "video": "How to Debug Decision Tree Input (#5)",
+        "title": "Sign a contract: debug the input",
         "question": 2,
         "trees": {"sign contract with errors": "sign_contract_with_errors.yaml"},
         "main": "sign contract with errors",
@@ -131,8 +135,7 @@ EXAMPLES: list[dict[str, Any]] = [
     },
     {
         "id": "imperfect-information",
-        "title": "Imperfect information: a popup store (Examples 3 and 4)",
-        "video": "Decision Trees with Imperfect Information (#6, #7)",
+        "title": "Imperfect information: a popup store",
         "question": 4,
         "trees": {
             "full": "popup_full.yaml",
@@ -149,8 +152,7 @@ EXAMPLES: list[dict[str, Any]] = [
     },
     {
         "id": "subtrees",
-        "title": "Sub-trees (Example 2)",
-        "video": "Building a Decision Tree with Sub-trees in Radiant (#8)",
+        "title": "Sign a contract: dtree() references",
         "question": 2,
         "trees": {"main_tree": "main_tree.yaml", "sub_tree": "sub_tree.yaml"},
         "main": "main_tree",
@@ -158,6 +160,37 @@ EXAMPLES: list[dict[str, Any]] = [
             "The sub-tree (signing with the movie company) is worth $955,000; it uses the "
             "legal fees defined in 'main_tree'. Sign with the movie company: EMV $955,000 "
             "vs. $900,000."
+        ),
+    },
+    {
+        "id": "product-launch",
+        "title": "Product launch: a main tree and two sub-trees",
+        "question": 5,
+        "trees": {
+            "product launch": "product_launch.yaml",
+            "launch": "launch.yaml",
+            "test market": "test_market.yaml",
+        },
+        "main": "product launch",
+        "sensitivity": {
+            "tree": "product launch",
+            "vars": {"P(high)": {"min": 0.1, "max": 0.7, "step": 0.05}},
+            "decisions": ["Launch now", "Test market first", "Do not launch"],
+        },
+        "tornado": {
+            "tree": "product launch",
+            "vars": [
+                {"name": "P(high)", "low": 0.3, "high": 0.5},
+                {"name": "margin", "low": 40, "high": 60},
+                {"name": "fixed cost", "low": 3500000, "high": 4500000},
+                {"name": "P(pos|high)", "low": 0.75, "high": 0.95},
+                {"name": "test cost", "low": 200000, "high": 400000},
+            ],
+        },
+        "answer": (
+            "Test the market first: EMV $1,380,000 vs. $600,000 for launching now and $0 for "
+            "not launching. Launch only after a positive test (P(high | positive) = 0.739, "
+            "EMV $3,652,174); after a negative test, do not launch."
         ),
     },
 ]
@@ -174,7 +207,7 @@ def _load(example: dict[str, Any]) -> dict[str, Any]:
 
 
 def dtree_examples() -> list[dict[str, Any]]:
-    """Every example: id, title, video, question, trees (name -> YAML), main tree, answer."""
+    """Every example: id, title, question, trees (name -> YAML), main tree, answer."""
     return [_load(e) for e in EXAMPLES]
 
 
@@ -184,3 +217,19 @@ def dtree_example(example_id: str) -> dict[str, Any]:
         if e["id"] == example_id:
             return _load(e)
     raise ValueError(f"No decision tree example '{example_id}'. Available: {[e['id'] for e in EXAMPLES]}")
+
+
+def _make_module_callable() -> None:
+    """Keep ``pyrsm.decide.dtree_examples()`` callable once this package has
+    been imported (the import puts the package where the function was)."""
+    import sys
+    import types
+
+    class _CallableModule(types.ModuleType):
+        def __call__(self, *args, **kwargs):
+            return dtree_examples(*args, **kwargs)
+
+    sys.modules[__name__].__class__ = _CallableModule
+
+
+_make_module_callable()

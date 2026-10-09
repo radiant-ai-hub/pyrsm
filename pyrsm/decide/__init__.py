@@ -19,6 +19,7 @@ _LAZY_FUNCTIONS = {
     "SensitivityCell": "dtree",
     "SensitivityResult": "dtree",
     "SensitivitySpec": "dtree",
+    "TornadoResult": "dtree",
     "UnknownSubtreeError": "dtree",
     "UnresolvedVariableError": "dtree",
     "UnsafeExpressionError": "dtree",

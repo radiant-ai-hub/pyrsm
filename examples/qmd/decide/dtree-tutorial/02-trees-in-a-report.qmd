@@ -1,9 +1,9 @@
 ---
-title: "Decision trees in a report (video #3)"
+title: "Decision trees in a report"
 jupyter: python3
 ---
 
-Python version of *How to Write Decision Tree Results into a Report (#3)*. In Radiant: **Load example > Sign a contract** loads the three trees used here; each tree has its own name, and the report icon adds its Python code to the report.
+In Radiant: **Load example > Sign a contract** loads the three trees used here; each tree has its own name, and the report icon adds its Python code to the report.
 
 ## Example 2
 

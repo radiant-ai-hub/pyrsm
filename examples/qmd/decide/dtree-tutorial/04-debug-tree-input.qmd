@@ -1,9 +1,9 @@
 ---
-title: "Debug decision tree input (video #5)"
+title: "Debug decision tree input"
 jupyter: python3
 ---
 
-Python version of *How to Debug Decision Tree Input (#5)*. In Radiant: **Load example > Debug decision tree input** and press _Calculate_.
+In Radiant: **Load example > Sign a contract: debug the input** and press _Calculate_.
 
 ```{python}
 import pyrsm as rsm

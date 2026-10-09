@@ -1,9 +1,9 @@
 ---
-title: "Combine decision trees: sub-trees (videos #7 and #8)"
+title: "Combine decision trees: dtree() references"
 jupyter: python3
 ---
 
-Python version of *Building a Decision Tree with Sub-trees in Radiant (#8)*. In Radiant: **Load example > Sub-trees** (and **Imperfect information: a popup store** for the second example). Each tree has a name in the tree list; a tree uses another with `dtree("name")` in its `variables:` section.
+The `dtree("name")` way to combine trees, which also works in Radiant for R (notebook 07 has the newer `tree:` branches). In Radiant: **Load example > Sign a contract: dtree() references** (and **Imperfect information: a popup store** for the second example). Each tree has a name in the tree list; a tree uses another with `dtree("name")` in its `variables:` section.
 
 Two ways to combine trees, as in Radiant:
 

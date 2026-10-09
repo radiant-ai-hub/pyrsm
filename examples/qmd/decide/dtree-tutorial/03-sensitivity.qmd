@@ -1,9 +1,9 @@
 ---
-title: "Sensitivity analysis (video #4)"
+title: "Sensitivity analysis"
 jupyter: python3
 ---
 
-Python version of *Sensitivity Analysis of Decision Tree (#4)*. In Radiant: **Load example > Sensitivity analysis**, then the _Sensitivity_ tab.
+In Radiant: **Load example > Sign a contract: sensitivity analysis**, then the _Sensitivity_ tab.
 
 ## Example 2
 
