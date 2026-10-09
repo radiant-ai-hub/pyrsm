@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import numpy as np
 import polars as pl
+import polars.selectors as cs
 
 from pyrsm.plot_style import ALPHA, FILL, REF, theme_pyrsm
 from pyrsm.utils import format_nr
@@ -440,7 +441,8 @@ class kclus:
         cm = self.clus_means.with_columns(
             pl.Series("Cluster", [f"Cluster {k + 1}" for k in range(self.nr_clus)])
         ).select(["Cluster", *self.vars])
-        print(cm)
+        # rounded to ``dec`` as Radiant prints them (K-proto modes stay as they are)
+        print(cm.with_columns(cs.float().round(dec)))
         print(
             "\nPercentage of within-cluster heterogeneity accounted for "
             "by each cluster:"
