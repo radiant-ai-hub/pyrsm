@@ -93,6 +93,7 @@ packages = {find = {include = ["pyrsm*"], exclude = ["*.tests", "*.tests.*", "te
 
 [tool.setuptools.package-data]
 "*" = ["www/*", "www/imgs/*", "www/js/*"]
+"pyrsm.decide" = ["dtree_examples/*.yaml"]
 
 [tool.setuptools.dynamic]
 version = {attr = "pyrsm.__version__"}

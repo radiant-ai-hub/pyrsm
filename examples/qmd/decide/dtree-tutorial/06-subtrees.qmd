@@ -1,0 +1,160 @@
+---
+title: "Combine decision trees: sub-trees (videos #7 and #8)"
+jupyter: python3
+---
+
+Python version of *Building a Decision Tree with Sub-trees in Radiant (#8)*. In Radiant: **Load example > Sub-trees** (and **Imperfect information: a popup store** for the second example). Each tree has a name in the tree list; a tree uses another with `dtree("name")` in its `variables:` section.
+
+Two ways to combine trees, as in Radiant:
+
+- `sign_mc: dtree('sub_tree')` evaluates the tree named `sub_tree` and uses its EMV. The sub-tree is evaluated with *this* tree's variables, so it uses the legal fees defined here.
+- `variables: main_tree` (a tree name instead of a list) gives a tree the variables of `main_tree` (except its `dtree()` references).
+
+In Python the trees a tree refers to are passed as `subtree_library`: a dict of name → tree YAML (or `dtree` objects).
+
+## Example 2 with a sub-tree
+
+> You are an actor and would like to sign a contract with either a movie company or a TV network. If you sign with a movie company, you need to pay $5,000 for the legal fees. There will be a 30% chance of having small box office and earning $200,000, a 60% chance of having medium box office with payoff equal to $1,000,000, and a 10% chance of having large box office and getting $3,000,000. If you decide to sign the contract with TV networks instead, your payoff will be $900,000. What is EMV of signing the contract with movie company? What is your optimal strategy?
+
+```{python}
+import pyrsm as rsm
+from IPython.display import Markdown
+
+
+def show(tree, final=True):
+    """Draw a decision tree (Mermaid; rendered by JupyterLab, VS Code, Quarto)."""
+    return Markdown(f"```mermaid\n{tree.to_mermaid(final=final)}\n```")
+```
+
+```{python}
+main_tree = """name: Sign contract
+variables:
+    legal fees: 5000
+    sign_mc: dtree('sub_tree')
+type: decision
+Sign with Movie Company:
+    payoff: sign_mc
+Sign with TV Network:
+    payoff: 900000
+"""
+```
+
+```{python}
+sub_tree = """name: Sign with Movie Company
+variables: main_tree
+cost: legal fees
+type: chance
+Small Box Office:
+    p: 0.3
+    payoff: 200000
+Medium Box Office:
+    p: 0.6
+    payoff: 1000000
+Large Box Office:
+    p: 0.1
+    payoff: 3000000
+"""
+```
+
+```{python}
+trees = {"main_tree": main_tree, "sub_tree": sub_tree}
+tree = rsm.decide.dtree(main_tree, subtree_library=trees)
+tree.summary(input=False, output=True)
+```
+
+```{python}
+tree.subtree_refs
+```
+
+The sub-tree (signing with the movie company) is worth $955,000, more than the $900,000 from the TV network. Because the sub-tree uses the main tree's legal fees, a sensitivity analysis on the main tree flows through to it:
+
+```{python}
+sens = tree.sensitivity({"legal fees": {"min": 0, "max": 100000, "step": 10000}})
+sens.plot()
+```
+
+## Example 4 in parts
+
+The popup test as a separate tree (`popup`) that uses the variables of the main tree (`parts`); `parts` uses the EMV of `popup` as the payoff of running the test.
+
+```{python}
+parts = """name: open new store
+variables:
+    fixed cost: 2000000
+    popup cost: 500000
+    P(S): 0.6
+    P(F): 1 - P(S)
+    P(+|S): 0.8
+    P(-|S): 1 - P(+|S)
+    P(-|F): 0.9
+    P(+|F): 1 - P(-|F)
+    P(+): P(+|S) * P(S) + P(+|F) * P(F)
+    P(-): P(-|F) * P(F) + P(-|S) * P(S)
+    P(S|+): P(+|S) * P(S) / P(+)
+    P(F|+): 1 - P(S|+)
+    P(F|-): P(-|F) * P(F) / P(-)
+    P(S|-): 1 - P(F|-)
+    payoff_S: 5000000
+    payoff_F: -1000000
+    payoff_test: dtree('popup')
+type: decision
+open:
+    cost: fixed cost
+    type: chance
+    success:
+        p: P(S)
+        payoff: payoff_S
+    failure:
+        p: P(F)
+        payoff: payoff_F
+popup test:
+    payoff: payoff_test
+not open:
+    payoff: 0
+"""
+```
+
+```{python}
+popup = """name: popup
+variables: parts
+cost: popup cost
+type: chance
+test positive:
+    p: P(+)
+    type: decision
+    open:
+        cost: fixed cost
+        type: chance
+        success:
+            p: P(S|+)
+            payoff: payoff_S
+        failure:
+            p: P(F|+)
+            payoff: payoff_F
+    not open:
+        payoff: 0
+
+test negative:
+    p: P(-)
+    type: decision
+    open:
+        cost: fixed cost
+        type: chance
+        success:
+            p: P(S|-)
+            payoff: payoff_S
+        failure:
+            p: P(F|-)
+            payoff: payoff_F
+    not open:
+        payoff: 0
+"""
+```
+
+```{python}
+trees = {"parts": parts, "popup": popup}
+tree = rsm.decide.dtree(parts, subtree_library=trees)
+tree.summary(input=False, output=True)
+```
+
+Same answer as the single tree in the previous notebook: run the popup test, EMV **$820,000**. Splitting a large tree into parts keeps each part readable; move the variables into the main tree once the parts work.

@@ -1,0 +1,56 @@
+Variable input values:
+                            
+fixed cost  2000000.00000000
+popup cost   500000.00000000
+P(S)              0.60000000
+P(F)              0.40000000
+P(+|S)            0.80000000
+P(-|S)            0.20000000
+P(-|F)            0.90000000
+P(+|F)            0.10000000
+P(+)              0.52000000
+P(-)              0.48000000
+P(S|+)            0.92307692
+P(F|+)            0.07692308
+P(F|-)            0.75000000
+P(S|-)            0.25000000
+payoff_S    5000000.00000000
+payoff_F   -1000000.00000000
+
+Initial decision tree:
+                         Probability        Payoff         Cost     Type
+ open new store                                                         
+  ¦--open                                          2,000,000.00 decision
+  ¦   ¦--success             60.00 %  5,000,000.00                chance
+  ¦   °--failure             40.00 % -1,000,000.00                chance
+  ¦--popup test                                      500,000.00 decision
+  ¦   ¦--test positive       52.00 %                              chance
+  ¦   ¦   ¦--open                                  2,000,000.00 decision
+  ¦   ¦   ¦   ¦--success     92.31 %  5,000,000.00                chance
+  ¦   ¦   ¦   °--failure      7.69 % -1,000,000.00                chance
+  ¦   ¦   °--not open                         0.00              decision
+  ¦   °--test negative       48.00 %                              chance
+  ¦       ¦--open                                  2,000,000.00 decision
+  ¦       ¦   ¦--success     25.00 %  5,000,000.00                chance
+  ¦       ¦   °--failure     75.00 % -1,000,000.00                chance
+  ¦       °--not open                         0.00              decision
+  °--not open                                 0.00              decision
+
+Final decision tree:
+                         Probability        Payoff         Cost     Type
+ open new store                         820,000.00                      
+  ¦--open                               600,000.00 2,000,000.00 decision
+  ¦   ¦--success             60.00 %  5,000,000.00                chance
+  ¦   °--failure             40.00 % -1,000,000.00                chance
+  ¦--popup test                         820,000.00   500,000.00 decision
+  ¦   ¦--test positive       52.00 %  2,538,461.54                chance
+  ¦   ¦   ¦--open                     2,538,461.54 2,000,000.00 decision
+  ¦   ¦   ¦   ¦--success     92.31 %  5,000,000.00                chance
+  ¦   ¦   ¦   °--failure      7.69 % -1,000,000.00                chance
+  ¦   ¦   °--not open                         0.00              decision
+  ¦   °--test negative       48.00 %          0.00                chance
+  ¦       ¦--open                    -1,500,000.00 2,000,000.00 decision
+  ¦       ¦   ¦--success     25.00 %  5,000,000.00                chance
+  ¦       ¦   °--failure     75.00 % -1,000,000.00                chance
+  ¦       °--not open                         0.00              decision
+  °--not open                                 0.00              decision

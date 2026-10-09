@@ -1,0 +1,60 @@
+---
+title: "Construct a decision tree (video #2)"
+jupyter: python3
+---
+
+Python version of *Using Radiant to Construct a Decision Tree (#2)*. In Radiant use _Model > Decide > Decision analysis_ and pick **Load example > Open a new store**.
+
+## Example 1
+
+> You are the owner of Radycal Kicks and deciding whether to open a new store. You've learned that there is a location available in a trendy district, but because of high rents it is a risky proposition. The fixed cost of opening the store is $2 million. Based on historical performance of your business and this district, you believe there is a 60% chance of the store being successful and earning $5 million going forward, and a 40% chance of it being a failure and losing $1 million going forward (these earnings and losses are in addition to the initial fixed cost of opening the store). What is the optimal strategy, and what is the Expected Monetary Value (EMV) associated with your strategy?
+
+```{python}
+import pyrsm as rsm
+from IPython.display import Markdown
+
+
+def show(tree, final=True):
+    """Draw a decision tree (Mermaid; rendered by JupyterLab, VS Code, Quarto)."""
+    return Markdown(f"```mermaid\n{tree.to_mermaid(final=final)}\n```")
+```
+
+Rules for decision-tree input (as in Radiant):
+
+1. Start with a name (`name: open a new store`).
+2. The next line starts a `variables:` section or a node (`type: decision` or `type: chance`).
+3. Every line has a `:`. Node names end with `:`; other lines assign a value (`payoff: 5000000`, `p: 0.6`, `cost: 2000000`).
+4. A node type is followed on the next line by a node name.
+5. Indent (tab or four spaces) the lines after a node name.
+6. End nodes need a `payoff:`; end nodes of a chance node also need a probability `p:`.
+
+The $2 million to open the store is a `cost` of the `open` branch: it is subtracted from the expected payoff of that branch.
+
+```{python}
+open_store = """name: open a new store
+type: decision
+open:
+    cost: 2000000
+    type: chance
+    success:
+        p: 0.6
+        payoff: 5000000
+    failure:
+        p: 0.4
+        payoff: -1000000
+
+not open:
+    payoff: 0
+"""
+```
+
+```{python}
+tree = rsm.decide.dtree(open_store)
+tree.summary(input=False, output=True)
+```
+
+The final tree folds back from right to left. Opening is worth 0.6 × 5,000,000 + 0.4 × (−1,000,000) − 2,000,000 = **600,000**, and not opening 0, so the optimal strategy is to **open the store** with an EMV of **$600,000**.
+
+```{python}
+show(tree)
+```

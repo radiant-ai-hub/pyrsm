@@ -1,0 +1,114 @@
+---
+title: "Decision trees with imperfect information (videos #6 and #7)"
+jupyter: python3
+---
+
+Python version of *Decision Trees with Imperfect Information (#6)* and *Solving a Decision Tree with Imperfect Information (#7)*. In Radiant: **Load example > Imperfect information: a popup store**.
+
+## Example 3
+
+> You are the owner of Radycal Kicks and deciding whether to open a new store. You believe there is a 60% chance of the store being successful. Now you are offered to run a short-term popup store to better evaluate store performance in the district. Running a popup store helps identify whether or not the location will be successful. You believe that the popup test will correctly identify successful locations 80% of the time and correctly identify failures 90% of the time. Given the result of popup test is successful, what is the probability of a real store being successful?
+
+```{python}
+import pyrsm as rsm
+from IPython.display import Markdown
+
+
+def show(tree, final=True):
+    """Draw a decision tree (Mermaid; rendered by JupyterLab, VS Code, Quarto)."""
+    return Markdown(f"```mermaid\n{tree.to_mermaid(final=final)}\n```")
+```
+
+Bayes' rule: P(S|+) = P(+|S) P(S) / P(+), with P(+) = P(+|S) P(S) + P(+|F) P(F).
+
+```{python}
+p_s, p_pos_s, p_neg_f = 0.6, 0.8, 0.9
+p_pos = p_pos_s * p_s + (1 - p_neg_f) * (1 - p_s)
+p_s_pos = p_pos_s * p_s / p_pos
+round(p_pos, 4), round(p_s_pos, 4)
+```
+
+A positive popup test raises the probability of success from 60% to **92.3%**.
+
+## Example 4
+
+> Continued from Example 1. Now the owner of the retail space offers you the ability to run a short-term popup store to better evaluate store performance in the district. Doing so will cost an additional $500,000 but allow you to acquire potentially helpful information. Running a popup store helps identify whether or not the location will be successful. You believe that the popup test will correctly identify successful locations 80% of the time and correctly identify failures 90% of the time. What is the optimal strategy? What is the EMV associated with your strategy?
+
+The same calculations as formulas in the `variables:` section: a formula can use any variable defined above it, and the tree uses the results.
+
+```{python}
+full = """name: open new store
+variables:
+    fixed cost: 2000000
+    popup cost: 500000
+    P(S): 0.6
+    P(F): 1 - P(S)
+    P(+|S): 0.8
+    P(-|S): 1 - P(+|S)
+    P(-|F): 0.9
+    P(+|F): 1 - P(-|F)
+    P(+): P(+|S) * P(S) + P(+|F) * P(F)
+    P(-): P(-|F) * P(F) + P(-|S) * P(S)
+    P(S|+): P(+|S) * P(S) / P(+)
+    P(F|+): 1 - P(S|+)
+    P(F|-): P(-|F) * P(F) / P(-)
+    P(S|-): 1 - P(F|-)
+    payoff_S: 5000000
+    payoff_F: -1000000
+type: decision
+open:
+    cost: fixed cost
+    type: chance
+    success:
+        p: P(S)
+        payoff: payoff_S
+    failure:
+        p: P(F)
+        payoff: payoff_F
+popup test:
+    cost: popup cost
+    type: chance
+    test positive:
+        p: P(+)
+        type: decision
+        open:
+            cost: fixed cost
+            type: chance
+            success:
+                p: P(S|+)
+                payoff: payoff_S
+            failure:
+                p: P(F|+)
+                payoff: payoff_F
+        not open:
+            payoff: 0
+
+    test negative:
+        p: P(-)
+        type: decision
+        open:
+            cost: fixed cost
+            type: chance
+            success:
+                p: P(S|-)
+                payoff: payoff_S
+            failure:
+                p: P(F|-)
+                payoff: payoff_F
+        not open:
+            payoff: 0
+not open:
+    payoff: 0
+"""
+```
+
+```{python}
+tree = rsm.decide.dtree(full)
+tree.summary(input=False, output=True)
+```
+
+Opening right away is worth $600,000 (Example 1). Running the popup test first and opening only after a positive result is worth **$820,000**: run the popup test.
+
+```{python}
+show(tree)
+```

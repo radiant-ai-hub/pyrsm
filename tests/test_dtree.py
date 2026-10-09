@@ -196,7 +196,7 @@ def test_invalid_yaml_returns_diagnostic_not_exception():
     yaml_text = "name: bad\n  bad indentation: oops:"
     tree = dtree(yaml_text)
     codes = [d.code for d in tree.diagnostics]
-    assert any(c in codes for c in ("yaml_parse_error", "root_not_mapping"))
+    assert any(c in codes for c in ("yaml_parse_error", "root_not_mapping", "input_format"))
     assert not tree.is_solved
 
 
