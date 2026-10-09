@@ -99,23 +99,30 @@ def arrow_label_positions(x, y, scale: float = 1.08):
     return x * scale, y * scale
 
 
-def loading_label_positions(x, y, labels, lim: float = 1.0, char: float = 0.017):
+def loading_label_positions(x, y, labels, lim: float = 1.0, size: float = 10):
     """Label positions just beyond each loading's endpoint, away from the origin.
 
     The label's center sits past the point by a small gap plus about half the
-    label's width (``char`` is the half-width of one character as a share of
-    the axis half-range), so the text starts right next to its point and on the
-    outside of the arrow. Overlaps are left to a light repel.
+    label's width, so the text starts right next to its point and on the
+    outside of the arrow. Overlaps are left to a light repel. Widths assume
+    text of ``size`` points on pyrsm's default figure (a panel of about four
+    inches spanning ``2 * lim``).
     """
+    char = 0.0021 * size  # half-width of one character, share of ``lim``
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
     r = np.hypot(x, y)
     r = np.where(r > 0, r, 1.0)
     ux, uy = x / r, y / r
-    width = np.array([len(str(lab)) for lab in labels], dtype=float)
-    # horizontal room for the text, vertical room for its height
-    dx = lim * (0.04 + char * width) * ux
-    dy = lim * 0.06 * uy
+    half_w = lim * char * np.array([len(str(lab)) for lab in labels], dtype=float)
+    half_h = lim * 0.004 * size
+    gap = lim * 0.03
+    # A loading that points sideways (within 60 degrees of horizontal) gets its
+    # label beside it, clear of the point; one that points up or down gets it
+    # above or below, centered on the direction.
+    side = np.abs(ux) >= 0.5
+    dx = np.where(side, np.sign(ux) * (gap + half_w), ux * half_w)
+    dy = np.where(side, uy * half_h, np.sign(uy) * (gap + half_h))
     return np.column_stack([x + dx, y + dy])
 
 
@@ -143,12 +150,14 @@ def text_repel_kwargs(
         # Labels that start next to their point: only separate the ones that
         # overlap and keep them close (a strong pull back, little push apart).
         opts = {
-            "force_text": (0.2, 0.3),
-            "force_static": (0.05, 0.1),
-            "force_pull": (0.2, 0.2),
-            "force_explode": (0.05, 0.1),
-            "expand": (1.1, 1.2),
-            "max_move": (10, 10),
+            "force_text": (0.4, 0.5),
+            "force_static": (0.1, 0.15),
+            "force_pull": (0.15, 0.15),
+            "force_explode": (0.1, 0.2),
+            "expand": (1.15, 1.3),
+            "max_move": (20, 20),
+            # nudge up/down only: labels stay beside their point and inside
+            "only_move": {"text": "y", "static": "y", "explode": "y", "pull": "y"},
             "ensure_inside_axes": True,
             "prevent_crossings": True,
             "iter_lim": iter_lim,

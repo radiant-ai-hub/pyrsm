@@ -411,9 +411,9 @@ class full_factor:
             # widen the axes until every label (not just its point) fits
             width = np.array([len(str(v)) for v in self.vars], dtype=float)
             for i, j in pairs:
-                pos = loading_label_positions(loadings[:, i], loadings[:, j], self.vars, lim=lim)
+                pos = loading_label_positions(loadings[:, i], loadings[:, j], self.vars, lim=lim, size=fontsz * 2)
                 need = max(
-                    float(np.max(np.abs(pos[:, 0]) + lim * 0.017 * width)),
+                    float(np.max(np.abs(pos[:, 0]) + lim * 0.0021 * fontsz * 2 * width)),
                     float(np.max(np.abs(pos[:, 1]))) + lim * 0.05,
                 )
                 lim = max(lim, need * 1.03)
@@ -447,7 +447,7 @@ class full_factor:
         if "attr" in plots:
             x = self.floadings[:, i]
             y = self.floadings[:, j]
-            lab_xy = loading_label_positions(x, y, self.vars, lim=lim)
+            lab_xy = loading_label_positions(x, y, self.vars, lim=lim, size=fontsz * 2)
             adat = pl.DataFrame(
                 {
                     "x": x,
