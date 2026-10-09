@@ -117,6 +117,11 @@ def _format_nr(x: float, dec: int = 2, perc: bool = False) -> str:
     return f"{x:,.{dec}f}"
 
 
+def _fmt_cut(x: float) -> str:
+    """A split cut-off: whole numbers without a decimal point."""
+    return str(int(x)) if x == int(x) else _r_num2str(x)
+
+
 def _r_print_matrix(rownames, colnames, columns, digits: int = 7) -> str:
     """Print a numeric matrix the way R does (each column formatted on its own)."""
     cols = [_r_format(c, digits) for c in columns]
@@ -791,17 +796,6 @@ class crtree:
         root_n = byid[1]["n"]
         nclass = len(self.ylevels) if self.mod_type == "classification" else 0
 
-        def condition(var: str, lab: str) -> tuple[str, str, float | str]:
-            for op in (">=", "<"):
-                if lab.startswith(op):
-                    cut = float(lab[len(op):].strip())
-                    if var in self.int_vars:
-                        cut = float(math.ceil(cut))
-                    return ("num", op, cut)
-            return ("cat", "in", lab)
-
-        def fmt(x: float) -> str:
-            return _r_num2str(x) if x != int(x) else str(int(x))
 
         rows = []
         for r in frame:
@@ -816,7 +810,7 @@ class crtree:
             path.reverse()
             bounds: dict[str, dict[str, float | str]] = {}
             for var, lab in path:
-                kind, op, value = condition(var, lab)
+                kind, op, value = self._condition(var, lab)
                 b = bounds.setdefault(var, {})
                 if kind == "cat":
                     b["in"] = value  # deeper splits are subsets: keep the last
@@ -831,11 +825,11 @@ class crtree:
                     sep = " = " if len(levels) == 1 else " in "
                     parts.append(var + sep + ", ".join(levels))
                 elif ">=" in b and "<" in b:
-                    parts.append(f"{fmt(b['>='])} <= {var} < {fmt(b['<'])}")
+                    parts.append(f"{_fmt_cut(b['>='])} <= {var} < {_fmt_cut(b['<'])}")
                 elif ">=" in b:
-                    parts.append(f"{var} >= {fmt(b['>='])}")
+                    parts.append(f"{var} >= {_fmt_cut(b['>='])}")
                 else:
-                    parts.append(f"{var} < {fmt(b['<'])}")
+                    parts.append(f"{var} < {_fmt_cut(b['<'])}")
             if nclass:
                 pred = float(r["yval2"][1 + nclass])
             else:
@@ -851,6 +845,71 @@ class crtree:
             )
         rows.sort(key=lambda row: -row["prediction"])
         return pl.DataFrame(rows)
+
+    def node_table(self, dec: int = 4) -> pl.DataFrame:
+        """
+        Every node of the tree in rpart's print order (parent before its
+        children, left before right), for an indented view of the hierarchy.
+
+        Parameters
+        ----------
+        dec : int, default 4
+            Significant digits of the numeric cut-offs.
+
+        Returns
+        -------
+        pl.DataFrame
+            Columns ``node`` (rpart's node number), ``depth`` (0 for the root),
+            ``split`` (the condition that leads into the node from its parent,
+            e.g. ``age >= 10``; empty for the root), ``last`` (True for the
+            second child of a parent), ``leaf``, ``n``, ``share`` and
+            ``prediction`` (probability of ``lev``, prior-adjusted as in the
+            plot, or the node mean).
+        """
+        frame = self.fit.frame
+        byid = {r["id"]: r for r in frame}
+        labels = self._split_labels(dec)
+        root_n = byid[1]["n"]
+        nclass = len(self.ylevels) if self.mod_type == "classification" else 0
+
+        def split_text(nid: int) -> str:
+            if nid == 1:
+                return ""
+            parent = nid // 2
+            var = byid[parent]["var"]
+            kind, op, value = self._condition(var, labels[parent][nid % 2])
+            if kind == "cat":
+                levels = str(value).split(",")
+                return var + (" = " if len(levels) == 1 else " in ") + ", ".join(levels)
+            return f"{var} {op} {_fmt_cut(float(value))}"
+
+        rows = []
+        for r in frame:
+            nid = r["id"]
+            rows.append(
+                {
+                    "node": int(nid),
+                    "depth": int(nid).bit_length() - 1,
+                    "split": split_text(nid),
+                    "last": nid > 1 and nid % 2 == 1,
+                    "leaf": bool(r["leaf"]),
+                    "n": int(r["n"]),
+                    "share": r["n"] / root_n,
+                    "prediction": float(r["yval2"][1 + nclass]) if nclass else float(r["yval"]),
+                }
+            )
+        return pl.DataFrame(rows)
+
+    def _condition(self, var: str, lab: str) -> tuple[str, str, float | str]:
+        """A split label as (kind, operator, value); integer cut-offs rounded up
+        to whole numbers, as in the tree plot."""
+        for op in (">=", "<"):
+            if lab.startswith(op):
+                cut = float(lab[len(op):].strip())
+                if var in self.int_vars:
+                    cut = float(math.ceil(cut))
+                return ("num", op, cut)
+        return ("cat", "in", lab)
 
     # -- mermaid tree --------------------------------------------------------
     def to_mermaid(self, orient: str = "LR", dec: int = 2) -> str:

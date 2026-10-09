@@ -23,6 +23,9 @@ _LAZY_FUNCTIONS = {
     "UnresolvedVariableError": "dtree",
     "UnsafeExpressionError": "dtree",
     "safe_eval": "dtree",
+    "dtree_parser": "dtree",
+    "dtree_examples": "dtree_examples",
+    "dtree_example": "dtree_examples",
     "Constraint": "optimize",
     "DecisionVariable": "optimize",
     "RobustnessResult": "optimize",
@@ -67,3 +70,10 @@ def __dir__():
 
 
 __all__ = list(_LAZY_SUBMODULES) + list(_LAZY_FUNCTIONS)
+
+
+# ``from pyrsm.<pkg>.<name> import <name>`` must not hide the class behind its
+# submodule (see pyrsm/_package.py)
+from pyrsm._package import keep_classes  # noqa: E402
+
+keep_classes(__name__, _LAZY_SUBMODULES)

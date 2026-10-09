@@ -1,0 +1,33 @@
+name: popup
+variables: parts
+cost: popup cost
+type: chance
+test positive:
+    p: P(+)
+    type: decision
+    open:
+        cost: fixed cost
+        type: chance
+        success:
+            p: P(S|+)
+            payoff: payoff_S
+        failure:
+            p: P(F|+)
+            payoff: payoff_F
+    not open:
+        payoff: 0
+
+test negative:
+    p: P(-)
+    type: decision
+    open:
+        cost: fixed cost
+        type: chance
+        success:
+            p: P(S|-)
+            payoff: payoff_S
+        failure:
+            p: P(F|-)
+            payoff: payoff_F
+    not open:
+        payoff: 0
