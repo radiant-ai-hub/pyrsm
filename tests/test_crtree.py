@@ -394,3 +394,19 @@ def test_rules_regression_predicts_the_node_mean():
     means = {r["id"]: r["yval"] for r in ct.fit.frame if r["leaf"]}
     for node, pred in zip(rules["node"], rules["prediction"]):
         assert pred == means[node]
+
+
+def test_node_table_lists_every_node_in_print_order():
+    d = load("titanic")
+    ct = crtree({"titanic": d}, rvar="survived", lev="Yes", evar=["pclass", "sex", "age"],
+                prior=0.5, cp=0.005)
+    nodes = ct.node_table()
+    assert nodes["node"].to_list() == [r["id"] for r in ct.fit.frame]
+    assert nodes["depth"].to_list() == [0, 1, 2, 2, 3, 3, 1, 2, 2]
+    assert nodes["split"].to_list()[:4] == ["", "sex = female", "pclass in 1st, 2nd", "pclass = 3rd"]
+    assert nodes["last"].to_list() == [False, False, False, True, False, True, True, False, True]
+    leaves = nodes.filter(pl.col("leaf"))
+    assert leaves["n"].sum() == 1043
+    # a leaf's prediction is the one rules() reports for it
+    rules = dict(zip(ct.rules()["node"], ct.rules()["prediction"]))
+    assert all(rules[n] == p for n, p in zip(leaves["node"], leaves["prediction"]))
