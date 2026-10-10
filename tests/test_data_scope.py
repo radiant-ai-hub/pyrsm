@@ -255,3 +255,24 @@ def test_no_scope_means_no_extra_lines(build, kwargs, df):
         plain.summary()
 
     assert "Filter" not in printed.getvalue()
+
+
+def test_a_column_name_with_dots_is_one_column():
+    """R data often has dotted names (ketchup's ``price.heinz28``); a filter
+    reads them as one column, and the generated polars code does too."""
+    df = pl.DataFrame(
+        {"price.heinz28": [3.5, 4.5, 5.0], "disp.heinz28": ["no", "yes", "yes"]}
+    )
+    expr = "price.heinz28 > 4 and disp.heinz28 == 'yes'"
+    assert apply_scope(df, expr)["price.heinz28"].to_list() == [4.5, 5.0]
+    code = filter_code(expr, df.schema)
+    assert "pl.col('price.heinz28')" in code
+    data = df  # noqa: F841 -- the generated code refers to ``data``
+    assert eval(f"data.filter({code})", {"pl": pl, "data": df}).height == 2
+    assert apply_scope(df, "is_null(price.heinz28)").height == 0
+
+
+def test_a_method_call_on_a_dotted_name_is_still_refused():
+    df = pl.DataFrame({"price.heinz28": [3.5, None]})
+    with pytest.raises(ScopeError, match="functions, not methods"):
+        apply_scope(df, "price.heinz28.is_null()")

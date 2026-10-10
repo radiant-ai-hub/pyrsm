@@ -2,6 +2,7 @@ from importlib import import_module
 
 _LAZY_SUBMODULES = {
     "logistic",
+    "mnl",
     "rforest",
     "crtree",
     "mlp",
