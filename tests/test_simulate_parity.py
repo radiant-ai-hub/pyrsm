@@ -1,5 +1,5 @@
-"""Simulate as radiant.model's simulater/repeater, plus queues and custom
-functions."""
+"""Simulate (radiant.model's simulater/repeater) with Python formulas, plus
+queues and custom functions."""
 
 from __future__ import annotations
 
@@ -8,20 +8,45 @@ import polars as pl
 import pytest
 
 import pyrsm as rsm
-from pyrsm.decide.simlang import Interpreter, SimLangError, queue_length, queue_wait, split_formulas
+from pyrsm.decide.simfuns import queue_length, queue_wait
+from pyrsm.decide.simlang import Interpreter, SimLangError, formula_list, split_formulas
 from pyrsm.decide.simulate import repeat_simulate, simulate
 
 
-def _sim(variables, form="", **kw):
-    return simulate({"runs": kw.pop("runs", 1000), "seed": kw.pop("seed", 1234), "variables": variables, "form": form, **kw})
+def _sim(variables, formulas=(), **kw):
+    return simulate(
+        {"runs": kw.pop("runs", 1000), "seed": kw.pop("seed", 1234), "variables": variables, "formulas": list(formulas) if not isinstance(formulas, str) else formulas, **kw}
+    )
 
 
-# -- formulas: R spellings and functions ------------------------------------
+def _run_code(code: str) -> dict:
+    """Run generated code from a file, as a notebook would (functions need
+    their source, which ``exec`` of a string does not keep)."""
+    import os
+    import runpy
+    import tempfile
+
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as fh:
+        fh.write(code)
+    try:
+        return runpy.run_path(fh.name)
+    finally:
+        os.unlink(fh.name)
 
 
-def test_formula_text_with_comments_semicolons_and_r_assignment():
-    out = split_formulas("# daily\ndemand <- 10 * x  # units\nprofit = demand - 2; big = profit > 5\nz = ifelse(x > 1,\n  1, 0)")
-    assert [(n, e) for n, e, _ in out] == [
+# -- formulas: Python expressions and the simfuns functions -------------------
+
+
+def test_formula_text_becomes_a_list_of_formulas():
+    entries = formula_list("# daily\ndemand = 10 * x  # units\nprofit = demand - 2; big = profit > 5\nz = ifelse(x > 1,\n  1, 0)")
+    assert entries == [
+        "# daily",
+        "demand = 10 * x  # units",
+        "profit = demand - 2",
+        "big = profit > 5",
+        "z = ifelse(x > 1, 1, 0)",
+    ]
+    assert [(n, e) for n, e, _ in split_formulas(entries)] == [
         ("demand", "10 * x"),
         ("profit", "demand - 2"),
         ("big", "profit > 5"),
@@ -32,31 +57,57 @@ def test_formula_text_with_comments_semicolons_and_r_assignment():
 @pytest.mark.parametrize(
     ("expr", "expected"),
     [
-        ("x > 1 & y == 2", [False, True, False]),
-        ("x > 1 | y == 2", [True, True, True]),
-        ("!(x > 1)", [True, False, False]),
-        ("x ^ 2", [1.0, 4.0, 9.0]),
-        ("x %% 2", [1.0, 0.0, 1.0]),
-        ("TRUE & x > 2", [False, False, True]),
-        ("pmax(x, y)", [2.0, 2.0, 3.0]),
-        ("psum(x, y)", [3.0, 4.0, 4.0]),
-        ("square(x) + ln(1)", [1.0, 4.0, 9.0]),
-        ("cumsum(x)", [1.0, 3.0, 6.0]),
-        ("lag(x)", [0.0, 1.0, 2.0]),
+        ("x > 1 and y == 2", [False, True, False]),
+        ("x > 1 or y == 2", [True, True, True]),
+        ("not x > 1", [True, False, False]),
+        ("x ** 2", [1.0, 4.0, 9.0]),
+        ("x % 2", [1.0, 0.0, 1.0]),
+        ("x in [1, 3]", [True, False, True]),
+        ("x not in [1, 3]", [False, True, False]),
+        ("True and x > 2", [False, False, True]),
+        ("ifelse(x > 1, x, 0)", [0.0, 2.0, 3.0]),
+        ("max_horizontal(x, y)", [2.0, 2.0, 3.0]),
+        ("sum_horizontal(x, y)", [3.0, 4.0, 4.0]),
+        ("cum_sum(x)", [1.0, 3.0, 6.0]),
+        ("shift(x)", [0.0, 1.0, 2.0]),
+        ("clip(x, 1.5, 2.5)", [1.5, 2.0, 2.5]),
     ],
 )
-def test_r_style_formulas(expr, expected):
+def test_python_formulas(expr, expected):
     interp = Interpreter(names={"x": np.array([1.0, 2.0, 3.0]), "y": np.array([2.0, 2.0, 1.0])}, rng=np.random.default_rng(1), nrows=3)
     assert list(np.asarray(interp.evaluate(expr))) == expected
 
 
-def test_summary_functions_give_one_value_and_find_max():
+def test_one_value_functions_and_indexing():
     interp = Interpreter(names={"x": np.array([1.0, 5.0, 3.0]), "y": np.array([10.0, 20.0, 30.0])}, rng=np.random.default_rng(1), nrows=3)
-    assert interp.evaluate("min(x, y)") == 1.0  # R: over all inputs
-    assert interp.evaluate("sd(x)") == pytest.approx(2.0)
-    assert interp.evaluate("find_max(x, y)") == 20.0
-    assert interp.evaluate("find_min(x, y)") == 10.0
+    assert interp.evaluate("min(x, y)") == 1.0  # over all inputs
+    assert interp.evaluate("std(x)") == pytest.approx(2.0)
+    assert interp.evaluate("y[arg_max(x)]") == 20.0
+    assert interp.evaluate("y[arg_min(x)]") == 10.0
+    assert interp.evaluate("y[-1]") == 30.0
     assert interp.evaluate("quantile(y, 0.5)") == 20.0
+    assert interp.evaluate("first(y) + last(y) + count(y)") == 43.0
+
+
+@pytest.mark.parametrize(
+    ("expr", "advice"),
+    [
+        ("x ^ 2", "use ** for a power"),
+        ("x > 1 & y > 1", "use and"),
+        ("x > 1 | y > 1", "use or"),
+        ("!x", "use not"),
+        ("x %% 2", "use % for the remainder"),
+        ("TRUE", "use True and False"),
+    ],
+)
+def test_other_languages_get_python_advice(expr, advice):
+    interp = Interpreter(names={"x": np.ones(3), "y": np.ones(3)}, rng=np.random.default_rng(1))
+    import re
+
+    with pytest.raises(SimLangError, match=re.escape(advice)):
+        interp.evaluate(expr)
+    with pytest.raises(SimLangError, match="use = to assign"):
+        split_formulas(["x <- 1"])
 
 
 @pytest.mark.parametrize(
@@ -70,7 +121,7 @@ def test_formulas_cannot_escape(expr):
 
 
 def test_update_an_existing_variable_and_scalar_formulas():
-    sim = _sim([{"name": "x", "kind": "normal", "mean": 10, "sd": 2}], "x = x * 2\navg = mean(x)\nabove = x > avg", runs=500)
+    sim = _sim([{"name": "x", "kind": "normal", "mean": 10, "sd": 2}], ["x = x * 2", "avg = mean(x)", "above = x > avg"], runs=500)
     assert not sim.has_errors
     assert sim.data.columns == ["x", "avg", "above"]
     assert sim.data["x"].mean() == pytest.approx(20, abs=0.5)
@@ -130,14 +181,14 @@ def test_input_data_columns_and_sdw():
     rng = np.random.default_rng(5)
     data = pl.DataFrame({"A": rng.normal(0, 0.05, 200), "B": rng.normal(0, 0.1, 200)})
     sim = simulate(
-        {"variables": [{"name": "w", "kind": "grid", "min": 0, "max": 1, "step": 0.5}], "form": "risk = sdw(w, 1 - w, A, B)", "data": "stocks"},
+        {"variables": [{"name": "w", "kind": "grid", "min": 0, "max": 1, "step": 0.5}], "formulas": ["risk = weighted_sum_std(w, 1 - w, A, B)"], "data": "stocks"},
         data=data,
     )
     assert not sim.has_errors, sim.diagnostics
     assert "A" not in sim.data.columns
     expected = [np.std(w * data["A"].to_numpy() + (1 - w) * data["B"].to_numpy(), ddof=1) for w in (0, 0.5, 1)]
     assert sim.data["risk"].to_list() == pytest.approx(expected)
-    bad = simulate({"runs": 10, "variables": [{"name": "w", "kind": "constant", "value": 1}], "form": "x = A + w"}, data=data)
+    bad = simulate({"runs": 10, "variables": [{"name": "w", "kind": "constant", "value": 1}], "formulas": ["x = A + w"]}, data=data)
     assert "200 values" in bad.diagnostics[0].message
 
 
@@ -160,7 +211,7 @@ def double(x, k=2):
 
 
 def test_custom_functions_with_loops_and_defaults():
-    sim = _sim([{"name": "x", "kind": "normal", "mean": 0, "sd": 1}], "m = running_max(x)\nd = double(x)\nt = double(x, 3)", runs=50, functions=FUNCS)
+    sim = _sim([{"name": "x", "kind": "normal", "mean": 0, "sd": 1}], ["m = running_max(x)", "d = double(x)", "t = double(x, 3)"], runs=50, functions=FUNCS)
     assert not sim.has_errors, sim.diagnostics
     x = sim.data["x"].to_numpy()
     assert sim.data["m"].to_list() == list(np.maximum.accumulate(x))
@@ -176,12 +227,15 @@ def test_custom_functions_with_loops_and_defaults():
         ("def f(x):\n    return x.mean()", "'.mean' is not supported"),
         ("def f(*args):\n    return 1", "plain inputs"),
         ("def f(x):\n    while True:\n        x = x + 1", "steps"),
+        ("def f(x):\n    return x ^ 2", "use \\*\\* for a power"),
     ],
 )
 def test_custom_function_errors(source, message):
-    sim = simulate({"runs": 5, "variables": [{"name": "x", "kind": "constant", "value": 1}], "functions": source, "form": "y = f(x)"}, budget=50_000)
+    sim = simulate({"runs": 5, "variables": [{"name": "x", "kind": "constant", "value": 1}], "functions": source, "formulas": ["y = f(x)"]}, budget=50_000)
     assert sim.has_errors
-    assert message in sim.diagnostics[0].message
+    import re
+
+    assert re.search(message, sim.diagnostics[0].message)
 
 
 # -- queues ---------------------------------------------------------------------------
@@ -208,7 +262,7 @@ def wait_one(gap, service):
 """
     sim = _sim(
         [{"name": "gap", "kind": "exponential", "rate": 1}, {"name": "service", "kind": "exponential", "rate": 1.25}],
-        "a = queue_wait(gap, service, 1)\nb = wait_one(gap, service)",
+        ["a = queue_wait(gap, service, 1)", "b = wait_one(gap, service)"],
         runs=500,
         functions=lindley,
     )
@@ -231,7 +285,7 @@ def test_summary_text_has_rs_sections():
 
 def test_repeat_by_simulation_sums_over_repetitions():
     ex = rsm.decide.simulate_example("profit")
-    rep = repeat_simulate(ex["spec"], reps=365, vars=["E", "price"], sum_vars=["profit"], by="sim", fun="sum", form="low = profit_sum < 36500")
+    rep = repeat_simulate(ex["spec"], reps=365, vars=["E", "price"], sum_vars=["profit"], by="sim", fun="sum", formulas=["low = profit_sum < 36500"])
     assert not rep.has_errors, rep.diagnostics
     assert rep.data.columns == [".sim", "profit_sum", "low"]
     assert rep.data.height == 1000
@@ -240,10 +294,10 @@ def test_repeat_by_simulation_sums_over_repetitions():
 
 
 def test_repeat_by_repeat_several_functions():
-    spec = {"runs": 100, "seed": 1, "variables": [{"name": "x", "kind": "normal", "mean": 0, "sd": 1}], "form": "y = x * 2"}
-    rep = repeat_simulate(spec, reps=20, vars=["x"], sum_vars=["y"], by="rep", fun=["mean", "p95", "sdprop", "first"])
+    spec = {"runs": 100, "seed": 1, "variables": [{"name": "x", "kind": "normal", "mean": 0, "sd": 1}], "formulas": ["y = x * 2"]}
+    rep = repeat_simulate(spec, reps=20, vars=["x"], sum_vars=["y"], by="rep", fun=["mean", "p95", "std", "std_prop", "first"])
     assert rep.data.height == 20
-    assert rep.data.columns == [".rep", "y_mean", "y_p95", "y_sdprop", "y_first"]
+    assert rep.data.columns == [".rep", "y_mean", "y_p95", "y_std", "y_std_prop", "y_first"]
 
 
 def test_repeat_keeps_variables_not_resimulated():
@@ -299,8 +353,10 @@ def test_examples_run_and_their_code_reproduces_them(example):
         data = simulate(rsm.decide.simulate_example(ex["requires"][0])["spec"]).data
     sim = simulate(ex["spec"], data=data)
     assert not sim.has_errors, sim.diagnostics
-    ns = {ex["spec"].get("data", "_"): data}
-    exec(sim.python_code.replace("sim.summary()", "").replace("sim.plot()", ""), ns)  # noqa: S102
+    code = sim.python_code.replace("sim.summary()", "").replace("sim.plot()", "")
+    if data is not None:
+        code = code.replace("spec = {", "import polars as pl\nimport pyrsm as rsm\nreturns = rsm.decide.simulate(rsm.decide.simulate_example('stock-returns')['spec']).data\nspec = {", 1)
+    ns = _run_code(code)
     assert ns["simdat"].equals(sim.data)
 
 
@@ -315,17 +371,18 @@ def test_plots():
 
 def test_repeat_functions_of_their_own():
     spec = {"runs": 30, "seed": 1, "variables": [{"name": "x", "kind": "normal", "mean": 0, "sd": 1}],
-            "functions": "def sq(v):\n    return v * v", "form": "y = sq(x)"}  # fmt: skip
+            "functions": "def sq(v):\n    return v * v", "formulas": ["y = sq(x)"]}  # fmt: skip
     rep = repeat_simulate(
         spec, reps=5, vars=["x"], sum_vars=["y"], by="rep", fun="mean",
-        functions="def big(v, k=1):\n    return v > k", form="high = big(y_mean)\nsame = sq(y_mean)",
+        functions="def big(v, k=1):\n    return v > k", formulas=["high = big(y_mean)", "same = sq(y_mean)"],
     )  # fmt: skip
     assert not rep.has_errors, rep.diagnostics
     assert {"high", "same"} <= set(rep.data.columns)
     assert "Functions     : big" in rep.summary_text()
-    assert 'rep_functions = """' in rep.python_code and "functions=rep_functions" in rep.python_code
-    ns: dict = {}
-    exec(rep.python_code.replace("rep.summary()", "").replace("rep.plot()", ""), ns)  # noqa: S102
+    # the functions are written as Python functions and passed by name
+    assert "def big(v, k=1):" in rep.python_code and "functions=[big]" in rep.python_code
+    assert '"functions": [sq]' in rep.python_code
+    ns = _run_code(rep.python_code.replace("rep.summary()", "").replace("rep.plot()", ""))
     assert ns["repdat"].equals(rep.data)
     bad = repeat_simulate(spec, reps=2, vars=["x"], functions="import os")
     assert bad.has_errors and "repeat functions" in bad.diagnostics[0].message

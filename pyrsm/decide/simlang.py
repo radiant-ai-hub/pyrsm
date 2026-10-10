@@ -1,24 +1,20 @@
 """The formula and function language of ``pyrsm.decide.simulate``.
 
 Simulation formulas (``profit = demand * (price - cost)``) and custom
-functions (``def wealth(win, start): ...``) are read by a small interpreter
-over numpy arrays rather than by Python's ``eval``. It understands
-arithmetic, comparisons, logic, function calls, indexing, and -- inside
-functions -- assignments, ``if``, ``for``/``while`` loops and ``return``.
-It has no attribute access, imports, strings, comprehensions or dunder names,
-so a formula can only compute numbers, and every step counts against a budget
-so a runaway loop stops with a message instead of hanging.
-
-R habits are accepted where they cannot be misread: ``<-`` for ``=``,
-``TRUE``/``FALSE``, ``^`` for powers, ``&``/``|``/``!`` for and/or/not,
-``%%`` for the remainder, and R's function names (``ifelse``, ``pmax``,
-``psum``, ``sd``, ``find_max``, ``rnorm``, ...).
+functions (``def wealth(win, start): ...``) are Python, read by a small
+interpreter over numpy arrays rather than by Python's ``eval``. Formulas are
+expressions as in pyrsm's data filter (``and``/``or``/``not``, ``in [...]``,
+``**``, ``x if c else y``) with the functions of
+:mod:`pyrsm.decide.simfuns`. Functions add assignments, ``if``,
+``for``/``while`` loops and ``return``. There is no attribute access,
+imports, strings, comprehensions or dunder names, so a formula can only
+compute numbers, and every step counts against a budget so a runaway loop
+stops with a message instead of hanging.
 """
 
 from __future__ import annotations
 
 import ast
-import heapq
 import math
 import re
 from collections.abc import Callable
@@ -29,8 +25,6 @@ import numpy as np
 
 #: Steps (expression nodes and statements) one simulation may take
 DEFAULT_BUDGET = 20_000_000
-#: Largest array a function may create
-MAX_ARRAY = 10_000_000
 _MAX_DEPTH = 60
 
 
@@ -43,26 +37,25 @@ class BudgetExceeded(SimLangError):
 
 
 # ---------------------------------------------------------------------------
-# R habits -> the Python syntax the parser reads
+# Habits from other languages, with the Python to use instead
 # ---------------------------------------------------------------------------
 
+_HABITS = [
+    (re.compile(r"<-"), "use = to assign"),
+    (re.compile(r"\^"), "use ** for a power (x ** 2)"),
+    (re.compile(r"&&?"), "use and to combine conditions"),
+    (re.compile(r"\|\|?"), "use or to combine conditions"),
+    (re.compile(r"!(?!=)"), "use not to negate a condition"),
+    (re.compile(r"%%"), "use % for the remainder"),
+    (re.compile(r"\bTRUE\b|\bFALSE\b"), "use True and False"),
+]
 
-def r_to_python(expr: str) -> str:
-    """Rewrite the R spellings a formula may use into Python syntax.
 
-    R's ``&``, ``|`` and ``!`` bind more loosely than comparisons, like
-    Python's ``and``, ``or`` and ``not`` (Python's ``&`` binds tighter, so
-    ``x > 3 & y == 2`` would be misread); ``^`` is a power in R.
-    """
-    out = expr
-    out = out.replace("%/%", "//").replace("%%", "%")
-    out = re.sub(r"&&?", " and ", out)
-    out = re.sub(r"\|\|?", " or ", out)
-    out = re.sub(r"!(?!=)", " not ", out)
-    out = out.replace("^", "**")
-    out = re.sub(r"\bTRUE\b", "True", out)
-    out = re.sub(r"\bFALSE\b", "False", out)
-    return out
+def check_habits(expr: str) -> None:
+    """Explain syntax from other languages (R, Excel) in Python terms."""
+    for pattern, advice in _HABITS:
+        if pattern.search(expr):
+            raise SimLangError(f"'{expr}': {advice}")
 
 
 # ---------------------------------------------------------------------------
@@ -70,251 +63,17 @@ def r_to_python(expr: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _arr(x: Any) -> np.ndarray:
-    return np.asarray(x, dtype=float) if not isinstance(x, np.ndarray) else x
+def _make_builtins(rng: np.random.Generator) -> dict[str, Callable]:
+    from pyrsm.decide import simfuns
 
-
-def _flat(args: tuple) -> np.ndarray:
-    parts = [np.ravel(np.asarray(a, dtype=float)) for a in args]
-    return np.concatenate(parts) if parts else np.array([], dtype=float)
-
-
-def _need(name: str, args: tuple, n: int) -> None:
-    if len(args) < n:
-        raise SimLangError(f"{name}() needs {n} input{'s' if n > 1 else ''}")
-
-
-def _parallel(name: str, fn: Callable[[np.ndarray], np.ndarray]) -> Callable[..., Any]:
-    def run(*args: Any) -> Any:
-        _need(name, args, 1)
-        arrays = np.broadcast_arrays(*[np.asarray(a, dtype=float) for a in args])
-        out = fn(np.stack(arrays))
-        return out if np.ndim(out) else float(out)
-
-    return run
-
-
-def _aggregate(name: str, fn: Callable[[np.ndarray], float]) -> Callable[..., float]:
-    def run(*args: Any) -> float:
-        _need(name, args, 1)
-        values = _flat(args)
-        if values.size == 0:
-            raise SimLangError(f"{name}() of no values")
-        return float(fn(values))
-
-    return run
-
-
-def _sd(x: np.ndarray) -> float:
-    return float(np.std(x, ddof=1)) if x.size > 1 else float("nan")
-
-
-def _var(x: np.ndarray) -> float:
-    return float(np.var(x, ddof=1)) if x.size > 1 else float("nan")
-
-
-def find_max(x: Any, y: Any) -> float:
-    """The value of ``y`` where ``x`` is largest (radiant.model's find_max)."""
-    x, y = _arr(x), _arr(y)
-    return float(np.broadcast_to(y, x.shape)[int(np.argmax(x))])
-
-
-def find_min(x: Any, y: Any) -> float:
-    """The value of ``y`` where ``x`` is smallest (radiant.model's find_min)."""
-    x, y = _arr(x), _arr(y)
-    return float(np.broadcast_to(y, x.shape)[int(np.argmin(x))])
-
-
-def sdw(*args: Any) -> Any:
-    """Standard deviation of a weighted sum: ``sdw(w1, w2, x1, x2)``.
-
-    The first half of the inputs are weights (numbers, or one weight per row,
-    e.g. from a grid search), the second half the series (e.g. data columns).
-    Returns one standard deviation per row of weights, as radiant.model.
-    """
-    if len(args) < 2 or len(args) % 2:
-        raise SimLangError("sdw() needs as many weights as variables, e.g. sdw(w1, w2, x1, x2)")
-    k = len(args) // 2
-    series = np.column_stack([_arr(a) for a in args[k:]])
-    cov = np.cov(series, rowvar=False, ddof=1)
-    weights = np.column_stack(np.broadcast_arrays(*[_arr(a) for a in args[:k]]))
-    out = np.sqrt(np.einsum("ij,jk,ik->i", weights, np.atleast_2d(cov), weights))
-    return float(out[0]) if out.size == 1 else out
-
-
-def _queue(interarrival: Any, service: Any, servers: Any) -> tuple[np.ndarray, np.ndarray]:
-    gaps, serv = np.broadcast_arrays(_arr(interarrival), _arr(service))
-    c = int(servers)
-    if c < 1:
-        raise SimLangError("queue functions need at least 1 server")
-    if np.any(gaps < 0) or np.any(serv < 0):
-        raise SimLangError("time between arrivals and service times cannot be negative")
-    arrive = np.cumsum(gaps)
-    start = np.empty_like(arrive)
-    free = [0.0] * c
-    for i in range(arrive.size):
-        first_free = heapq.heappop(free)
-        start[i] = max(arrive[i], first_free)
-        heapq.heappush(free, start[i] + serv[i])
-    return arrive, start
-
-
-def queue_wait(interarrival: Any, service: Any, servers: Any = 1) -> np.ndarray:
-    """Time each customer waits before service starts, in a first-come
-    first-served queue with ``servers`` servers. ``interarrival`` is the time
-    since the previous customer arrived, ``service`` the time service takes."""
-    arrive, start = _queue(interarrival, service, servers)
-    return start - arrive
-
-
-def queue_length(interarrival: Any, service: Any, servers: Any = 1) -> np.ndarray:
-    """Number of customers already waiting (not yet in service) when each
-    customer arrives."""
-    arrive, start = _queue(interarrival, service, servers)
-    idx = np.arange(arrive.size)
-    started = np.minimum(np.searchsorted(start, arrive, side="right"), idx)
-    return (idx - started).astype(float)
-
-
-def lag(x: Any, k: Any = 1, fill: Any = 0.0) -> np.ndarray:
-    """``x`` shifted down ``k`` rows; the first ``k`` rows get ``fill``."""
-    x = _arr(x)
-    k = int(k)
-    out = np.full(x.shape, float(fill))
-    if k < x.size:
-        out[k:] = x[: x.size - k]
+    out: dict[str, Callable] = {name: getattr(simfuns, name) for name in simfuns.FUNCTIONS}
+    out.update(simfuns.make_random(rng))
+    out.update({"len": len, "range": lambda *a: range(*[int(x) for x in a]), "int": int, "float": float})
     return out
-
-
-def lead(x: Any, k: Any = 1, fill: Any = 0.0) -> np.ndarray:
-    """``x`` shifted up ``k`` rows; the last ``k`` rows get ``fill``."""
-    x = _arr(x)
-    k = int(k)
-    out = np.full(x.shape, float(fill))
-    if k < x.size:
-        out[: x.size - k] = x[k:]
-    return out
-
-
-def _size(n: Any) -> int:
-    n = int(n)
-    if n < 0 or n > MAX_ARRAY:
-        raise SimLangError(f"arrays can have 0 to {MAX_ARRAY:,} values, not {n:,}")
-    return n
-
-
-def _seq(start: Any, stop: Any, by: Any = 1) -> np.ndarray:
-    by = float(by)
-    if by == 0:
-        raise SimLangError("seq() needs a step that is not 0")
-    count = math.floor((float(stop) - float(start)) / by + 1e-10) + 1
-    return float(start) + by * np.arange(_size(max(count, 0)))
-
-
-def _round(x: Any, digits: Any = 0) -> Any:
-    out = np.round(x, int(digits))
-    return out if np.ndim(out) else float(out)
-
-
-def _log(x: Any, base: Any = None) -> Any:
-    out = np.log(x) if base is None else np.log(x) / np.log(base)
-    return out if np.ndim(out) else float(out)
-
-
-def _elementwise(fn: Callable[[Any], Any]) -> Callable[[Any], Any]:
-    def run(x: Any) -> Any:
-        out = fn(x)
-        return out if np.ndim(out) else (bool(out) if isinstance(out, np.bool_) else float(out))
-
-    return run
-
-
-def _make_builtins(rng: np.random.Generator, nrows: Callable[[], int]) -> dict[str, Callable]:
-    def draws(n: Any) -> int:
-        return _size(n)
-
-    return {
-        # one value per row
-        "ifelse": lambda cond, a, b: np.where(cond, a, b),
-        "pmin": _parallel("pmin", lambda s: np.min(s, axis=0)),
-        "pmax": _parallel("pmax", lambda s: np.max(s, axis=0)),
-        "psum": _parallel("psum", lambda s: np.sum(s, axis=0)),
-        "pmean": _parallel("pmean", lambda s: np.mean(s, axis=0)),
-        "pmedian": _parallel("pmedian", lambda s: np.median(s, axis=0)),
-        "psd": _parallel("psd", lambda s: np.std(s, axis=0, ddof=1)),
-        "pvar": _parallel("pvar", lambda s: np.var(s, axis=0, ddof=1)),
-        "pprod": _parallel("pprod", lambda s: np.prod(s, axis=0)),
-        "abs": _elementwise(np.abs),
-        "sqrt": _elementwise(np.sqrt),
-        "exp": _elementwise(np.exp),
-        "log": _log,
-        "ln": _elementwise(np.log),
-        "log10": _elementwise(np.log10),
-        "log2": _elementwise(np.log2),
-        "square": _elementwise(np.square),
-        "round": _round,
-        "floor": _elementwise(np.floor),
-        "ceiling": _elementwise(np.ceil),
-        "ceil": _elementwise(np.ceil),
-        "trunc": _elementwise(np.trunc),
-        "sign": _elementwise(np.sign),
-        "cumsum": lambda x: np.cumsum(_arr(x)),
-        "cumprod": lambda x: np.cumprod(_arr(x)),
-        "cummax": lambda x: np.maximum.accumulate(_arr(x)),
-        "cummin": lambda x: np.minimum.accumulate(_arr(x)),
-        "lag": lag,
-        "lead": lead,
-        "row_number": lambda: np.arange(1, nrows() + 1, dtype=float),
-        # one value
-        "sum": _aggregate("sum", np.sum),
-        "mean": _aggregate("mean", np.mean),
-        "median": _aggregate("median", np.median),
-        "min": _aggregate("min", np.min),
-        "max": _aggregate("max", np.max),
-        "sd": _aggregate("sd", _sd),
-        "var": _aggregate("var", _var),
-        "prod": _aggregate("prod", np.prod),
-        "prop": _aggregate("prop", np.mean),
-        "quantile": lambda x, p: float(np.quantile(_arr(x), float(p))),
-        "cor": lambda x, y: float(np.corrcoef(_arr(x), _arr(y))[0, 1]),
-        "cov": lambda x, y: float(np.cov(_arr(x), _arr(y), ddof=1)[0, 1]),
-        "any": lambda x: bool(np.any(x)),
-        "all": lambda x: bool(np.all(x)),
-        "length": lambda x: int(np.size(x)),
-        "len": lambda x: int(np.size(x)),
-        "n": nrows,
-        "find_max": find_max,
-        "find_min": find_min,
-        "sdw": sdw,
-        # queues
-        "queue_wait": queue_wait,
-        "queue_length": queue_length,
-        # arrays (mostly for functions)
-        "zeros": lambda n: np.zeros(_size(n)),
-        "numeric": lambda n: np.zeros(_size(n)),
-        "ones": lambda n: np.ones(_size(n)),
-        "rep": lambda x, n: np.full(_size(n), float(x)),
-        "seq": _seq,
-        "seq_len": lambda n: np.arange(1, _size(n) + 1, dtype=float),
-        "c": lambda *args: _flat(args),
-        "range": lambda *args: range(*[int(a) for a in args]),
-        "int": lambda x: int(x),
-        "float": lambda x: float(x),
-        # random draws, from the simulation's seeded generator
-        "rnorm": lambda n, mean=0.0, sd=1.0: rng.normal(mean, sd, draws(n)),
-        "runif": lambda n, min=0.0, max=1.0: rng.uniform(min, max, draws(n)),
-        "rbinom": lambda n, size, prob: rng.binomial(int(size), prob, draws(n)).astype(float),
-        "rpois": lambda n, rate: rng.poisson(rate, draws(n)).astype(float),
-        "rexp": lambda n, rate=1.0: rng.exponential(1.0 / float(rate), draws(n)),
-        "rlnorm": lambda n, meanlog=0.0, sdlog=1.0: rng.lognormal(meanlog, sdlog, draws(n)),
-        "sample": lambda x, size, replace=True, prob=None: rng.choice(
-            _arr(x), draws(size), replace=bool(replace), p=None if prob is None else _arr(prob)
-        ),
-    }
 
 
 #: Names a simulation offers in formulas, for the help and error messages
-BUILTIN_NAMES = sorted(_make_builtins(np.random.default_rng(0), lambda: 0))
+BUILTIN_NAMES = sorted(_make_builtins(np.random.default_rng(0)))
 
 
 # ---------------------------------------------------------------------------
@@ -352,10 +111,13 @@ _BINOPS: dict[type, Callable[[Any, Any], Any]] = {
     ast.FloorDiv: lambda a, b: np.floor_divide(a, b),
     ast.Mod: lambda a, b: np.mod(a, b),
     ast.Pow: lambda a, b: np.power(np.asarray(a, dtype=float), b),
-    # R: ^ is a power, & and | are and / or
-    ast.BitXor: lambda a, b: np.power(np.asarray(a, dtype=float), b),
-    ast.BitAnd: lambda a, b: np.logical_and(a, b),
-    ast.BitOr: lambda a, b: np.logical_or(a, b),
+}
+
+#: Operators that mean something else in R or Excel
+_NOT_PYTHON = {
+    ast.BitXor: "use ** for a power (x ** 2)",
+    ast.BitAnd: "use and to combine conditions",
+    ast.BitOr: "use or to combine conditions",
 }
 
 _CMPOPS: dict[type, Callable[[Any, Any], Any]] = {
@@ -365,7 +127,15 @@ _CMPOPS: dict[type, Callable[[Any, Any], Any]] = {
     ast.GtE: lambda a, b: a >= b,
     ast.Eq: lambda a, b: a == b,
     ast.NotEq: lambda a, b: a != b,
+    # membership: price in [6, 8]
+    ast.In: lambda a, b: _isin(a, b),
+    ast.NotIn: lambda a, b: np.logical_not(_isin(a, b)) if isinstance(a, np.ndarray) else not _isin(a, b),
 }
+
+
+def _isin(a: Any, b: Any) -> Any:
+    values = np.ravel(np.asarray(b, dtype=float))
+    return np.isin(a, values) if isinstance(a, np.ndarray) else bool(np.isin(a, values))
 
 
 def _scalar(value: Any) -> Any:
@@ -390,7 +160,7 @@ class Interpreter:
     _depth: int = 0
 
     def __post_init__(self) -> None:
-        self.builtins = _make_builtins(self.rng, lambda: self.nrows)
+        self.builtins = _make_builtins(self.rng)
 
     # -- budget -------------------------------------------------------
     def _tick(self) -> None:
@@ -398,7 +168,7 @@ class Interpreter:
         if self.steps > self.budget:
             raise BudgetExceeded(
                 f"the calculation took more than {self.budget:,} steps. Use functions that work "
-                "on a whole column at once (cumsum, pmax, queue_wait, ...) instead of loops, "
+                "on a whole column at once (cum_sum, max_horizontal, queue_wait, ...) instead of loops, "
                 "or use fewer simulations."
             )
 
@@ -472,7 +242,8 @@ class Interpreter:
         if isinstance(node, ast.AugAssign):
             op = _BINOPS.get(type(node.op))
             if op is None:
-                raise SimLangError(f"line {node.lineno}: that kind of update is not supported")
+                advice = _NOT_PYTHON.get(type(node.op), "that kind of update is not supported")
+                raise SimLangError(f"line {node.lineno}: {advice}")
             current = self.eval(_as_load(node.target), local)
             self._assign(node.target, op(current, self.eval(node.value, local)), local)
             return
@@ -577,7 +348,7 @@ class Interpreter:
         if isinstance(node, ast.BinOp):
             op = _BINOPS.get(type(node.op))
             if op is None:
-                raise SimLangError(f"operator {type(node.op).__name__} is not supported")
+                raise SimLangError(_NOT_PYTHON.get(type(node.op), f"operator {type(node.op).__name__} is not supported"))
             left, right = self.eval(node.left, local), self.eval(node.right, local)
             try:
                 with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
@@ -661,7 +432,8 @@ class Interpreter:
     def evaluate(self, expr: str) -> Any:
         """Evaluate one expression (R spellings allowed) in the namespace."""
         try:
-            tree = ast.parse(r_to_python(expr).strip(), mode="eval")
+            check_habits(expr)
+            tree = ast.parse(expr.strip(), mode="eval")
         except SyntaxError as exc:
             raise SimLangError(
                 f"cannot read '{expr}': is something missing or mistyped? ({exc.msg})"
@@ -675,7 +447,7 @@ def _shape_message(left: Any, right: Any) -> str:
     return (
         f"cannot combine columns with {sizes[0]:,} and {sizes[-1]:,} values. Columns from the "
         "input data have one value per data row; summarise them (mean, sd, ...) or use them "
-        "with a function such as sdw()"
+        "with a function such as weighted_sum_std()"
     )
 
 
@@ -737,45 +509,62 @@ def _check_function(fn: ast.FunctionDef) -> None:
 # Formula text
 # ---------------------------------------------------------------------------
 
-_ASSIGN = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_.]*)\s*(<-|=(?!=))\s*(.*)$", re.S)
+_ASSIGN = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_.]*)\s*=(?!=)\s*(.*)$", re.S)
 
 
-def split_formulas(text: str) -> list[tuple[str, str, int]]:
-    """``name = expression`` statements from a formulas text block.
+def formula_list(text: str) -> list[str]:
+    """The formulas in a text box, one string per formula.
 
-    Comments (``#``) are dropped, ``;`` separates statements on one line, and
-    a statement continues on the next line while a bracket is open. Returns
-    ``(name, expression, line)`` tuples.
+    A formula is one line (or ``;``-separated part of a line); it continues on
+    the next line while a bracket is open. Comment lines (``# ...``) are kept
+    as entries of their own so they stay with the formulas they describe.
     """
-    statements: list[tuple[str, int]] = []
-    buffer, start, depth = "", 0, 0
-    for lineno, raw in enumerate(text.splitlines(), start=1):
-        line = raw.split("#", 1)[0]
-        for part in line.split(";"):
+    out: list[str] = []
+    buffer = ""
+    for raw in text.splitlines():
+        if not buffer and raw.strip().startswith("#"):
+            out.append(raw.strip())
+            continue
+        code, _, note = raw.partition("#")
+        for part in code.split(";"):
             if not part.strip():
                 continue
-            if not buffer:
-                start = lineno
             buffer = f"{buffer} {part.strip()}" if buffer else part.strip()
             depth = buffer.count("(") - buffer.count(")") + buffer.count("[") - buffer.count("]")
             if depth <= 0:
-                statements.append((buffer, start))
+                out.append(f"{buffer}  # {note.strip()}" if note.strip() else buffer)
                 buffer = ""
+                note = ""
     if buffer:
-        statements.append((buffer, start))
+        out.append(buffer)
+    return out
+
+
+def split_formulas(formulas: str | list[str]) -> list[tuple[str, str, int]]:
+    """``(name, expression, number)`` for each formula (comments skipped).
+
+    ``formulas`` is a list of ``"name = expression"`` strings, or text with
+    one formula per line (see :func:`formula_list`).
+    """
+    entries = formula_list(formulas) if isinstance(formulas, str) else list(formulas)
     out: list[tuple[str, str, int]] = []
-    for stmt, lineno in statements:
+    for number, entry in enumerate(entries, start=1):
+        stmt = str(entry).split("#", 1)[0].strip()
+        if not stmt:
+            continue
+        if "<-" in stmt.split("=", 1)[0] or re.match(r"^\s*[A-Za-z_]\w*\s*<-", stmt):
+            raise SimLangError(f"formula {number}, '{stmt}': use = to assign")
         m = _ASSIGN.match(stmt)
         if not m:
             raise SimLangError(
-                f"formulas, line {lineno}: '{stmt}' needs a name and '=', e.g. profit = demand * price"
+                f"formula {number}, '{stmt}': needs a name and '=', e.g. profit = demand * price"
             )
-        name, _, expr = m.groups()
+        name, expr = m.groups()
         if "." in name:
-            raise SimLangError(f"formulas, line {lineno}: use _ instead of . in names ('{name}')")
+            raise SimLangError(f"formula {number}: use _ instead of . in names ('{name}')")
         if not expr.strip():
-            raise SimLangError(f"formulas, line {lineno}: '{name} =' has nothing after the '='")
-        out.append((name, expr.strip(), lineno))
+            raise SimLangError(f"formula {number}: '{name} =' has nothing after the '='")
+        out.append((name, expr.strip(), number))
     return out
 
 
@@ -785,13 +574,7 @@ __all__ = [
     "Interpreter",
     "SimLangError",
     "UserFunction",
-    "find_max",
-    "find_min",
-    "lag",
-    "lead",
-    "queue_length",
-    "queue_wait",
-    "r_to_python",
-    "sdw",
+    "check_habits",
+    "formula_list",
     "split_formulas",
 ]

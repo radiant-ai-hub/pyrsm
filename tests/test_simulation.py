@@ -377,7 +377,7 @@ def test_spec_round_trip_dict():
     assert rebuilt.runs == 100
     assert rebuilt.seed == 99
     assert rebuilt.variables[0].name == "x"
-    assert rebuilt.formulas[0].expr == "x > 0"
+    assert rebuilt.formulas[0] == "big = x > 0"
 
 
 def test_simulate_accepts_dict_payload():

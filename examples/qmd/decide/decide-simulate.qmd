@@ -16,12 +16,6 @@ import pyrsm as rsm
 Constants (`var_cost`, `fixed_cost`) do not vary; `E` (a normal demand shock) and `price` (discrete: 6 or 8 with probabilities 0.3 and 0.7) are drawn for every simulation. The formulas are evaluated in order, so `profit` can use `demand`, and `profit_small` is a logical (`True`/`False`).
 
 ```{python}
-formulas = """
-demand = 1000 - 50 * price + E
-profit = demand * (price - var_cost) - fixed_cost
-profit_small = profit < 100
-"""
-
 spec = {
     "name": "simdat",
     "runs": 1000,
@@ -32,7 +26,11 @@ spec = {
         {"name": "E", "kind": "normal", "mean": 0, "sd": 100},
         {"name": "price", "kind": "discrete", "values": [6, 8], "probs": [0.3, 0.7]},
     ],
-    "form": formulas,
+    "formulas": [
+        "demand = 1000 - 50 * price + E",
+        "profit = demand * (price - var_cost) - fixed_cost",
+        "profit_small = profit < 100",
+    ],
 }
 ```
 
@@ -59,11 +57,13 @@ Re-simulate `E` and `price` 365 times (days) and sum `profit` for each of the 1,
 rep = rsm.decide.repeat_simulate(
     spec,
     reps=365,
-    vars=['E', 'price'],
-    sum_vars=['profit'],
-    by='sim',
-    fun=['sum'],
-    form='profit_365 = profit_sum < 36500',
+    vars=["E", "price"],
+    sum_vars=["profit"],
+    by="sim",
+    fun=["sum"],
+    formulas=[
+        "profit_365 = profit_sum < 36500",
+    ],
     seed=1234,
 )
 rep.summary()

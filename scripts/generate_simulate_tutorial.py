@@ -32,26 +32,31 @@ def _example(eid: str) -> dict:
 
 
 def _spec_code(eid: str, var: str = "spec") -> str:
-    """The example's spec as Python: formulas and functions as text blocks."""
-    from pyrsm.decide.simulate import SimulationSpec, _spec_literal
+    """The example's functions (as Python) and spec, as the generated code
+    writes them."""
+    from pyrsm.decide.simulate import SimulationSpec, _code_head
 
     spec = SimulationSpec.from_dict(_example(eid)["spec"])
-    literal, form, functions = _spec_literal(spec)
-    lines = []
-    if functions:
-        lines += [f'functions = """\n{functions.rstrip()}\n"""', ""]
-    if form:
-        lines += [f'formulas = """\n{form}\n"""', ""]
-    lines.append(f"{var} = {literal}")
-    return "\n".join(lines)
+    lines, _ = _code_head(spec, "")
+    lines = [ln for ln in lines if ln != "import pyrsm as rsm"]
+    code = "\n".join(lines).strip()
+    return code.replace("spec = {", f"{var} = {{", 1) if var != "spec" else code
 
 
 def _repeat_code(eid: str, spec_var: str = "spec", data: str = "") -> str:
+    from pyrsm.decide.simulate import _py
+
     rep = dict(_example(eid)["repeat"])
     rep.pop("name", None)
-    args = ",\n    ".join(f"{k}={v!r}" for k, v in rep.items())
-    data_arg = f",\n    data={data}" if data else ""
-    return f"rep = rsm.decide.repeat_simulate(\n    {spec_var},\n    {args}{data_arg},\n)\nrep.summary()"
+    args = []
+    for key, value in rep.items():
+        if key in ("formulas", "grid") and value:
+            args += [f"    {key}=[", *[f"        {_py(v)}," for v in value], "    ],"]
+        else:
+            args.append(f"    {key}={_py(value)},")
+    if data:
+        args.append(f"    data={data},")
+    return "\n".join(["rep = rsm.decide.repeat_simulate(", f"    {spec_var},", *args, ")", "rep.summary()"])
 
 
 def question(eid: str) -> str:
@@ -105,13 +110,14 @@ nb(
         ("code", SETUP),
         ("md", "A **grid** variable runs from a minimum to a maximum in steps. With grid variables "
          "the number of rows is the number of grid values (601 prices), not the number of "
-         "simulations. `find_max(profit, price)` returns the price where profit is highest; "
-         "`max(profit)` is one number, the highest profit."),
+         "simulations. `arg_max(profit)` is the row with the highest profit, so "
+         "`price[arg_max(profit)]` is the best price; `max(profit)` is one number, the highest "
+         "profit."),
         ("code", _spec_code("optimal-price")),
         ("code", "sim = rsm.decide.simulate(spec)\nsim.summary()"),
         ("code", "import polars as pl\n\nsim.data.sort(\"profit\", descending=True).head(3)"),
         ("md", "Two grid variables give every combination: with `x` from 1 to 3 and `y` from 4 to "
-         "5, the first varies fastest (as R's `expand.grid`)."),
+         "5, the first varies fastest."),
         ("code", "rsm.decide.simulate({\"variables\": [\n"
                  "    {\"name\": \"x\", \"kind\": \"grid\", \"min\": 1, \"max\": 3, \"step\": 1},\n"
                  "    {\"name\": \"y\", \"kind\": \"grid\", \"min\": 4, \"max\": 5, \"step\": 1},\n"
@@ -131,7 +137,7 @@ nb(
          "1 / rate). `queue_wait(gap, service, tellers)` works out, customer by customer, when a "
          "teller is free (first come, first served) and returns each customer's wait; "
          "`queue_length` returns how many customers are already waiting when a customer "
-         "arrives. `n()` is the number of rows, so `in_bank[n() - 1]` is the last customer."),
+         "arrives. `in_bank[-1]` is the last customer (counting from the end, as in Python)."),
         ("code", _spec_code("bank-queue")),
         ("code", "sim = rsm.decide.simulate(spec)\nsim.summary(dec=2)"),
         ("code", "sim.plot()"),
@@ -146,14 +152,13 @@ nb(
          "average wait to under a minute.\n\nThe same wait can be written as a custom function "
          "(Lindley's recursion for one server) -- `queue_wait` does this for any number of "
          "servers:"),
-        ("code", 'lindley = """\n'
+        ("code", "from pyrsm.decide.simfuns import zeros\n\n\n"
                  "def wait_one(gap, service):\n"
                  "    w = zeros(len(gap))\n"
                  "    for i in range(1, len(gap)):\n"
                  "        w[i] = max(0, w[i - 1] + service[i - 1] - gap[i])\n"
-                 "    return w\n"
-                 '"""\n'
-                 "one = dict(spec, functions=lindley, form=\"w1 = queue_wait(gap, service, 1)\\nw2 = wait_one(gap, service)\\nsame = abs(w1 - w2) < 1e-9\")\n"
+                 "    return w\n\n\n"
+                 "one = dict(spec, functions=[wait_one], formulas=[\"w1 = queue_wait(gap, service, 1)\", \"w2 = wait_one(gap, service)\", \"same = abs(w1 - w2) < 1e-9\"])\n"
                  "rsm.decide.simulate(one).data[\"same\"].all()"),
     ],
 )
@@ -166,11 +171,14 @@ nb(
         ("md", "## Question\n\n" + question("gamblers-ruin")),
         ("code", SETUP),
         ("md", "Each row is a day; `win` is 1 on a winning day. Wealth depends on yesterday's "
-         "wealth, so it is calculated in a loop: a **custom function**. Functions use Python "
-         "syntax (`def`, `for`, `if`, indexing from 0) and the same functions as formulas "
-         "(`zeros`, `len`, `max`, ...); they cannot import modules, read files or use `.` "
-         "attributes. Constants are single numbers, so they can be passed in as they are."),
+         "wealth, so it is calculated in a loop: a **custom function**, an ordinary Python "
+         "function passed in the spec under `functions`. It uses the simulation functions "
+         "(`zeros`, `ifelse`, `mean`, ...) imported from `pyrsm.decide.simfuns`, so it can be "
+         "tried on its own; inside a simulation it runs with the same safety rules as in Radiant "
+         "(no imports, files or `.` attributes). Constants are single numbers, so they can be "
+         "passed in as they are."),
         ("code", _spec_code("gamblers-ruin")),
+        ("code", "import numpy as np\n\ncalc_wealth(np.array([1, 0, 0, 1]), 1000, 0.05, 5)"),
         ("code", "sim = rsm.decide.simulate(spec)\nsim.summary()"),
         ("md", "One simulated year is one path. Repeat it 1,000 times (**group by Repeat**) and "
          "keep the `last` value (wealth at the end of the year) and the `min` (the lowest point "
@@ -179,7 +187,7 @@ nb(
         ("code", "rep.plot()"),
         ("md", "A loop is easy to read but slow for long simulations. The same wealth without a "
          "loop: each day multiplies wealth by `1 + 5 x 0.05` or `1 - 0.05`, so"),
-        ("code", "fast = dict(spec, form=\"wealth = start * cumprod(ifelse(win == 1, 1 + win_mult * perc_invest, 1 - perc_invest))\")\n"
+        ("code", "fast = dict(spec, formulas=[\"wealth = start * cum_prod(ifelse(win == 1, 1 + win_mult * perc_invest, 1 - perc_invest))\"])\n"
                  "fast.pop(\"functions\")\n"
                  "(rsm.decide.simulate(fast).data[\"wealth\"] - sim.data[\"wealth\"]).abs().max()"),
     ],
@@ -190,18 +198,18 @@ nb(
     "Portfolio risk: correlated returns and input data",
     [
         ("md", "In Radiant: **Load example > Correlated stock returns**, press _Run simulation_ "
-         "(saved as `returns`), then **Load example > Portfolio weights (input data and sdw)**."),
+         "(saved as `returns`), then **Load example > Portfolio weights (input data)**."),
         ("md", "## Question\n\n" + question("stock-returns")),
         ("code", SETUP),
         ("md", "**Correlations** between normal variables are given per pair. With "
          "`normal_exact` the simulated returns have exactly the means, standard deviations and "
-         "correlations given (radiant.model's \"Use exact specifications\")."),
+         "correlations given (\"Use exact specifications\" in Radiant)."),
         ("code", _spec_code("stock-returns")),
         ("code", "returns = rsm.decide.simulate(spec).data\nreturns.corr()"),
         ("md", "## Question\n\n" + question("portfolio")),
         ("md", "The simulated returns are the **input data**: their columns (`A`, `B`, `C`) can be "
          "used in the formulas but are not part of the result. A grid search over the weights "
-         "of A and B gives 441 rows; `sdw(wA, wB, wC, A, B, C)` is, for each row of weights, "
+         "of A and B gives 441 rows; `weighted_sum_std(wA, wB, wC, A, B, C)` is, for each row of weights, "
          "the standard deviation of the weighted sum of the returns."),
         ("code", _spec_code("portfolio", "pspec")),
         ("code", "port = rsm.decide.simulate(pspec, data=returns)\nport.summary(dec=3)"),
@@ -224,10 +232,10 @@ def readme() -> None:
         "| Notebook | Topic |",
         "|---|---|",
         "| [01-profit](01-profit.ipynb) | Constants, normal and discrete variables, formulas, repeated simulation (group by Simulation) |",
-        "| [02-optimal-price](02-optimal-price.ipynb) | Grid search and `find_max` |",
+        "| [02-optimal-price](02-optimal-price.ipynb) | Grid search and `arg_max` |",
         "| [03-bank-queue](03-bank-queue.ipynb) | Exponential arrivals, `queue_wait`, repeat with a grid over a constant |",
         "| [04-gamblers-ruin](04-gamblers-ruin.ipynb) | A custom function with a loop; repeat with `last` and `min` |",
-        "| [05-portfolio](05-portfolio.ipynb) | Correlated normals, input data, `sdw` |",
+        "| [05-portfolio](05-portfolio.ipynb) | Correlated normals, input data, `weighted_sum_std` |",
         "",
         "## Questions and answers",
         "",

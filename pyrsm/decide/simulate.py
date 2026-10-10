@@ -1,5 +1,4 @@
-"""pyrsm.decide.simulate -- Monte Carlo simulation, as radiant.model's
-``simulater`` and ``repeater`` (and more).
+"""pyrsm.decide.simulate -- Monte Carlo simulation (and repeated simulation).
 
 A :class:`SimulationSpec` lists the inputs (constants, random variables,
 sequences, grid search values), the formulas that combine them, optional
@@ -15,15 +14,16 @@ many times and summarises the outputs per simulation or per repetition.
 ...         {"name": "demand", "kind": "normal", "mean": 2000, "sd": 1000},
 ...         {"name": "price", "kind": "discrete", "values": [5, 8], "probs": [0.3, 0.7]},
 ...     ],
-...     "form": "profit = demand * (price - cost)",
+...     "formulas": ["profit = demand * (price - cost)", "loss = profit < 0"],
 ... })
 >>> sim.summary()          # doctest: +SKIP
 
-Formulas and functions use the language in :mod:`pyrsm.decide.simlang`:
-arithmetic, comparisons, R's function names (``ifelse``, ``pmax``,
-``psum``, ``mean``, ``sd``, ``find_max``, ``sdw``, ...), random draws
-(``rnorm``, ``rexp``, ...), queues (``queue_wait``, ``queue_length``) and
-custom functions with loops.
+Formulas are Python expressions, as in pyrsm's data filter (``and``,
+``or``, ``not``, ``in [...]``, ``**``), with the functions of
+:mod:`pyrsm.decide.simfuns` (``ifelse``, ``mean``, ``std``,
+``max_horizontal``, ``cum_sum``, ``arg_max``, ``queue_wait``, random draws,
+...). Custom functions are Python functions (``def``) that use the same
+functions; they run in the same safe interpreter.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from __future__ import annotations
 import ast
 import itertools
 import pprint
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from io import StringIO
 from typing import Any
 
@@ -43,7 +43,8 @@ from pyrsm.decide.simlang import (
     Interpreter,
     SimLangError,
     _check_expression,
-    r_to_python,
+    check_habits,
+    formula_list,
     split_formulas,
 )
 
@@ -79,7 +80,7 @@ KIND_FIELDS: dict[str, tuple[str, ...]] = {
 
 #: Functions a repeated simulation can apply (radiant.model's list)
 REPEAT_FUNCTIONS = (
-    "sum", "mean", "median", "min", "max", "sd", "var", "sdprop", "varprop",
+    "sum", "mean", "median", "min", "max", "std", "var", "std_prop", "var_prop",
     "p01", "p025", "p05", "p10", "p25", "p75", "p90", "p95", "p975", "p99",
     "first", "last",
 )  # fmt: skip
@@ -142,9 +143,11 @@ class Formula:
 class SimulationSpec:
     """A whole simulation.
 
-    ``form`` is the formulas as text (one ``name = expression`` per line,
-    ``#`` comments allowed, R's ``<-`` too); ``formulas`` is the same as a
-    list. ``functions`` holds custom function definitions (``def ...``).
+    ``formulas`` is a list of ``"name = expression"`` strings, evaluated in
+    order (``"# ..."`` entries are comments); text with one formula per line
+    is accepted too. ``functions`` holds custom function definitions
+    (``def ...``) as text; :func:`simulate` also takes them as Python
+    functions.
     ``normal_exact`` makes normal variables have exactly the mean and
     standard deviation given; ``correlations`` (``[{"a", "b", "r"}]``)
     correlates normal variables. ``data`` names the dataset whose columns
@@ -155,11 +158,17 @@ class SimulationSpec:
     runs: int = 1000
     seed: int | None = 1234
     variables: list[Variable] = field(default_factory=list)
-    formulas: list[Formula] = field(default_factory=list)
+    formulas: list[str] = field(default_factory=list)
     functions: str = ""
     normal_exact: bool = False
     correlations: list[dict[str, Any]] = field(default_factory=list)
     data: str = ""
+
+    def __post_init__(self) -> None:
+        # Formula objects, dicts or text become "name = expression" strings
+        self.formulas = _formula_entries(self.formulas)
+        if not isinstance(self.functions, str):
+            self.functions = _functions_source(self.functions)
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> SimulationSpec:
@@ -168,7 +177,7 @@ class SimulationSpec:
             name=str(payload.get("name", "") or ""),
             runs=int(payload.get("runs", 1000) or 0),
             seed=None if seed in (None, "") else int(seed),
-            functions=str(payload.get("functions", "") or ""),
+            functions=_functions_source(payload.get("functions")),
             normal_exact=bool(payload.get("normal_exact", False)),
             correlations=[dict(c) for c in payload.get("correlations") or []],
             data=str(payload.get("data", "") or ""),
@@ -176,16 +185,17 @@ class SimulationSpec:
         fields = set(Variable.__dataclass_fields__)
         for v in payload.get("variables") or []:
             spec.variables.append(Variable(**{k: val for k, val in v.items() if k in fields}))
-        for f in payload.get("formulas") or []:
-            spec.formulas.append(Formula(**{k: v for k, v in f.items() if k in ("name", "expr", "description")}))
-        if payload.get("form"):
-            spec.formulas.extend(parse_formulas(str(payload["form"])))
+        spec.formulas = _formula_entries(payload.get("formulas"))
         return spec
+
+    def parsed_formulas(self) -> list[Formula]:
+        """The formulas as ``Formula(name, expr)`` (comments left out)."""
+        return [Formula(name=n, expr=e) for n, e, _ in split_formulas(self.formulas)]
 
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {"name": self.name, "runs": self.runs, "seed": self.seed}
         out["variables"] = [_clean_dict(asdict(var)) for var in self.variables]
-        out["formulas"] = [_clean_dict(asdict(f)) for f in self.formulas]
+        out["formulas"] = list(self.formulas)
         if self.functions.strip():
             out["functions"] = self.functions
         if self.normal_exact:
@@ -202,13 +212,31 @@ def _clean_dict(payload: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in payload.items() if v is not None and v != "" and v != []}
 
 
-def parse_formulas(text: str) -> list[Formula]:
-    """Formulas from text: ``name = expression`` per line or ``;``-separated."""
-    return [Formula(name=n, expr=e) for n, e, _ in split_formulas(text)]
+def _formula_entries(value: Any) -> list[str]:
+    """Formulas as a list of strings, from a list or from text."""
+    if not value:
+        return []
+    if isinstance(value, str):
+        return formula_list(value)
+    out = []
+    for item in value:
+        if isinstance(item, Formula):
+            out.append(f"{item.name} = {item.expr}")
+        elif isinstance(item, dict):
+            out.append(f"{item.get('name', '')} = {item.get('expr', '')}")
+        else:
+            out.extend(formula_list(str(item)))
+    return out
 
 
-def formulas_text(formulas: list[Formula]) -> str:
-    return "\n".join(f"{f.name} = {f.expr}" for f in formulas)
+def parse_formulas(formulas: str | list[str]) -> list[Formula]:
+    """``Formula(name, expr)`` for each formula in a list or text."""
+    return [Formula(name=n, expr=e) for n, e, _ in split_formulas(_formula_entries(formulas))]
+
+
+def formulas_text(formulas: list[str]) -> str:
+    """The formulas as the text of a formulas box (one per line)."""
+    return "\n".join(formulas)
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +268,8 @@ def compile_formula(expr: str, known: set[str] | None = None) -> ast.Expression:
     if not isinstance(expr, str) or not expr.strip():
         raise FormulaError("formula expression cannot be empty")
     try:
-        tree = ast.parse(r_to_python(expr).strip(), mode="eval")
+        check_habits(expr)
+        tree = ast.parse(expr.strip(), mode="eval")
         _check_expression(tree)
     except SyntaxError as exc:
         raise FormulaError(f"invalid syntax: {exc.msg}") from exc
@@ -451,7 +480,12 @@ def _validate(spec: SimulationSpec, diagnostics: list[Diagnostic]) -> None:
                     "error", "bad_kind", f"unknown type '{var.kind}' for '{var.name}'. Types: {', '.join(KINDS)}", var.name
                 )
             )
-    for f in spec.formulas:
+    try:
+        parsed = spec.parsed_formulas()
+    except SimLangError as exc:
+        diagnostics.append(Diagnostic("error", "bad_formula", str(exc)))
+        parsed = []
+    for f in parsed:
         if not f.name or not f.name.isidentifier() or f.name.startswith("__"):
             diagnostics.append(
                 Diagnostic("error", "bad_name", f"formula name '{f.name}' can only have letters, numbers and _", f.name)
@@ -561,7 +595,7 @@ def _run_once(
         else:
             put(var.name, _draw(interp, var, n, spec.normal_exact))
 
-    for f in spec.formulas:
+    for f in spec.parsed_formulas():
         try:
             value = interp.evaluate(f.expr)
         except SimLangError as exc:
@@ -770,7 +804,7 @@ class SimulationResult:
         if spec.formulas:
             out.write("Formulas   :\n")
             for f in spec.formulas:
-                out.write(f"\t{f.name} = {f.expr}\n")
+                out.write(f"\t{f}\n")
         if spec.correlations:
             out.write("Correlations:\n")
             for c in spec.correlations:
@@ -835,39 +869,80 @@ def _py(value: Any) -> str:
     return repr(value)
 
 
-def _spec_literal(spec: SimulationSpec) -> tuple[str, str, str]:
-    """The spec as Python source: (dict literal, formulas, functions)."""
+def _list_lines(key: str, values: list[Any], indent: str = "    ") -> list[str]:
+    if not values:
+        return [f'{indent}"{key}": [],']
+    return [f'{indent}"{key}": [', *[f"{indent}    {_py(v)}," for v in values], f"{indent}],"]
+
+
+def _spec_literal(spec: SimulationSpec, function_names: list[str] | None = None) -> str:
+    """The spec as a Python dict literal; functions by name (defined above it)."""
     payload = spec.to_dict()
-    payload.pop("formulas", None)
-    functions = payload.pop("functions", "")
+    payload.pop("functions", None)
+    if function_names:
+        payload["functions"] = _Literal(f"[{', '.join(function_names)}]")
     lines = ["{"]
     for key, value in payload.items():
-        if key in ("variables", "correlations") and value:
-            lines.append(f'    "{key}": [')
-            lines += [f"        {_py(v)}," for v in value]
-            lines.append("    ],")
+        if key in ("variables", "correlations", "formulas"):
+            lines += _list_lines(key, value)
+        elif isinstance(value, _Literal):
+            lines.append(f'    "{key}": {value},')
         else:
             lines.append(f'    "{key}": {_py(value)},')
-    if spec.formulas:
-        lines.append('    "form": formulas,')
-    if functions:
-        lines.append('    "functions": functions,')
     lines.append("}")
-    return "\n".join(lines), formulas_text(spec.formulas), functions
+    return "\n".join(lines)
+
+
+def _functions_code(*sources: str) -> tuple[list[str], list[str], list[str]]:
+    """Custom functions as ordinary Python: (import lines, def lines, names).
+
+    The simulation functions they use (``zeros``, ``mean``, ...) are imported
+    from :mod:`pyrsm.decide.simfuns`, so the functions also run (and can be
+    tested) outside a simulation.
+    """
+    from pyrsm.decide import simfuns
+
+    text = "\n\n\n".join(s.strip() for s in sources if s and s.strip())
+    if not text:
+        return [], [], []
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return [], [f'functions = """\n{text}\n"""'], []
+    names = [n.name for n in tree.body if isinstance(n, ast.FunctionDef)]
+    used = sorted(
+        {n.id for n in ast.walk(tree) if isinstance(n, ast.Name) and n.id in simfuns.FUNCTIONS}
+        - set(names)
+    )
+    imports = [f"from pyrsm.decide.simfuns import {', '.join(used)}"] if used else []
+    return imports, text.splitlines(), names
+
+
+def _code_head(spec: SimulationSpec, data_name: str, *extra_functions: str) -> tuple[list[str], list[str]]:
+    """Imports, function definitions and ``spec = {...}``; also the names of
+    the extra functions (those of a repeated simulation)."""
+    imports_sim, defs_sim, names_sim = _functions_code(spec.functions)
+    imports_extra, defs_extra, names_extra = _functions_code(*extra_functions)
+    used = sorted({n.strip() for ln in imports_sim + imports_extra for n in ln.split(" import ", 1)[1].split(",")})
+    lines = ["import pyrsm as rsm"]
+    if used:
+        lines.append(f"from pyrsm.decide.simfuns import {', '.join(used)}")
+    lines.append("")
+    blocks = ["\n".join(d) for d in (defs_sim, defs_extra) if d]
+    if blocks:
+        lines += ["", *"\n\n\n".join(blocks).splitlines(), "", ""]
+    if defs_sim and not names_sim:
+        lines.append("spec = " + _spec_literal(spec) + '\nspec["functions"] = functions')
+    else:
+        lines.append(f"spec = {_spec_literal(spec, names_sim)}")
+    if data_name:
+        lines.append(f"# {data_name}: the input data (a polars or pandas DataFrame)")
+    return lines, names_extra
 
 
 def _generate_python_code(spec: SimulationSpec, data_name: str = "") -> str:
-    literal, form, functions = _spec_literal(spec)
-    lines = ["import pyrsm as rsm", ""]
-    if functions:
-        lines += [f'functions = """\n{functions.rstrip()}\n"""', ""]
-    if form:
-        lines += [f'formulas = """\n{form}\n"""', ""]
-    lines.append(f"spec = {literal}")
-    data_arg = ""
-    if data_name:
-        lines.append(f"# {data_name}: the input data (a polars or pandas DataFrame)")
-        data_arg = f", data={data_name}"
+    lines, _ = _code_head(spec, data_name)
+    data_arg = f", data={data_name}" if data_name else ""
     lines += [
         "",
         f"sim = rsm.decide.simulate(spec{data_arg})",
@@ -876,6 +951,33 @@ def _generate_python_code(spec: SimulationSpec, data_name: str = "") -> str:
         "simdat = sim.data",
     ]
     return "\n".join(lines)
+
+
+def _functions_source(functions: Any) -> str:
+    """Custom functions as source text: from text, or from Python functions."""
+    import inspect
+    import textwrap
+
+    if not functions:
+        return ""
+    if isinstance(functions, str):
+        return functions
+    parts = []
+    for fn in functions if isinstance(functions, list | tuple) else [functions]:
+        if isinstance(fn, str):
+            parts.append(fn)
+            continue
+        try:
+            source = textwrap.dedent(inspect.getsource(fn))
+        except (OSError, TypeError) as exc:
+            raise SimLangError(
+                f"cannot read the source of {getattr(fn, '__name__', fn)!r}: define it with def "
+                "in a file or notebook cell"
+            ) from exc
+        if not source.lstrip().startswith("def "):
+            raise SimLangError(f"{getattr(fn, '__name__', fn)!r}: write it with def (not lambda)")
+        parts.append(source)
+    return "\n\n".join(p.strip() for p in parts)
 
 
 # ---------------------------------------------------------------------------
@@ -887,18 +989,27 @@ def simulate(
     spec: SimulationSpec | dict[str, Any],
     data: Any = None,
     *,
+    functions: Any = None,
     budget: int = DEFAULT_BUDGET,
 ) -> SimulationResult:
     """Run a simulation; see :class:`SimulationSpec` and :class:`Variable`.
 
     ``data`` is a polars or pandas DataFrame whose (numeric) columns the
-    formulas can use, as radiant.model's "Input data for calculations"; its
-    columns are not part of the simulated data. The result keeps any input
-    errors in ``diagnostics`` instead of raising.
+    formulas can use ("Input data for calculations"); its columns are not
+    part of the simulated data. ``functions`` are custom functions for the
+    formulas: Python functions written with ``def`` (or their source text).
+    The result keeps any input errors in ``diagnostics`` instead of raising.
     """
     if isinstance(spec, dict):
         spec = SimulationSpec.from_dict(spec)
     diagnostics: list[Diagnostic] = []
+    if functions:
+        try:
+            extra = _functions_source(functions)
+        except SimLangError as exc:
+            diagnostics.append(Diagnostic("error", "bad_function", str(exc)))
+            return SimulationResult(spec=spec, data=pl.DataFrame(), diagnostics=diagnostics)
+        spec = replace(spec, functions="\n\n\n".join(f for f in (spec.functions.strip(), extra) if f))
     _validate(spec, diagnostics)
     if not any(v.kind.lower() == "grid" for v in spec.variables) and int(spec.runs) <= 0:
         diagnostics.append(Diagnostic("error", "bad_runs", "the number of simulations must be at least 1"))
@@ -942,15 +1053,15 @@ def _apply(fn: str, m: np.ndarray, axis: int) -> np.ndarray:
     m = m.astype(float)
     if fn in ("sum", "mean", "median", "min", "max"):
         return getattr(np, fn)(m, axis=axis)
-    if fn == "sd":
+    if fn == "std":
         return np.std(m, axis=axis, ddof=1)
     if fn == "var":
         return np.var(m, axis=axis, ddof=1)
-    if fn in ("sdprop", "varprop"):
+    if fn in ("std_prop", "var_prop"):
         p = m.mean(axis=axis)
         v = p * (1 - p)
         with np.errstate(invalid="ignore"):
-            return np.sqrt(v) if fn == "sdprop" else v
+            return np.sqrt(v) if fn == "std_prop" else v
     if fn == "first":
         return np.take(m, 0, axis=axis)
     if fn == "last":
@@ -972,7 +1083,7 @@ class RepeatResult:
     funs: list[str]
     vars: list[str]
     sum_vars: list[str]
-    form: list[Formula]
+    formulas: list[str]
     grid: list[Variable]
     data: pl.DataFrame
     functions: str = ""
@@ -1012,10 +1123,10 @@ class RepeatResult:
         names = _function_names(self.functions)
         if names:
             out.write(f"Functions     : {', '.join(names)}\n")
-        if self.form:
+        if self.formulas:
             out.write("Formulas      :\n")
-            for f in self.form:
-                out.write(f"\t{f.name} = {f.expr}\n")
+            for f in self.formulas:
+                out.write(f"\t{f}\n")
         out.write("\n")
         out.write(sim_summary(self.summary_rows, dec))
         return out.getvalue().rstrip()
@@ -1037,7 +1148,7 @@ class RepeatResult:
             "funs": list(self.funs),
             "vars": list(self.vars),
             "sum_vars": list(self.sum_vars),
-            "form": formulas_text(self.form),
+            "formulas": list(self.formulas),
             "functions": self.functions,
             "grid": [_clean_dict(asdict(g)) for g in self.grid],
             "diagnostics": [d.to_dict() for d in self.diagnostics],
@@ -1049,22 +1160,28 @@ class RepeatResult:
 
 
 def _repeat_code(rep: RepeatResult, kwargs: dict[str, Any], data_name: str) -> str:
-    base = _generate_python_code(rep.base_spec, data_name).split("\nsim.summary()")[0]
     kwargs = dict(kwargs)
-    blocks: list[str] = []
-    for key, var in (("functions", "rep_functions"), ("form", "rep_formulas")):
-        text = kwargs.get(key)
-        if text:
-            blocks += [f'{var} = """\n{str(text).rstrip()}\n"""', ""]
-            kwargs[key] = _Literal(var)
-    args = ",\n    ".join(f"{k}={v!r}" for k, v in kwargs.items())
-    data_arg = f",\n    data={data_name}" if data_name else ""
+    lines, names = _code_head(rep.base_spec, data_name, kwargs.pop("functions", ""))
+    if names:
+        kwargs["functions"] = _Literal(f"[{', '.join(names)}]")
+    args = []
+    for key, value in kwargs.items():
+        if key in ("formulas", "grid") and value:
+            args += [f"    {key}=[", *[f"        {_py(v)}," for v in value], "    ],"]
+        elif isinstance(value, _Literal):
+            args.append(f"    {key}={value},")
+        else:
+            args.append(f"    {key}={_py(value)},")
+    if data_name:
+        args.append(f"    data={data_name},")
     return "\n".join(
         [
-            base,
+            *lines,
             "",
-            *blocks,
-            f"rep = rsm.decide.repeat_simulate(\n    spec,\n    {args}{data_arg},\n)",
+            "rep = rsm.decide.repeat_simulate(",
+            "    spec,",
+            *args,
+            ")",
             "rep.summary()",
             "rep.plot()",
             "repdat = rep.data",
@@ -1087,10 +1204,10 @@ def repeat_simulate(
     sum_vars: list[str] | None = None,
     by: str = "sim",
     fun: str | list[str] = "sum",
-    form: str | list[Formula] | list[dict[str, Any]] = "",
+    formulas: str | list[str] = "",
     grid: list[Variable] | list[dict[str, Any]] | None = None,
     seed: int | None = None,
-    functions: str = "",
+    functions: Any = "",
     data: Any = None,
     budget: int = DEFAULT_BUDGET,
 ) -> RepeatResult:
@@ -1108,12 +1225,13 @@ def repeat_simulate(
 
     With ``by="rep"`` a ``grid`` (``{"name", "min", "max", "step"}``) replaces
     constants of the simulation in each repetition: every combination is one
-    repetition, and the number of combinations sets ``reps``. ``form``
-    formulas run on the summarised data (e.g. ``"loss = profit_sum < 0"``).
-    ``seed`` (default: the simulation's seed) makes the repetitions
-    reproducible. ``functions`` adds custom functions for the repeat
-    formulas (``def ...``), next to those of the simulation. Output columns
-    are named ``{variable}_{function}``.
+    repetition, and the number of combinations sets ``reps``. ``formulas``
+    (a list of ``"name = expression"`` strings) run on the summarised data,
+    e.g. ``["loss = profit_sum < 0"]``. ``seed`` (default: the simulation's
+    seed) makes the repetitions reproducible. ``functions`` are custom
+    functions for those formulas (Python functions written with ``def``, or
+    their source), next to the simulation's own. Output columns are named
+    ``{variable}_{function}``.
     """
     if isinstance(spec, dict):
         spec = SimulationSpec.from_dict(spec)
@@ -1124,22 +1242,23 @@ def repeat_simulate(
     grid_vars = [g if isinstance(g, Variable) else Variable(kind="grid", **{k: v for k, v in g.items() if k != "kind"}) for g in grid or []]
     if by == "sim":
         grid_vars = []
-    if isinstance(form, str):
-        try:
-            rep_form = parse_formulas(form)
-        except SimLangError as exc:
-            rep_form = []
-            form_error: str | None = str(exc)
-        else:
-            form_error = None
-    else:
-        rep_form = [f if isinstance(f, Formula) else Formula(name=str(f.get("name", "")), expr=str(f.get("expr", ""))) for f in form]
-        form_error = None
+    entries = _formula_entries(formulas)
+    form_error: str | None = None
+    try:
+        rep_form = parse_formulas(entries)
+    except SimLangError as exc:
+        rep_form = []
+        form_error = str(exc)
+    try:
+        functions = _functions_source(functions)
+    except SimLangError as exc:
+        form_error = str(exc)
+        functions = ""
     seed = spec.seed if seed in (None, "") else int(seed)
 
     result = RepeatResult(
         base_spec=spec, reps=int(reps), by=by, funs=funs, vars=vars, sum_vars=list(sum_vars or []),
-        form=rep_form, grid=grid_vars, data=pl.DataFrame(), seed=seed, functions=functions or "",
+        formulas=entries, grid=grid_vars, data=pl.DataFrame(), seed=seed, functions=functions or "",
     )  # fmt: skip
     diagnostics = result.diagnostics
     if form_error:
@@ -1256,8 +1375,8 @@ def repeat_simulate(
     result.summary_rows = [_column_summary(c, np.asarray(cols[c]), False) for c in cols if c not in ids]
     result.histograms = {r["name"]: _histogram(np.asarray(cols[r["name"]])) for r in result.summary_rows if r["kind"] != "constant"}
     kwargs: dict[str, Any] = {"reps": int(reps), "vars": vars, "sum_vars": outputs, "by": by, "fun": funs or "none"}
-    if rep_form:
-        kwargs["form"] = formulas_text(rep_form)
+    if entries:
+        kwargs["formulas"] = entries
     if grid_vars:
         kwargs["grid"] = [_clean_dict(asdict(g)) for g in grid_vars]
     if seed != spec.seed:

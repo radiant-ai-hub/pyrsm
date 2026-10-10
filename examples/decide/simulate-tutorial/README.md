@@ -5,10 +5,10 @@ Worked simulation examples with `pyrsm.decide.simulate` and `pyrsm.decide.repeat
 | Notebook | Topic |
 |---|---|
 | [01-profit](01-profit.ipynb) | Constants, normal and discrete variables, formulas, repeated simulation (group by Simulation) |
-| [02-optimal-price](02-optimal-price.ipynb) | Grid search and `find_max` |
+| [02-optimal-price](02-optimal-price.ipynb) | Grid search and `arg_max` |
 | [03-bank-queue](03-bank-queue.ipynb) | Exponential arrivals, `queue_wait`, repeat with a grid over a constant |
 | [04-gamblers-ruin](04-gamblers-ruin.ipynb) | A custom function with a loop; repeat with `last` and `min` |
-| [05-portfolio](05-portfolio.ipynb) | Correlated normals, input data, `sdw` |
+| [05-portfolio](05-portfolio.ipynb) | Correlated normals, input data, `weighted_sum_std` |
 
 ## Questions and answers
 
@@ -16,7 +16,7 @@ Worked simulation examples with `pyrsm.decide.simulate` and `pyrsm.decide.repeat
 
 _Answer:_ Average daily profit is about $500 with a standard deviation of about $560; profit is below $100 on about 28% of days. Summed over 365 days the annual profit averages about $172,000 (sd about $10,800) and is never below $36,500.
 
-**Optimal price (grid search).** Demand for an ice cream bar is 1000 - 80 x price and each bar costs $2 to make. Which price between $4 and $10 maximizes profit? Use a grid search over price in steps of $0.01 and find_max().
+**Optimal price (grid search).** Demand for an ice cream bar is 1000 - 80 x price and each bar costs $2 to make. Which price between $4 and $10 maximizes profit? Use a grid search over price in steps of $0.01.
 
 _Answer:_ Profit is highest at a price of $7.25 (profit $2,205). The grid has 601 prices, so the simulation has 601 rows whatever the number of simulations.
 
@@ -32,7 +32,7 @@ _Answer:_ Each bet has a positive expected value (0.2 x 5 - 0.8 = +0.2 per dolla
 
 _Answer:_ With 'exact' checked the simulated returns have exactly the means, standard deviations and correlations given.
 
-**Portfolio weights (input data and sdw).** Using the simulated 'returns' as input data, which weights for stocks A and B (C gets the rest) give the lowest risk (standard deviation of the portfolio return)? Search weights from 0 to 1 in steps of 0.05.
+**Portfolio weights (input data).** Using the simulated 'returns' as input data, which weights for stocks A and B (C gets the rest) give the lowest risk (standard deviation of the portfolio return)? Search weights from 0 to 1 in steps of 0.05.
 
 _Answer:_ The lowest-risk portfolio puts most of the money in the least volatile stock (C) with a small share in A: about 25% A, 0% B and 75% C.
 

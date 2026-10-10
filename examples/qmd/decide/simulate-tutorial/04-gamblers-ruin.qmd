@@ -13,10 +13,12 @@ In Radiant: **Load example > Gambler's ruin (custom function)**.
 import pyrsm as rsm
 ```
 
-Each row is a day; `win` is 1 on a winning day. Wealth depends on yesterday's wealth, so it is calculated in a loop: a **custom function**. Functions use Python syntax (`def`, `for`, `if`, indexing from 0) and the same functions as formulas (`zeros`, `len`, `max`, ...); they cannot import modules, read files or use `.` attributes. Constants are single numbers, so they can be passed in as they are.
+Each row is a day; `win` is 1 on a winning day. Wealth depends on yesterday's wealth, so it is calculated in a loop: a **custom function**, an ordinary Python function passed in the spec under `functions`. It uses the simulation functions (`zeros`, `ifelse`, `mean`, ...) imported from `pyrsm.decide.simfuns`, so it can be tried on its own; inside a simulation it runs with the same safety rules as in Radiant (no imports, files or `.` attributes). Constants are single numbers, so they can be passed in as they are.
 
 ```{python}
-functions = """
+from pyrsm.decide.simfuns import zeros
+
+
 def calc_wealth(win, start, perc_invest, win_mult):
     # wealth at the end of each day: bet a share of what you have
     wealth = zeros(len(win))
@@ -29,13 +31,7 @@ def calc_wealth(win, start, perc_invest, win_mult):
             current = current - bet
         wealth[day] = current
     return wealth
-"""
 
-formulas = """
-wealth = calc_wealth(win, start, perc_invest, win_mult)
-final = wealth[n() - 1]
-loss = final < start
-"""
 
 spec = {
     "name": "gamble",
@@ -47,9 +43,19 @@ spec = {
         {"name": "win_mult", "kind": "constant", "value": 5},
         {"name": "win", "kind": "binomial", "trials": 1, "prob": 0.2},
     ],
-    "form": formulas,
-    "functions": functions,
+    "formulas": [
+        "wealth = calc_wealth(win, start, perc_invest, win_mult)",
+        "final = wealth[-1]",
+        "loss = final < start",
+    ],
+    "functions": [calc_wealth],
 }
+```
+
+```{python}
+import numpy as np
+
+calc_wealth(np.array([1, 0, 0, 1]), 1000, 0.05, 5)
 ```
 
 ```{python}
@@ -63,11 +69,14 @@ One simulated year is one path. Repeat it 1,000 times (**group by Repeat**) and 
 rep = rsm.decide.repeat_simulate(
     spec,
     reps=1000,
-    vars=['win'],
-    sum_vars=['wealth'],
-    by='rep',
-    fun=['last', 'min'],
-    form='loss = wealth_last < 1000\nruined = wealth_min < 100',
+    vars=["win"],
+    sum_vars=["wealth"],
+    by="rep",
+    fun=["last", "min"],
+    formulas=[
+        "loss = wealth_last < 1000",
+        "ruined = wealth_min < 100",
+    ],
     seed=1234,
 )
 rep.summary()
@@ -80,7 +89,7 @@ rep.plot()
 A loop is easy to read but slow for long simulations. The same wealth without a loop: each day multiplies wealth by `1 + 5 x 0.05` or `1 - 0.05`, so
 
 ```{python}
-fast = dict(spec, form="wealth = start * cumprod(ifelse(win == 1, 1 + win_mult * perc_invest, 1 - perc_invest))")
+fast = dict(spec, formulas=["wealth = start * cum_prod(ifelse(win == 1, 1 + win_mult * perc_invest, 1 - perc_invest))"])
 fast.pop("functions")
 (rsm.decide.simulate(fast).data["wealth"] - sim.data["wealth"]).abs().max()
 ```

@@ -7,22 +7,15 @@ In Radiant: **Load example > Optimal price (grid search)**.
 
 ## Question
 
-> Demand for an ice cream bar is 1000 - 80 x price and each bar costs $2 to make. Which price between $4 and $10 maximizes profit? Use a grid search over price in steps of $0.01 and find_max().
+> Demand for an ice cream bar is 1000 - 80 x price and each bar costs $2 to make. Which price between $4 and $10 maximizes profit? Use a grid search over price in steps of $0.01.
 
 ```{python}
 import pyrsm as rsm
 ```
 
-A **grid** variable runs from a minimum to a maximum in steps. With grid variables the number of rows is the number of grid values (601 prices), not the number of simulations. `find_max(profit, price)` returns the price where profit is highest; `max(profit)` is one number, the highest profit.
+A **grid** variable runs from a minimum to a maximum in steps. With grid variables the number of rows is the number of grid values (601 prices), not the number of simulations. `arg_max(profit)` is the row with the highest profit, so `price[arg_max(profit)]` is the best price; `max(profit)` is one number, the highest profit.
 
 ```{python}
-formulas = """
-demand = 1000 - 80 * price
-profit = demand * (price - cost)
-optimal_price = find_max(profit, price)
-max_profit = max(profit)
-"""
-
 spec = {
     "name": "pricing",
     "runs": 1000,
@@ -31,7 +24,13 @@ spec = {
         {"name": "cost", "kind": "constant", "value": 2},
         {"name": "price", "kind": "grid", "min": 4, "max": 10, "step": 0.01},
     ],
-    "form": formulas,
+    "formulas": [
+        "demand = 1000 - 80 * price",
+        "profit = demand * (price - cost)",
+        "# the price in the row with the highest profit",
+        "optimal_price = price[arg_max(profit)]",
+        "max_profit = max(profit)",
+    ],
 }
 ```
 
@@ -46,7 +45,7 @@ import polars as pl
 sim.data.sort("profit", descending=True).head(3)
 ```
 
-Two grid variables give every combination: with `x` from 1 to 3 and `y` from 4 to 5, the first varies fastest (as R's `expand.grid`).
+Two grid variables give every combination: with `x` from 1 to 3 and `y` from 4 to 5, the first varies fastest.
 
 ```{python}
 rsm.decide.simulate({"variables": [
