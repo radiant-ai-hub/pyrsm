@@ -23,6 +23,7 @@ _LAZY_MODULES = {
     "design": "pyrsm.design",
     "utils": "pyrsm.utils",
     "data_scope": "pyrsm.data_scope",
+    "data": "pyrsm.data",
 }
 
 
