@@ -19,6 +19,9 @@ willingness to pay follows from a single price coefficient:
 Also writes ``minivan_market``: six minivans competing in one market (the
 designs in the book's share simulation) for Predict > Dataset.
 
+Each parquet carries its ``<name>_description.md`` inside the file as parquet
+metadata (key ``description``), so the description travels with the data.
+
 Deterministic (fixed seed). Usage: ``python scripts/generate_minivan_example.py``
 """
 
@@ -44,6 +47,12 @@ SD = {"seat7": 0.5, "seat8": 1.0, "cargo3ft": 0.3, "enghyb": 0.5,
 CARPOOL_SHIFT = {"seat7": 1.5, "seat8": 2.0}
 
 N_RESP, N_QUES, N_ALT = 200, 15, 3
+
+
+def write_with_description(df: pl.DataFrame, name: str) -> None:
+    """Write ``<name>.parquet`` with ``<name>_description.md`` embedded."""
+    description = (DIR / f"{name}_description.md").read_text(encoding="utf-8")
+    df.write_parquet(DIR / f"{name}.parquet", metadata={"description": description})
 
 
 def utility(beta: dict, seat: str, cargo: str, eng: str, price: int) -> float:
@@ -87,7 +96,7 @@ def main() -> None:
         pl.col("eng").cast(pl.Enum(ENG)),
         pl.col("price").cast(pl.Int32),
     )
-    df.write_parquet(DIR / "minivan.parquet")
+    write_with_description(df, "minivan")
     print(f"minivan: {df.height} rows, {df['task'].n_unique()} choice tasks")
 
     market = pl.DataFrame(
@@ -104,7 +113,7 @@ def main() -> None:
         pl.col("eng").cast(pl.Enum(ENG)),
         pl.col("price").cast(pl.Int32),
     )
-    market.write_parquet(DIR / "minivan_market.parquet")
+    write_with_description(market, "minivan_market")
     print(f"minivan_market: {market.height} products")
 
 

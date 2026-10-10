@@ -1,4 +1,4 @@
-"""Smoke tests for the seven multivariate teaching notebooks.
+"""Smoke tests for the multivariate teaching notebooks.
 
 These catch the cheap failures (missing files, code cells that no longer parse)
 without a full render. Set ``PYRSM_RUN_NOTEBOOKS=1`` to additionally execute the
@@ -25,6 +25,7 @@ NOTEBOOKS = [
     "multivariate-prmap",
     "multivariate-conjoint",
     "multivariate-cbc",
+    "multivariate-conjoint-choice",
 ]
 
 _CODE_BLOCK = re.compile(r"```\{python\}(.*?)```", re.DOTALL)
