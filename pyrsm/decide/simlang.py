@@ -43,8 +43,8 @@ class BudgetExceeded(SimLangError):
 _HABITS = [
     (re.compile(r"<-"), "use = to assign"),
     (re.compile(r"\^"), "use ** for a power (x ** 2)"),
-    (re.compile(r"&&?"), "use and to combine conditions"),
-    (re.compile(r"\|\|?"), "use or to combine conditions"),
+    (re.compile(r"&&"), "use and (or &) to combine conditions"),
+    (re.compile(r"\|\|"), "use or (or |) to combine conditions"),
     (re.compile(r"!(?!=)"), "use not to negate a condition"),
     (re.compile(r"%%"), "use % for the remainder"),
     (re.compile(r"\bTRUE\b|\bFALSE\b"), "use True and False"),
@@ -103,6 +103,29 @@ class UserFunction:
     lineno: int = 0
 
 
+#: Operators that mean something else in R or Excel
+_NOT_PYTHON = {
+    ast.BitXor: "use ** for a power (x ** 2)",
+}
+
+
+def _logical(op: str, fn: Callable[[Any, Any], Any]) -> Callable[[Any, Any], Any]:
+    """``&`` / ``|`` on conditions, as in polars and numpy. Without brackets
+    Python reads ``x > 3 & y == 2`` as ``x > (3 & y) == 2``."""
+
+    def run(a: Any, b: Any) -> Any:
+        def is_bool(v: Any) -> bool:
+            return isinstance(v, bool | np.bool_) or (isinstance(v, np.ndarray) and v.dtype == bool)
+
+        if not (is_bool(a) and is_bool(b)):
+            raise SimLangError(
+                f"{op} combines conditions: put each in brackets, e.g. (x > 3) {op} (y == 2), "
+                f"or use {'and' if op == '&' else 'or'}"
+            )
+        return fn(a, b)
+
+    return run
+
 _BINOPS: dict[type, Callable[[Any, Any], Any]] = {
     ast.Add: lambda a, b: a + b,
     ast.Sub: lambda a, b: a - b,
@@ -111,13 +134,8 @@ _BINOPS: dict[type, Callable[[Any, Any], Any]] = {
     ast.FloorDiv: lambda a, b: np.floor_divide(a, b),
     ast.Mod: lambda a, b: np.mod(a, b),
     ast.Pow: lambda a, b: np.power(np.asarray(a, dtype=float), b),
-}
-
-#: Operators that mean something else in R or Excel
-_NOT_PYTHON = {
-    ast.BitXor: "use ** for a power (x ** 2)",
-    ast.BitAnd: "use and to combine conditions",
-    ast.BitOr: "use or to combine conditions",
+    ast.BitAnd: _logical("&", np.logical_and),
+    ast.BitOr: _logical("|", np.logical_or),
 }
 
 _CMPOPS: dict[type, Callable[[Any, Any], Any]] = {
@@ -353,6 +371,8 @@ class Interpreter:
             try:
                 with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
                     return _scalar(op(left, right))
+            except SimLangError:
+                raise
             except ValueError as exc:
                 raise SimLangError(_shape_message(left, right)) from exc
         if isinstance(node, ast.Compare):
@@ -446,7 +466,7 @@ def _shape_message(left: Any, right: Any) -> str:
     sizes = [np.size(x) for x in (left, right) if isinstance(x, np.ndarray)]
     return (
         f"cannot combine columns with {sizes[0]:,} and {sizes[-1]:,} values. Columns from the "
-        "input data have one value per data row; summarise them (mean, sd, ...) or use them "
+        "input data have one value per data row; summarise them (mean, std, ...) or use them "
         "with a function such as weighted_sum_std()"
     )
 

@@ -193,6 +193,12 @@ def cov(x: Any, y: Any) -> float:
     return float(np.cov(_arr(x), _arr(y), ddof=1)[0, 1])
 
 
+def is_in(x: Any, values: Any) -> Any:
+    """True where ``x`` is one of ``values`` (same as ``x in [...]``)."""
+    out = np.isin(x, _arr(values))
+    return out if np.ndim(out) else bool(out)
+
+
 def arg_max(x: Any) -> int:
     """Row of the largest value (from 0): ``price[arg_max(profit)]``."""
     return int(np.argmax(_arr(x)))
@@ -337,7 +343,7 @@ FUNCTIONS = [
     "min_horizontal", "max_horizontal", "sum_horizontal", "mean_horizontal",
     "cum_sum", "cum_prod", "cum_max", "cum_min", "shift",
     "sum", "mean", "median", "min", "max", "std", "var", "count", "first", "last",
-    "n_unique", "quantile", "corr", "cov", "arg_max", "arg_min", "weighted_sum_std",
+    "n_unique", "quantile", "corr", "cov", "is_in", "arg_max", "arg_min", "weighted_sum_std",
     "queue_wait", "queue_length",
     "zeros", "ones", "full", "arange", "linspace",
     "normal", "uniform", "binomial", "poisson", "exponential", "lognormal", "choice",

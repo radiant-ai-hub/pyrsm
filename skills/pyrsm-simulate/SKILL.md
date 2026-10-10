@@ -61,10 +61,12 @@ constants are evaluated first.
 ### Formulas
 
 Python expressions, as in pyrsm's data filter: `+ - * / ** %`, comparisons,
-`and`, `or`, `not`, `x in [1, 2]`, `a if cond else b`, `True`/`False`. They
+`and`, `or`, `not` (or `&`, `|`, `~` with each condition in brackets, as in
+Data > Transform), `x in [1, 2]` / `is_in(x, [1, 2])`, `a if cond else b`,
+`True`/`False`. They
 run in order, can update an existing variable, and return one value per row or
-a single value (`avg = mean(profit)`). R or Excel spellings (`<-`, `^`, `&`,
-`|`, `!`, `TRUE`) are refused with the Python to use instead.
+a single value (`avg = mean(profit)`). R or Excel spellings (`<-`, `^`, `&&`,
+`||`, `!`, `TRUE`) are refused with the Python to use instead.
 
 Functions (`pyrsm.decide.simfuns`, same names as the data filter and polars):
 
