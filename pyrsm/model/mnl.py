@@ -776,7 +776,7 @@ class mnl:
     def plot(
         self,
         plots: Literal["coef", "rrr", "pred", "dist", "corr"] = "coef",
-        conf: float = 0.95,
+        alpha: float = 0.05,
         intercept: bool = False,
         incl: list[str] | str | None = None,
         excl: list[str] | str | None = None,
@@ -789,8 +789,8 @@ class mnl:
         """
         Plots for a multinomial logistic regression
 
-        ``"coef"`` (``"rrr"``) shows the relative risk ratios with confidence
-        intervals (``conf``), colored by response level, as radiant.model.
+        ``"coef"`` (``"rrr"``) shows the relative risk ratios with 1 - ``alpha``
+        confidence intervals, colored by response level, as radiant.model.
         ``"pred"`` shows the predicted probability of each response level as one
         explanatory variable changes (the others at their mean or most common
         level). ``"dist"`` the distribution of the response and explanatory
@@ -809,7 +809,7 @@ class mnl:
             )
         if "pred" in plots:
             return self._pred_plot(incl, excl, nnv, minq, maxq)
-        return self._coef_plot(conf, intercept, incl, excl)
+        return self._coef_plot(1 - alpha, intercept, incl, excl)
 
     def _coef_plot(self, conf, intercept, incl, excl):
         from plotnine import (
