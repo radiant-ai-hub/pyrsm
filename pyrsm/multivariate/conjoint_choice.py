@@ -12,7 +12,8 @@ does for ratings-based conjoint), willingness to pay, and market-share
 simulation through ``predict``.
 
 Estimates match R's ``survival::clogit`` (see tests/test_conjoint_choice.py).
-The estimator is shared with ``pyrsm.multivariate.cbc``, the earlier port of
+The estimator (``pyrsm._logit``) is shared with ``pyrsm.model.mnl`` and
+``pyrsm.multivariate.cbc``, the earlier port of
 ``pyrsm_streamlit``'s ``ConjointChoice``.
 
 Examples
@@ -42,7 +43,8 @@ from pyrsm.model.model import sig_stars, sim_prediction
 from pyrsm.utils import cat_levels, check_dataframe
 
 from ._plotting import as_plot_result
-from .cbc import _mnl_fit, _segment_probs
+from pyrsm._logit import clogit_fit as _mnl_fit
+from pyrsm._logit import segment_probs as _segment_probs
 
 __all__ = ["conjoint_choice"]
 

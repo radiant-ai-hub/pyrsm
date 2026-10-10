@@ -25,6 +25,8 @@ from pyrsm.utils import format_nr
 from ._plotting import as_plot_result
 from ._utils import apply_filter, get_data, get_vars
 from pyrsm.data_scope import apply_scope, print_scope
+from pyrsm._logit import clogit_fit as _mnl_fit
+from pyrsm._logit import segment_probs as _segment_probs
 
 __all__ = ["cbc"]
 
@@ -35,100 +37,6 @@ def _to_list(v):
     if isinstance(v, str):
         return [v]
     return list(v)
-
-
-def _segment_probs(xb: np.ndarray, codes: np.ndarray, ngroups: int):
-    """Softmax of ``xb`` within each task (vectorized, numerically stable)."""
-    seg_max = np.full(ngroups, -np.inf)
-    np.maximum.at(seg_max, codes, xb)
-    ex = np.exp(xb - seg_max[codes])
-    seg_sum = np.bincount(codes, weights=ex, minlength=ngroups)
-    return ex / seg_sum[codes], seg_max, seg_sum
-
-
-def _mnl_fit(X: np.ndarray, y: np.ndarray, codes: np.ndarray, ngroups: int):
-    """Fit a conditional (multinomial) logit by maximum likelihood.
-
-    Parameters
-    ----------
-    X : (n, p) design matrix
-    y : (n,) binary chosen indicator (exactly one 1 per task)
-    codes : (n,) contiguous task code (0..ngroups-1) for each row
-    ngroups : number of choice tasks
-
-    Returns a dict with ``params``, ``bse``, ``zvalues``, ``pvalues``, ``llf``,
-    ``llnull`` (uniform-within-task baseline) and ``prsquared`` (McFadden). The
-    likelihood, gradient and Hessian are computed with segment (vectorized)
-    operations — no per-task Python loop.
-    """
-    import warnings
-
-    from scipy.optimize import minimize
-    from scipy.stats import norm
-
-    p = X.shape[1]
-    chosen = y == 1
-    Xc_sum = X[chosen].sum(0)  # sum of chosen rows' covariates
-
-    def nll_grad(beta):
-        xb = X @ beta
-        prob, seg_max, seg_sum = _segment_probs(xb, codes, ngroups)
-        # log-likelihood: sum_chosen xb - sum_tasks log-sum-exp
-        f = -(xb[chosen].sum() - (seg_max + np.log(seg_sum)).sum())
-        grad = -(Xc_sum - (X * prob[:, None]).sum(0))
-        return f, grad
-
-    with warnings.catch_warnings():
-        # benign overflow can occur in BFGS's line-search step-norm; the
-        # likelihood itself is max-stabilized, so ignore the noise.
-        warnings.simplefilter("ignore", RuntimeWarning)
-        res = minimize(nll_grad, np.zeros(p), jac=True, method="BFGS")
-    beta = res.x
-
-    def hessian(beta):
-        # analytic Hessian: sum_n p_n x_n x_n' - sum_g xbar_g xbar_g'
-        prob, _, _ = _segment_probs(X @ beta, codes, ngroups)
-        XB = np.zeros((ngroups, p))
-        np.add.at(XB, codes, X * prob[:, None])
-        return (X * prob[:, None]).T @ X - XB.T @ XB
-
-    # Newton-Raphson from the BFGS solution (as R's clogit and mlogit): the
-    # log-likelihood is concave, so a few steps reach the optimum even when
-    # BFGS stops early on badly scaled data (e.g., price in $1,000s).
-    for _ in range(25):
-        _, grad = nll_grad(beta)
-        try:
-            step = np.linalg.solve(hessian(beta), grad)
-        except np.linalg.LinAlgError:
-            break
-        beta = beta - step
-        if np.max(np.abs(step)) < 1e-10 * (1 + np.max(np.abs(beta))):
-            break
-    fval, grad = nll_grad(beta)
-    converged = bool(np.max(np.abs(grad)) < 1e-6 * max(1.0, abs(fval)))
-
-    H = hessian(beta)
-    try:
-        bse = np.sqrt(np.clip(np.diag(np.linalg.inv(H)), 0, None))
-    except np.linalg.LinAlgError:
-        bse = np.full(p, np.nan)
-
-    zvalues = beta / bse
-    pvalues = 2 * (1 - norm.cdf(np.abs(zvalues)))
-    llf = -fval
-    # null model: equal probability within each task
-    llnull = -float(np.log(np.bincount(codes, minlength=ngroups)).sum())
-    prsquared = 1 - llf / llnull if llnull != 0 else np.nan
-    return {
-        "params": beta,
-        "bse": bse,
-        "zvalues": zvalues,
-        "pvalues": pvalues,
-        "llf": float(llf),
-        "llnull": float(llnull),
-        "prsquared": float(prsquared),
-        "converged": converged,
-    }
 
 
 class cbc:
