@@ -975,6 +975,7 @@ class RepeatResult:
     form: list[Formula]
     grid: list[Variable]
     data: pl.DataFrame
+    functions: str = ""
     diagnostics: list[Diagnostic] = field(default_factory=list)
     summary_rows: list[dict[str, Any]] = field(default_factory=list)
     histograms: dict[str, dict[str, list[float]]] = field(default_factory=dict)
@@ -1008,6 +1009,9 @@ class RepeatResult:
             out.write(f"Repeat data   : {name}\n")
         if self.grid:
             out.write(f"Grid search   : {'; '.join(_variable_text(g) for g in self.grid)}\n")
+        names = _function_names(self.functions)
+        if names:
+            out.write(f"Functions     : {', '.join(names)}\n")
         if self.form:
             out.write("Formulas      :\n")
             for f in self.form:
@@ -1034,6 +1038,7 @@ class RepeatResult:
             "vars": list(self.vars),
             "sum_vars": list(self.sum_vars),
             "form": formulas_text(self.form),
+            "functions": self.functions,
             "grid": [_clean_dict(asdict(g)) for g in self.grid],
             "diagnostics": [d.to_dict() for d in self.diagnostics],
             "summary": list(self.summary_rows),
@@ -1045,18 +1050,33 @@ class RepeatResult:
 
 def _repeat_code(rep: RepeatResult, kwargs: dict[str, Any], data_name: str) -> str:
     base = _generate_python_code(rep.base_spec, data_name).split("\nsim.summary()")[0]
+    kwargs = dict(kwargs)
+    blocks: list[str] = []
+    for key, var in (("functions", "rep_functions"), ("form", "rep_formulas")):
+        text = kwargs.get(key)
+        if text:
+            blocks += [f'{var} = """\n{str(text).rstrip()}\n"""', ""]
+            kwargs[key] = _Literal(var)
     args = ",\n    ".join(f"{k}={v!r}" for k, v in kwargs.items())
     data_arg = f",\n    data={data_name}" if data_name else ""
     return "\n".join(
         [
             base,
             "",
+            *blocks,
             f"rep = rsm.decide.repeat_simulate(\n    spec,\n    {args}{data_arg},\n)",
             "rep.summary()",
             "rep.plot()",
             "repdat = rep.data",
         ]
     )
+
+
+class _Literal(str):
+    """A name to print as is in generated code (no quotes)."""
+
+    def __repr__(self) -> str:
+        return str(self)
 
 
 def repeat_simulate(
@@ -1070,6 +1090,7 @@ def repeat_simulate(
     form: str | list[Formula] | list[dict[str, Any]] = "",
     grid: list[Variable] | list[dict[str, Any]] | None = None,
     seed: int | None = None,
+    functions: str = "",
     data: Any = None,
     budget: int = DEFAULT_BUDGET,
 ) -> RepeatResult:
@@ -1090,7 +1111,9 @@ def repeat_simulate(
     repetition, and the number of combinations sets ``reps``. ``form``
     formulas run on the summarised data (e.g. ``"loss = profit_sum < 0"``).
     ``seed`` (default: the simulation's seed) makes the repetitions
-    reproducible. Output columns are named ``{variable}_{function}``.
+    reproducible. ``functions`` adds custom functions for the repeat
+    formulas (``def ...``), next to those of the simulation. Output columns
+    are named ``{variable}_{function}``.
     """
     if isinstance(spec, dict):
         spec = SimulationSpec.from_dict(spec)
@@ -1116,11 +1139,16 @@ def repeat_simulate(
 
     result = RepeatResult(
         base_spec=spec, reps=int(reps), by=by, funs=funs, vars=vars, sum_vars=list(sum_vars or []),
-        form=rep_form, grid=grid_vars, data=pl.DataFrame(), seed=seed,
+        form=rep_form, grid=grid_vars, data=pl.DataFrame(), seed=seed, functions=functions or "",
     )  # fmt: skip
     diagnostics = result.diagnostics
     if form_error:
         diagnostics.append(Diagnostic("error", "bad_repeat_formula", form_error))
+    if functions and functions.strip():
+        try:
+            Interpreter(names={}, rng=np.random.default_rng(0)).define_functions(functions)
+        except SimLangError as exc:
+            diagnostics.append(Diagnostic("error", "bad_repeat_function", f"repeat functions: {exc}"))
     names = {v.name for v in spec.variables}
     unknown = [v for v in vars if v not in names]
     if unknown:
@@ -1206,7 +1234,12 @@ def repeat_simulate(
                     return result
     if rep_form:
         interp2 = Interpreter(names=dict(cols), rng=rng, budget=budget)
-        interp2.define_functions(spec.functions)
+        try:
+            interp2.define_functions(spec.functions)
+            interp2.define_functions(functions or "")
+        except SimLangError as exc:
+            diagnostics.append(Diagnostic("error", "bad_repeat_function", f"repeat functions: {exc}"))
+            return result
         rows_out = len(next(iter(cols.values())))
         interp2.nrows = rows_out
         for f in rep_form:
@@ -1229,6 +1262,8 @@ def repeat_simulate(
         kwargs["grid"] = [_clean_dict(asdict(g)) for g in grid_vars]
     if seed != spec.seed:
         kwargs["seed"] = seed
+    if functions and functions.strip():
+        kwargs["functions"] = functions
     result.python_code = _repeat_code(result, kwargs, spec.data)
     return result
 

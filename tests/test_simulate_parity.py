@@ -311,3 +311,21 @@ def test_plots():
     assert fig is not None
     rep = repeat_simulate(ex["spec"], reps=20, vars=["E"], sum_vars=["profit", "profit_small"], fun="mean")
     assert rep.plot() is not None
+
+
+def test_repeat_functions_of_their_own():
+    spec = {"runs": 30, "seed": 1, "variables": [{"name": "x", "kind": "normal", "mean": 0, "sd": 1}],
+            "functions": "def sq(v):\n    return v * v", "form": "y = sq(x)"}  # fmt: skip
+    rep = repeat_simulate(
+        spec, reps=5, vars=["x"], sum_vars=["y"], by="rep", fun="mean",
+        functions="def big(v, k=1):\n    return v > k", form="high = big(y_mean)\nsame = sq(y_mean)",
+    )  # fmt: skip
+    assert not rep.has_errors, rep.diagnostics
+    assert {"high", "same"} <= set(rep.data.columns)
+    assert "Functions     : big" in rep.summary_text()
+    assert 'rep_functions = """' in rep.python_code and "functions=rep_functions" in rep.python_code
+    ns: dict = {}
+    exec(rep.python_code.replace("rep.summary()", "").replace("rep.plot()", ""), ns)  # noqa: S102
+    assert ns["repdat"].equals(rep.data)
+    bad = repeat_simulate(spec, reps=2, vars=["x"], functions="import os")
+    assert bad.has_errors and "repeat functions" in bad.diagnostics[0].message

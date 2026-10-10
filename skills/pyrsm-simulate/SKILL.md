@@ -108,11 +108,12 @@ rsm.decide.repeat_simulate(
 - `fun`: any of sum, mean, median, min, max, sd, var, sdprop, varprop, p01,
   p025, p05, p10, p25, p75, p90, p95, p975, p99, first, last, or "none".
   Columns are `{variable}_{function}`.
+- `functions`: custom functions for the repeat formulas (the simulation's functions are available too).
 - `grid` (by="rep"): `[{"name": "tellers", "min": 1, "max": 4, "step": 1}]`
   replaces a constant in each repetition; the number of grid values sets `reps`.
 
 In Radiant the actions are `simulate.run` (`spec`, `dec`) and
-`simulate.repeat.run` (`spec`, `reps`, `vars`, `sum_vars`, `by`, `fun`, `form`,
+`simulate.repeat.run` (`spec`, `reps`, `vars`, `sum_vars`, `by`, `fun`, `form`, `functions`,
 `grid`, `seed`, `name`, `dec`); the simulated and repeated data are saved as
 datasets (`spec.name`, `name`).
 
