@@ -1,0 +1,262 @@
+---
+title: Models > Multinomial Logistic Regression (MNL)
+jupyter: python3
+---
+
+<div class="alert alert-info">Estimate a multinomial logistic regression (MNL) for a categorical response with two or more levels</div>
+
+<!-- pyrsm-teaching-note: roadmap -->
+## Teaching Roadmap
+
+A multinomial logistic regression explains which of several categories is chosen: the brand a shopper buys, the plan a customer signs up for. One level of the response is the **base level**; every other level gets its own intercept and its own coefficient for each explanatory variable, and every coefficient compares that level with the base level. The exponent of a coefficient, the **relative risk ratio (RRR)**, is the factor by which the odds of a level *relative to the base level* change for a one-unit increase in the variable.
+
+Students should learn to (1) choose and name the base level, (2) interpret RRRs per level, (3) use predicted probabilities for what-if questions, (4) test groups of variables with a likelihood-ratio test, (5) check the data before trusting the coefficients, and (6) see how MNL relates to the conditional logit used for choice-based conjoint.
+
+`rsm.model.mnl` matches R's `nnet::multinom` (used by radiant.model). In Radiant-AI the same analysis is *Model > Estimate > Multinomial logistic regression (MNL)*.
+
+```{python}
+import polars as pl
+import pyrsm as rsm
+```
+
+```{python}
+## setup pyrsm for autoreload
+%reload_ext autoreload
+%autoreload 2
+%aimport pyrsm
+```
+
+## Example: Choice of ketchup
+
+The `ketchup` data record 2,798 purchases by 300 households in a panel in Springfield, Missouri, over about two years (Jain, Vilcassim and Chintagunta, 1994):
+
+- `id` — household identifier
+- `choice` — the product bought: `heinz28`, `heinz32`, `heinz41` or `hunts32` (brand and package size in ounces)
+- `price.x` — price of product `x` on that purchase occasion
+- `disp.x` — was product `x` on display (yes, no)?
+- `feat.x` — was product `x` featured in a newspaper ad (yes, no)?
+
+The data are in **wide** format: one row per purchase, with the price, display and feature of every product in its own column. That is exactly the shape `mnl` needs.
+
+```{python}
+ketchup = pl.read_parquet(
+    "https://github.com/radiant-ai-hub/pyrsm/raw/refs/heads/main/examples/data/model/ketchup.parquet"
+)
+ketchup.head()
+```
+
+```{python}
+ketchup["choice"].value_counts(sort=True)
+```
+
+`heinz32` is bought most often, followed by `heinz28`; `hunts32` and `heinz41` are bought much less often.
+
+## a. How do prices influence which product is bought?
+
+Estimate the model with `heinz28` as the base level and the four prices as explanatory variables.
+
+```{python}
+prices = ["price.heinz28", "price.heinz32", "price.heinz41", "price.hunts32"]
+mnl = rsm.model.mnl({"ketchup": ketchup}, rvar="choice", lev="heinz28", evar=prices)
+mnl.summary()
+```
+
+Each row compares one product (`level`) with `heinz28`. The second row is the effect of `price.heinz28` on buying `heinz32` rather than `heinz28`: RRR = exp(1.099) = 3.000. A $1 higher price for heinz28 triples the odds of buying heinz32 instead, holding the other prices constant: the two are substitutes.
+
+- `heinz32`, `price.heinz32`: RRR 0.101. A $1 higher price for heinz32 lowers the odds of heinz32 rather than heinz28 by 89.9%.
+- `hunts32`, `price.heinz28`: RRR 3.602. A $1 higher price for heinz28 raises the odds of hunts32 rather than heinz28 by 260.2%.
+- `hunts32`, `price.hunts32`: RRR 0.070, 93.0% lower odds.
+
+The intercepts have no RRR: they are the log odds of each level relative to the base level when every price is 0.
+
+McFadden's pseudo R-squared compares the model with one that predicts every purchase with the overall share of each product. The chi-squared test has 12 degrees of freedom: 15 coefficients minus the 3 intercepts of that null model.
+
+## b. Which effects are clearly different from 1?
+
+Relative risk ratios with 95% confidence intervals, on a log scale. Left of the dashed line lowers the odds of a level relative to `heinz28`, right of it raises them.
+
+```{python}
+mnl.plot("coef")
+```
+
+A higher `price.heinz28` raises the odds of all three other products; each product's own price lowers its odds; and `hunts32` is the only product whose odds rise with `price.heinz32`.
+
+The tables behind the plot:
+
+```{python}
+mnl.summary(main=False, fit=False, rrr=True)
+```
+
+## c. Predicted probabilities
+
+Probabilities are easier to explain than RRRs. Vary `price.heinz28` with the other prices at their mean; every row's four probabilities add to 1.
+
+```{python}
+pred = mnl.predict(cmd={"price.heinz28": [3.4, 3.6, 3.8, 4.0, 4.2, 4.4, 4.6, 4.8, 5.0, 5.2]}, dec=3)
+pred
+```
+
+As `price.heinz28` rises from $3.40 to $5.20, its own probability drops from 51.7% to 13.3% and `heinz32` gains most (39.3% to 72.8%). `hunts32` rises from 3.2% to 8.4%: fewer percentage points, but a larger change relative to where it started.
+
+`plot("pred")` draws such curves for every explanatory variable, each varied over the 2.5th to 97.5th percentile of the data:
+
+```{python}
+mnl.plot("pred")
+```
+
+To plot a prediction table yourself, put it in long form, one row per level:
+
+```{python}
+levels = ["heinz28", "heinz32", "heinz41", "hunts32"]
+pred_long = pred.unpivot(on=levels, index=prices, variable_name="choice", value_name="prediction")
+rsm.model.plot_predictions(pred_long, xvar="price.heinz28", color="choice")
+```
+
+## d. Do displays matter once prices are in the model?
+
+Add the four display variables and test them together with a likelihood-ratio test (`test=`): the model without them is Model 1.
+
+```{python}
+disps = ["disp.heinz28", "disp.heinz32", "disp.heinz41", "disp.hunts32"]
+mnl2 = rsm.model.mnl({"ketchup": ketchup}, rvar="choice", lev="heinz28", evar=prices + disps)
+mnl2.summary(main=False, test=disps)
+```
+
+Chi-squared 105.0 with 12 degrees of freedom (4 variables × 3 levels): displays matter. A display for `heinz28`, for example, lowers the odds of each other product relative to heinz28:
+
+```{python}
+mnl2.coef.filter(pl.col("index") == "disp.heinz28[yes]").select("level", "index", "RRR", "p.value")
+```
+
+## e. How well does the model classify purchases?
+
+The confusion matrix shows the most likely product (rows) against the product bought (columns).
+
+```{python}
+mnl.summary(main=False, fit=False, confusion=True)
+```
+
+36.9% of the purchases are misclassified, and `heinz41` is the most likely product for only 11 purchases. A rare level is seldom the *most likely* one, even when its probability is predicted well, so judge a multinomial model by its probabilities and not by the confusion matrix alone.
+
+## Check the data first
+
+The prices include values that look like data errors:
+
+```{python}
+ketchup.select(prices).describe()
+```
+
+```{python}
+mnl.plot("dist")
+```
+
+The middle half of the prices lies between about $3 and $5, but `price.heinz28` runs from $0.10 to $12.00 and `price.hunts32` up to $8.70. Re-estimate without the extreme values (`data_filter`; column names with dots work in filters) and compare:
+
+```{python}
+mnl_trim = rsm.model.mnl(
+    {"ketchup": ketchup},
+    rvar="choice",
+    lev="heinz28",
+    evar=prices,
+    data_filter="price.heinz28 >= 2 and price.heinz28 <= 7 and price.hunts32 <= 7",
+)
+mnl.coef.select("level", "index", pl.col("RRR").alias("RRR_all")).join(
+    mnl_trim.coef.select("level", "index", pl.col("RRR").alias("RRR_trimmed")),
+    on=["level", "index"],
+).filter(pl.col("index") != "Intercept")
+```
+
+Without the extreme prices the RRRs of `price.heinz28` move most (3.00 to 2.76 for heinz32, 2.11 to 1.92 for heinz41); the others barely change, so the conclusions hold.
+
+Prices may also be endogenous: if stores cut a price when demand is low, the estimated price effect mixes the two. Without an experiment, read the price effects as associations.
+
+## Standardized RRRs
+
+With `standardize=True` every numeric explanatory variable X is replaced by (X − mean(X)) / (2 × sd(X)) (Gelman, 2008), so RRRs of variables on different scales can be compared:
+
+```{python}
+mnl_std = rsm.model.mnl({"ketchup": ketchup}, rvar="choice", lev="heinz28", evar=prices, standardize=True)
+mnl_std.coef.filter(pl.col("level") == "heinz32").select("index", "RRR")
+```
+
+## The base level does not change the predictions
+
+Every coefficient depends on the base level, but the model is the same: the predicted probabilities do not change.
+
+```{python}
+mnl_hunts = rsm.model.mnl({"ketchup": ketchup}, rvar="choice", lev="hunts32", evar=prices)
+pl.DataFrame(
+    {
+        "heinz32 (base heinz28)": mnl.predict(ketchup.head(5))["heinz32"],
+        "heinz32 (base hunts32)": mnl_hunts.predict(ketchup.head(5))["heinz32"],
+    }
+)
+```
+
+## MNL and the conditional logit
+
+MNL gives every product its own coefficient for every variable: 13 variables × 3 levels + 3 intercepts = 39 coefficients for prices, displays and features. When the variables describe the *alternatives* (each product's own price, display and feature), a more parsimonious model has **one** price coefficient, one display and one feature coefficient for all products, plus a constant per brand. That is the conditional logit `rsm.multivariate.conjoint_choice` estimates for choice-based conjoint, and it needs the data in **long** format: one row per product per purchase.
+
+```{python}
+brands = ["heinz28", "heinz32", "heinz41", "hunts32"]
+purchases = ketchup.with_row_index("occasion", offset=1)
+ketchup_long = (
+    pl.concat(
+        [
+            purchases.select(
+                "occasion",
+                "id",
+                "choice",
+                pl.lit(b).alias("brand"),
+                pl.col(f"price.{b}").alias("price"),
+                pl.col(f"disp.{b}").alias("disp"),
+                pl.col(f"feat.{b}").alias("feat"),
+            )
+            for b in brands
+        ]
+    )
+    .with_columns(
+        pl.col("brand").cast(pl.Enum(brands)),
+        (pl.col("choice").cast(pl.Utf8) == pl.col("brand").cast(pl.Utf8)).cast(pl.Int8).alias("chosen"),
+    )
+    .sort("occasion", "brand")
+)
+ketchup_long.head(8)
+```
+
+```{python}
+clogit = rsm.multivariate.conjoint_choice(
+    {"ketchup_long": ketchup_long},
+    rvar="chosen",
+    lev="1",
+    evar=["brand", "price", "disp", "feat"],
+    id="occasion",
+    alt="brand",
+)
+clogit.summary()
+```
+
+One price coefficient (−1.40: a $1 higher price lowers a product's odds of being chosen by 75%, whichever product it is), one display and one feature effect, and three brand constants relative to `heinz28`: 6 coefficients instead of 39. Compare the fit with the full MNL (prices, displays and features) by log-likelihood and AIC; pseudo R-squared is not comparable, because the two use different null models:
+
+```{python}
+feats = ["feat.heinz28", "feat.heinz32", "feat.heinz41", "feat.hunts32"]
+mnl_all = rsm.model.mnl({"ketchup": ketchup}, rvar="choice", lev="heinz28", evar=prices + disps + feats)
+pl.DataFrame(
+    {
+        "model": ["MNL (39 coefficients)", "Conditional logit (6 coefficients)"],
+        "log-likelihood": [mnl_all.fit_stats["loglik"], clogit.fit_stats["loglik"]],
+        "AIC": [mnl_all.fit_stats["AIC"], clogit.fit_stats["AIC"]],
+    }
+)
+```
+
+The MNL fits better (it is more flexible: each product reacts differently to each price) and its AIC is lower, so the extra coefficients are worth it here. The conditional logit is easier to communicate and can predict for a product with a new price, display or feature combination. Both models are estimated by the same engine in pyrsm (`pyrsm._logit`): an MNL *is* a conditional logit on a long design with level-specific intercepts and every variable interacted with the level indicators.
+
+## Discussion Prompts
+
+- Why must every interpretation of an MNL coefficient name the base level?
+- `heinz32` gains most when `heinz28`'s price rises. What does that say about which products compete most closely?
+- Which levels would you expect the IIA assumption to treat unrealistically in this market?
+- When would you prefer the conditional logit over the MNL for a pricing decision?
+
+Source: Jain, D. C., Vilcassim, N. J. and Chintagunta, P. K. (1994), "A random-coefficients logit brand-choice model applied to panel data", *Journal of Business & Economic Statistics*, 12(3), 317–328.
