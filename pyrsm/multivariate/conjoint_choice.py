@@ -171,7 +171,8 @@ class conjoint_choice:
                     f"Interaction '{term}' uses variables not in evar: {', '.join(missing)}"
                 )
 
-        cols = [id] + ([alt] if alt else []) + [rvar] + self.evar
+        # the alternative id may also be an attribute (brand constants)
+        cols = list(dict.fromkeys([id] + ([alt] if alt else []) + [rvar] + self.evar))
         self.nobs_all = data.height
         data = data.select(cols).drop_nulls()
         self.nobs = data.height
