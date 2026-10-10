@@ -152,11 +152,36 @@ def _known_functions() -> str:
     return ", ".join(names)
 
 
+class _DottedNames(ast.NodeTransformer):
+    """Read ``price.heinz28`` as one column name, as R does.
+
+    A filter has no methods (``is_null(price)``, not ``price.is_null()``), so a
+    dotted name outside a call's function position can only be a column whose
+    name contains dots. A method call keeps its shape and its helpful error.
+    """
+
+    def visit_Call(self, node: ast.Call) -> ast.Call:
+        node.args = [self.visit(a) for a in node.args]
+        node.keywords = [self.visit(k) for k in node.keywords]
+        return node
+
+    def visit_Attribute(self, node: ast.Attribute) -> ast.expr:
+        parts, inner = [], node
+        while isinstance(inner, ast.Attribute):
+            parts.append(inner.attr)
+            inner = inner.value
+        if isinstance(inner, ast.Name):
+            name = ".".join([inner.id, *reversed(parts)])
+            return ast.copy_location(ast.Name(id=name, ctx=ast.Load()), node)
+        return self.generic_visit(node)
+
+
 def _parse(expression: str) -> ast.expr:
     try:
-        return ast.parse(expression.strip(), mode="eval").body
+        tree = ast.parse(expression.strip(), mode="eval").body
     except SyntaxError as exc:
         raise ScopeError(f"Could not read the filter {expression!r}: {exc.msg}") from exc
+    return _DottedNames().visit(tree)
 
 
 def _columns(node: ast.expr, found: set[str]) -> set[str]:

@@ -177,3 +177,31 @@ def test_minivan_example_matches_clogit_and_converges():
     market = pl.read_parquet(ROOT / "examples" / "data" / "multivariate" / "minivan_market.parquet")
     shares = cc.predict(data=market)["prediction"]
     assert np.isclose(shares.sum(), 1.0)
+
+
+def test_alternative_id_can_also_be_an_attribute():
+    """Brand as the alternative id *and* an attribute gives brand constants
+    (ketchup in long format: one row per brand per purchase)."""
+    k = pl.read_parquet(
+        Path(__file__).resolve().parents[1] / "examples" / "data" / "model" / "ketchup.parquet"
+    ).with_row_index("occasion", offset=1)
+    brands = ["heinz28", "heinz32", "heinz41", "hunts32"]
+    long = pl.concat(
+        [
+            k.select(
+                "occasion",
+                "choice",
+                pl.lit(b).alias("brand"),
+                pl.col(f"price.{b}").alias("price"),
+            )
+            for b in brands
+        ]
+    ).with_columns(
+        pl.col("brand").cast(pl.Enum(brands)),
+        (pl.col("choice").cast(pl.Utf8) == pl.col("brand").cast(pl.Utf8)).cast(pl.Int8).alias("chosen"),
+    )
+    cc = conjoint_choice(
+        long, rvar="chosen", lev="1", evar=["brand", "price"], id="occasion", alt="brand"
+    )
+    assert cc.xnames == ["brand[heinz32]", "brand[heinz41]", "brand[hunts32]", "price"]
+    assert cc.converged
