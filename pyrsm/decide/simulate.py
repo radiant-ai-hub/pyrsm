@@ -722,7 +722,7 @@ def sim_summary(rows: list[dict[str, Any]], dec: int = 4) -> str:
     if logic:
         lines.append("Logicals:")
         body = [[r["name"], f"{r['true_n']:,}", _fmt(r["true_prop"], dec)] for r in logic]
-        lines += _table(["", "TRUE (nr)", "TRUE (prop)"], body)
+        lines += _table(["", "True (n)", "True (prop)"], body)
         lines.append("")
     return "\n".join(lines).rstrip()
 

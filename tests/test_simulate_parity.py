@@ -276,7 +276,7 @@ def test_summary_text_has_rs_sections():
     ex = rsm.decide.simulate_example("profit")
     text = rsm.decide.simulate(ex["spec"]).summary_text()
     for part in ("Simulation\n", "Simulations: 1,000", "Random seed: 1234", "Constant   : var_cost 5; fixed_cost 1000",
-                 "Discrete   : price 6 8 0.3 0.7", "Constants:", "Variables:", "n_obs", "Logicals:", "TRUE (prop)"):  # fmt: skip
+                 "Discrete   : price 6 8 0.3 0.7", "Constants:", "Variables:", "n_obs", "Logicals:", "True (prop)"):  # fmt: skip
         assert part in text
 
 
