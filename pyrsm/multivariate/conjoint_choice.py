@@ -400,7 +400,7 @@ class conjoint_choice:
         out = self.PW.filter(pl.col("Levels") != "(slope)").with_columns(
             (pl.col("PW") / -bp).alias("WTP")
         )
-        return out.with_columns(pl.col("WTP").round(dec)) if dec is not None else out
+        return out.with_columns(pl.col("PW", "WTP").round(dec)) if dec is not None else out
 
     def store(self, what: str = "PW", price: str = "price") -> pl.DataFrame:
         """
