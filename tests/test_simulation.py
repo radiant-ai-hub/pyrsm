@@ -182,7 +182,7 @@ def test_discrete_probs_sum_validation():
         ],
     )
     result = simulate(spec)
-    assert any(d.code == "bad_variable" and "non-negative" in d.message for d in result.diagnostics)
+    assert any("cannot be negative" in d.message for d in result.diagnostics)
 
 
 # ---------------------------------------------------------------------------
@@ -227,7 +227,7 @@ def test_formula_unknown_name_diagnostic():
         formulas=[Formula(name="bad", expr="x + nope")],
     )
     result = simulate(spec)
-    assert any(d.code == "bad_formula" for d in result.diagnostics)
+    assert any("unknown name 'nope'" in d.message for d in result.diagnostics)
 
 
 def test_formula_comparison_produces_boolean():
@@ -268,9 +268,14 @@ def test_formula_rejects_attribute_access():
         compile_formula("x.evil", known={"x"})
 
 
-def test_formula_rejects_chained_compare():
-    with pytest.raises(FormulaError):
-        compile_formula("0 < x < 5", known={"x"})
+def test_formula_chained_compare_works():
+    spec = SimulationSpec(
+        runs=200, seed=1, variables=[Variable(name="x", kind="uniform", min=0, max=10)],
+        formulas=[Formula(name="mid", expr="2 < x < 8")],
+    )
+    result = simulate(spec)
+    x = result.data["x"].to_numpy()
+    assert result.data["mid"].to_list() == list((x > 2) & (x < 8))
 
 
 def test_formula_logical_negation():
@@ -351,8 +356,9 @@ def test_generated_python_code_runs_and_matches():
     )
     result = simulate(spec)
     namespace: dict = {}
-    exec(result.python_code, namespace)  # noqa: S102 - controlled generated code
-    df = namespace["data"]
+    code = result.python_code.replace("sim.summary()", "").replace("sim.plot()", "")
+    exec(code, namespace)  # noqa: S102 - controlled generated code
+    df = namespace["simdat"]
     assert isinstance(df, pl.DataFrame)
     assert {"x", "y", "z"} <= set(df.columns)
     # The generated code should reproduce identical draws under the same seed
@@ -400,130 +406,3 @@ def test_diagnostic_is_serializable():
 # ---------------------------------------------------------------------------
 
 
-def test_repeat_simulate_shape_and_aggregation():
-    # 50 reps × 10 per-period draws (= spec.runs), x is constant 2.
-    spec = SimulationSpec(
-        runs=10,
-        seed=7,
-        variables=[Variable(name="x", kind="constant", value=2)],
-    )
-    r = repeat_simulate(spec, reps=50, agg="sum")
-    assert not r.has_errors
-    assert r.data.shape == (50, 1)
-    assert list(r.data.columns) == ["x_sum"]
-    # Sum over 10 constants of 2 = 20 per rep
-    assert r.data["x_sum"].to_list() == [20.0] * 50
-
-
-def test_repeat_simulate_mean_aggregation():
-    spec = SimulationSpec(
-        runs=10,
-        seed=7,
-        variables=[Variable(name="x", kind="constant", value=2)],
-    )
-    r = repeat_simulate(spec, reps=50, agg="mean")
-    assert r.data["x_mean"].to_list() == [2.0] * 50
-
-
-def test_repeat_simulate_non_resample_reuses_same_draws():
-    """Non-resample variables reuse the same per-period draws every rep."""
-    spec = SimulationSpec(
-        runs=20,
-        seed=42,
-        variables=[Variable(name="z", kind="normal", mean=0, sd=10)],
-    )
-    r = repeat_simulate(spec, reps=100, agg="sum", resample=[])
-    # Every rep aggregates the SAME 20 draws → all reps get the same sum.
-    sums = r.data["z_sum"].to_list()
-    assert len(set(sums)) == 1
-
-
-def test_repeat_simulate_resample_gives_different_per_rep():
-    """When a variable IS in resample, each rep gets fresh draws → varying sums."""
-    spec = SimulationSpec(
-        runs=20,
-        seed=42,
-        variables=[Variable(name="z", kind="normal", mean=0, sd=10)],
-    )
-    r = repeat_simulate(spec, reps=100, agg="sum", resample=["z"])
-    sums = r.data["z_sum"].to_list()
-    assert len(set(sums)) > 50  # plenty of variation across reps
-
-
-def test_repeat_simulate_boolean_sum_counts_true():
-    spec = SimulationSpec(
-        runs=100,
-        seed=1,
-        variables=[Variable(name="x", kind="constant", value=5)],
-        formulas=[Formula(name="big", expr="x > 0")],
-    )
-    r = repeat_simulate(spec, reps=10, agg="sum")
-    # Each rep: 100 per-period values of True → sum=100
-    assert r.data["big_sum"].to_list() == [100.0] * 10
-
-
-def test_repeat_simulate_diversification_reduces_tail():
-    # Daily profit ~ N(10, 50), resampled every rep across 365 days.
-    spec = SimulationSpec(
-        runs=365,
-        seed=11,
-        variables=[Variable(name="profit", kind="normal", mean=10, sd=50)],
-    )
-    r = repeat_simulate(spec, reps=2000, agg="sum", resample=["profit"])
-    annual_profit = r.data["profit_sum"].to_numpy()
-    # 365 * 10 = 3650 mean, sd = 50 * sqrt(365) ≈ 955
-    assert abs(annual_profit.mean() - 3650) < 60
-    p_annual_loss = float((annual_profit < 0).mean())
-    assert p_annual_loss < 0.05
-
-
-def test_repeat_simulate_repeat_formula_on_aggregated_column():
-    """Repeat formulas can reference {col}_{agg} aggregated columns."""
-    spec = SimulationSpec(
-        runs=365,
-        seed=3,
-        variables=[Variable(name="profit", kind="normal", mean=10, sd=50)],
-    )
-    r = repeat_simulate(
-        spec,
-        reps=2000,
-        agg="sum",
-        resample=["profit"],
-        repeat_formulas=[Formula(name="annual_loss", expr="profit_sum < 0")],
-    )
-    assert "annual_loss" in r.data.columns
-    p_annual_loss = float(r.data["annual_loss"].cast(pl.Float64).mean())
-    assert p_annual_loss < 0.05
-
-
-def test_repeat_simulate_bad_reps():
-    spec = SimulationSpec(runs=10, variables=[Variable(name="x", kind="constant", value=1)])
-    r = repeat_simulate(spec, reps=0)
-    assert r.has_errors
-    assert any(d.code == "bad_reps" for d in r.diagnostics)
-
-
-def test_repeat_simulate_bad_agg():
-    spec = SimulationSpec(runs=10, variables=[Variable(name="x", kind="constant", value=1)])
-    r = repeat_simulate(spec, reps=5, agg="garbage")
-    assert r.has_errors
-    assert any(d.code == "bad_agg" for d in r.diagnostics)
-
-
-def test_repeat_simulate_unknown_resample_is_warning():
-    spec = SimulationSpec(runs=10, variables=[Variable(name="x", kind="constant", value=1)])
-    r = repeat_simulate(spec, reps=5, resample=["does_not_exist"])
-    assert not r.has_errors
-    assert any(d.severity == "warning" and d.code == "unknown_resample" for d in r.diagnostics)
-
-
-def test_repeat_simulate_generated_code_present():
-    spec = SimulationSpec(
-        runs=10,
-        seed=1,
-        variables=[Variable(name="x", kind="constant", value=1)],
-    )
-    r = repeat_simulate(spec, reps=5, agg="sum")
-    assert "reps = 5" in r.python_code
-    assert "_agg" in r.python_code
-    assert "aggregated" in r.python_code

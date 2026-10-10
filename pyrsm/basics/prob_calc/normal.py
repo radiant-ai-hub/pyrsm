@@ -1,10 +1,11 @@
 import numpy as np
 from scipy import stats
 
-from .utils import ceil, check, floor, iround, plot_continuous
+from .utils import ceil, check, check_positive, floor, iround, plot_continuous
 
 
 def prob_norm(mean, sd, lb=None, ub=None, plb=None, pub=None):
+    check_positive(**{"St. dev": sd})
     if lb is not None:
         p_lb = stats.norm.cdf(lb, mean, sd)
     else:

@@ -15,13 +15,15 @@ from __future__ import annotations
 
 import numpy as np
 import polars as pl
+import polars.selectors as cs
 
+from pyrsm.plot_style import ALPHA, FILL, REF, theme_pyrsm
 from pyrsm.utils import cat_levels, format_nr
 
 from ._plotting import as_plot_result
 from ._utils import does_vary, get_data, get_vars, is_categorical
 from pyrsm.data_scope import apply_scope, print_scope
-from ._utils import standardize as _standardize
+from ._utils import r_scale as _standardize
 
 __all__ = ["kclus"]
 
@@ -64,7 +66,13 @@ class kclus:
     hc_init : bool, default True
         Initialize from hierarchical-clustering centers (Radiant default; makes
         results deterministic).
-    distance, method : passed to ``hclus`` for the initialization step.
+    distance, method : passed to ``hclus`` for the initialization step; any of
+        ``hclus``'s distances (``"sq.euclidian"``, ``"binary"``,
+        ``"canberra"``, ``"euclidean"``, ``"gower"``, ``"manhattan"``,
+        ``"maximum"``, ``"minkowski"``) and methods (``"ward.D"``,
+        ``"single"``, ``"complete"``, ``"average"``, ``"mcquitty"``,
+        ``"median"``, ``"centroid"``, ``"ward.D2"``). ``fun="kproto"`` with
+        ``hc_init`` always uses Gower, as in Radiant.
     seed : int, default 1234
         Used only when ``hc_init`` is False (random init).
     lambda_ : float | None
@@ -190,7 +198,7 @@ class kclus:
             hc = hclus(
                 {self.name: sub},
                 self.num_vars,
-                distance=distance if distance != "gower" else "sq.euclidian",
+                distance=distance,
                 method=method,
                 max_cases=10**9,
                 standardize=standardize,
@@ -434,7 +442,8 @@ class kclus:
         cm = self.clus_means.with_columns(
             pl.Series("Cluster", [f"Cluster {k + 1}" for k in range(self.nr_clus)])
         ).select(["Cluster", *self.vars])
-        print(cm)
+        # rounded to ``dec`` as Radiant prints them (K-proto modes stay as they are)
+        print(cm.with_columns(cs.float().round(dec)))
         print(
             "\nPercentage of within-cluster heterogeneity accounted for "
             "by each cluster:"
@@ -486,24 +495,23 @@ class kclus:
             geom_bar,
             ggplot,
             labs,
-            theme_classic,
         )
 
         return (
             ggplot(df, aes(x="Cluster", fill=var))
-            + geom_bar(position="fill", alpha=0.5, color="black")
+            + geom_bar(position="fill", alpha=ALPHA, color=REF)
             + labs(y="", x="Cluster", fill=var)
-            + theme_classic()
+            + theme_pyrsm()
         )
 
     def _density_plot(self, df, var):
-        from plotnine import aes, geom_density, ggplot, labs, theme_classic
+        from plotnine import aes, geom_density, ggplot, labs
 
         return (
             ggplot(df, aes(x=var, fill="Cluster"))
             + geom_density(alpha=0.3)
             + labs(y="", x=var)
-            + theme_classic()
+            + theme_pyrsm()
         )
 
     def _bar_plot(self, df, var, dec):
@@ -514,7 +522,6 @@ class kclus:
             geom_errorbar,
             ggplot,
             labs,
-            theme_classic,
         )
         from scipy.stats import t as tdist
 
@@ -525,10 +532,10 @@ class kclus:
         summ = pd.DataFrame(summ)
         return (
             ggplot(summ, aes(x="Cluster", y="mean", fill="Cluster"))
-            + geom_bar(stat="identity", alpha=0.5)
-            + geom_errorbar(aes(ymin="mean - me", ymax="mean + me"), width=0.1)
+            + geom_bar(stat="identity", alpha=ALPHA)
+            + geom_errorbar(aes(ymin="mean - me", ymax="mean + me"), width=0.1, color=REF)
             + labs(y=f"{var} (mean)", x="Cluster")
-            + theme_classic()
+            + theme_pyrsm()
         )
 
     def _scatter_plot(self, df, var):
@@ -537,12 +544,11 @@ class kclus:
             geom_jitter,
             ggplot,
             labs,
-            theme_classic,
         )
 
         return (
             ggplot(df, aes(x="Cluster", y=var))
-            + geom_jitter(width=0.2, color="black", alpha=0.5)
+            + geom_jitter(width=0.2, color=FILL, alpha=ALPHA)
             + labs(x="Cluster", y=var)
-            + theme_classic()
+            + theme_pyrsm()
         )

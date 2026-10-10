@@ -8,6 +8,8 @@ import pyrsm.basics.display_utils as du
 import pyrsm.basics.utils as bu
 from pyrsm.utils import check_dataframe, ifelse, sig_stars
 from pyrsm.data_scope import apply_scope, print_scope
+from pyrsm.plot_utils import plot_each
+from pyrsm.plot_style import ALPHA, COMP, FILL, REF, theme_pyrsm
 
 
 @lru_cache(maxsize=1)
@@ -318,14 +320,39 @@ class single_prop:
         display(gt1)
         display(gt2)
 
-    def plot(self, plots: str = "bar"):
+    def _simulate_props(self, nsim: int = 1000, seed: int | None = None):
+        """Sample proportions simulated under the null hypothesis.
+
+        ``nsim`` binomial draws of size ``n`` with success probability
+        ``comp_value``, as proportions, and the percentile cutoff(s) for the
+        chosen alternative. Mirrors the ``"simulate"`` plot in radiant.basics
+        ``plot.single_prop``.
+        """
+        rng = np.random.default_rng(seed)
+        sims = rng.binomial(self.n, self.comp_value, size=nsim) / self.n
+        if self.alt_hyp == "two-sided":
+            probs = [(1 - self.conf) / 2, 1 - (1 - self.conf) / 2]
+        elif self.alt_hyp == "less":
+            probs = [1 - self.conf]
+        else:  # greater
+            probs = [self.conf]
+        return sims, np.quantile(sims, probs)
+
+    def plot(self, plots: str | list[str] = "bar"):
         """
         Plot proportions for single proportion test.
 
+        ``"bar"`` shows the share of each level of the variable. ``"sim"``
+        (radiant.basics "simulate") shows proportions simulated if the null
+        hypothesis is true: the red solid line is the comparison value, the
+        black solid line the sample proportion, and the red dashed lines the
+        cutoffs for the chosen alternative.
+
         Parameters
         ----------
-        plots : str
-            Plot type (default "bar")
+        plots : str | list[str]
+            Plot type: ``"bar"`` (default) or ``"sim"``, or a list of them to
+            show several in one figure
 
         Returns
         -------
@@ -335,14 +362,17 @@ class single_prop:
         from plotnine import (
             aes,
             geom_col,
+            geom_histogram,
             ggplot,
             ggtitle,
             labs,
             scale_y_continuous,
-            theme_bw,
         )
 
-        pu = _get_plotting_utils()
+
+        combined = plot_each(lambda p: self.plot(plots=p), plots)
+        if combined is not None:
+            return combined
 
         if plots == "bar":
             # Get value counts as proportions using polars
@@ -354,13 +384,38 @@ class single_prop:
 
             p = (
                 ggplot(proportions, aes(x=self.var, y="proportion"))
-                + geom_col(fill=pu.PlotConfig.FILL, alpha=0.7)
+                + geom_col(fill=FILL, alpha=ALPHA)
                 + scale_y_continuous(labels=lambda x: [f"{v:.0%}" for v in x])
                 + labs(x=self.var, y="")
                 + ggtitle(f'Single proportion: "{self.lev}" in {self.var}')
-                + theme_bw()
+                + theme_pyrsm()
             )
             return p
+
+        if plots in ("sim", "simulate"):
+            from pyrsm.basics.plotting_utils import ReferenceLine
+
+            sims, cutoffs = self._simulate_props()
+            data = pl.DataFrame({"sim": sims})
+            spread = float(sims.max() - sims.min())
+            hist = (
+                geom_histogram(binwidth=spread / 20, fill=FILL, alpha=ALPHA)
+                if spread > 0
+                else geom_histogram(bins=20, fill=FILL, alpha=ALPHA)
+            )
+            p = (
+                ggplot(data, aes(x="sim"))
+                + hist
+                + labs(x=f'Level "{self.lev}" in variable {self.var}', y="Frequency")
+                + ggtitle(f'Simulated proportions if null hyp. is true ("{self.lev}" in {self.var})')
+                + theme_pyrsm()
+            )
+            p = p + ReferenceLine.vline(self.comp_value, color=COMP, linetype="solid")
+            p = p + ReferenceLine.vline(float(self.p), color=REF, linetype="solid")
+            for cut in cutoffs:
+                p = p + ReferenceLine.vline(float(cut), color=COMP, linetype="dashed")
+            return p
+        raise ValueError(f"Invalid plot type '{plots}'. Choose 'bar' or 'sim'.")
 
 
 if __name__ == "__main__":

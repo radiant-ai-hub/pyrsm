@@ -158,3 +158,30 @@ def test_pre_factor_plot_errors(mv_data):
         pf.plot(plots="scree", cutoff=10)
     with pytest.raises(ValueError, match="at least 2"):
         pf.plot(plots="change", cutoff=2.5)
+def test_pre_factor_change_labels_match_radiant(mv_data):
+    """Radiant labels the drop from eigenvalue i to i+1 as "i-(i+1)" from "1-2"."""
+    pf = pre_factor({"shopping": mv_data("shopping")}, "v1:v6")
+    ev = pf.pre_eigen[pf.pre_eigen > 0.2]
+    g = pf.plot(plots="change")
+    labels = list(g.data["nr_fact"].cat.categories)
+    assert labels[0] == "1-2"
+    assert labels == [f"{i}-{i + 1}" for i in range(1, len(ev))]
+    assert g.data["nr_fact"].cat.ordered
+
+
+def test_pre_factor_plot_style(mv_data):
+    from pyrsm.plot_style import theme_pyrsm
+
+    pf = pre_factor({"shopping": mv_data("shopping")}, "v1:v6")
+    for g in pf.plot(plots=("scree", "change")):
+        assert type(g.theme) is type(theme_pyrsm())
+
+
+def test_pre_factor_plot_validation(mv_data):
+    pf = pre_factor({"shopping": mv_data("shopping")}, "v1:v6")
+    with pytest.raises(ValueError, match="Unknown plot type"):
+        pf.plot(plots="bogus")
+    with pytest.raises(ValueError, match="at least 2 eigenvalues"):
+        pf.plot(plots="change", cutoff=float(pf.pre_eigen.max()) - 1e-9)
+    with pytest.raises(ValueError, match="No eigenvalues above"):
+        pf.plot(plots="scree", cutoff=float(pf.pre_eigen.max()) + 1)

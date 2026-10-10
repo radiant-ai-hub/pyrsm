@@ -26,7 +26,7 @@ def _as_percent(df: pl.DataFrame, cols: list[str], dec: int) -> pl.DataFrame:
 
 
 def pivot(
-    df: pl.DataFrame | pl.LazyFrame,
+    df: pl.DataFrame | pl.LazyFrame | dict,
     rows: str | list[str],
     cols: str | None = None,
     values: str | None = None,
@@ -140,6 +140,11 @@ def pivot(
     │ B   ┆ 25.00% ┆ 25.00% │
     └─────┴────────┴────────┘
     """
+    from pyrsm.utils import named_data
+
+    # ``{name: frame}`` names the dataset, as in the model and basics classes.
+    _, df = named_data(df)
+
     # Convert to LazyFrame for consistency
     if isinstance(df, pl.DataFrame):
         lf = df.lazy()

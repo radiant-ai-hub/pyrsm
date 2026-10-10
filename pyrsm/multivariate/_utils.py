@@ -19,8 +19,10 @@ __all__ = [
     "get_vars",
     "as_numeric_matrix",
     "standardize",
+    "r_scale",
     "varimax",
     "rotate_loadings",
+    "ROTATIONS",
     "principal",
     "ml_factor",
     "factor_scores",
@@ -158,6 +160,25 @@ def standardize(M: np.ndarray, ddof: int = 1) -> np.ndarray:
     return (M - mu) / sd
 
 
+def r_scale(M: np.ndarray) -> np.ndarray:
+    """Z-score columns exactly as R's ``scale()`` does, to the last bit.
+
+    R sums sequentially in long double (``colMeans``, ``sum``), so tied
+    distances computed from standardized data stay tied the same way they do
+    in R, which decides the merge order of ``hclust``. Zero-variance columns
+    are left centered (divided by 1).
+    """
+    M = np.asarray(M, dtype=float)
+    if M.ndim == 1:
+        return r_scale(M[:, None])[:, 0]
+    n = M.shape[0]
+    mu = (np.cumsum(M.astype(np.longdouble), axis=0)[-1] / n).astype(float)
+    X = M - mu
+    ss = np.cumsum((X * X).astype(np.longdouble), axis=0)[-1].astype(float)
+    sd = np.sqrt(ss / max(1, n - 1))
+    return X / np.where(sd == 0, 1.0, sd)
+
+
 def varimax(
     L: np.ndarray, normalize: bool = True, eps: float = 1e-5, max_iter: int = 1000
 ):
@@ -197,121 +218,170 @@ def varimax(
     return z, TT
 
 
-def _gpa_orthogonal(L, vgQ, max_iter=1000, tol=1e-5):
-    """Gradient-projection algorithm for orthogonal rotations (Jennrich 2001)."""
-    p, k = L.shape
+def _gpa(A, vgQ, oblique=False, eps=1e-5, maxit=2000, fwindow=10):
+    """Gradient-projection rotation, reproducing ``GPArotation::GPForth`` /
+    ``GPFoblq`` (Barzilai-Borwein step with a non-monotone line search, the
+    package default ``algorithm = "bb"``).
+
+    Returns ``(rotated_loadings, Tmat)``; for an oblique rotation the factor
+    correlations are ``Tmat.T @ Tmat``.
+    """
+    A = np.asarray(A, dtype=float)
+    k = A.shape[1]
     Tmat = np.eye(k)
-    al = 1.0
-    Lt = L @ Tmat
-    f, Gq = vgQ(Lt)
-    G = L.T @ Gq
-    for _ in range(max_iter):
-        M = Tmat.T @ G
-        S = (M + M.T) / 2
-        Gp = G - Tmat @ S
-        s = np.sqrt(np.sum(Gp * Gp))
-        if s < tol:
+
+    def evaluate(T):
+        if oblique:
+            Tinv = np.linalg.inv(T)
+            L = A @ Tinv.T
+            f, Gq = vgQ(L)
+            return L, f, -((L.T @ Gq @ Tinv).T)
+        L = A @ T
+        f, Gq = vgQ(L)
+        return L, f, A.T @ Gq
+
+    L, f, G = evaluate(Tmat)
+    alpha = 1.0
+    T_prev = Gp_prev = None
+    fs = []
+    for _ in range(maxit + 1):
+        if oblique:
+            Gp = G - Tmat @ np.diag(np.sum(Tmat * G, axis=0))
+        else:
+            M = Tmat.T @ G
+            Gp = G - Tmat @ ((M + M.T) / 2)
+        s = np.sqrt(np.sum(Gp**2))
+        fs.append(f)
+        if s < eps:
             break
-        al *= 2
-        for _ in range(20):
-            X = Tmat - al * Gp
-            U, _D, Vt = np.linalg.svd(X, full_matrices=False)
-            Tt = U @ Vt
-            Lt = L @ Tt
-            ft, Gq = vgQ(Lt)
-            if ft < f - 0.5 * s * s * al:
+        if T_prev is not None:
+            dT = Tmat - T_prev
+            dGp = Gp - Gp_prev
+            if np.sum(dGp**2) > 0:
+                alpha = np.sum(dT**2) / abs(np.sum(dT * dGp))
+                alpha = max(1e-10, min(alpha, 20.0))
+        else:
+            alpha = 2 * alpha
+        target_f = max(fs[-fwindow:])
+        for _ in range(11):
+            X = Tmat - alpha * Gp
+            if oblique:
+                Tt = X / np.sqrt(np.sum(X**2, axis=0))
+            else:
+                U, _d, Vt = np.linalg.svd(X)
+                Tt = U @ Vt
+            Lt, ft, Gt = evaluate(Tt)
+            if (target_f - ft) > 0.5 * s**2 * alpha:
                 break
-            al /= 2
-        Tmat = Tt
-        f = ft
-        G = L.T @ Gq
-    return L @ Tmat, Tmat
+            alpha /= 2
+        T_prev, Gp_prev = Tmat, Gp
+        Tmat, L, f, G = Tt, Lt, ft, Gt
+    return L, Tmat
 
 
-def _gpa_oblique(L, vgQ, max_iter=1000, tol=1e-5):
-    """Gradient-projection algorithm for oblique rotations (Jennrich 2002)."""
-    p, k = L.shape
-    Tmat = np.eye(k)
-    al = 1.0
-    Tinv = np.linalg.inv(Tmat)
-    Lt = L @ Tinv.T
-    f, Gq = vgQ(Lt)
-    G = -((Lt.T @ Gq @ Tinv).T)
-    for _ in range(max_iter):
-        Gp = G - Tmat @ np.diag(np.sum(Tmat * G, axis=0))
-        s = np.sqrt(np.sum(Gp * Gp))
-        if s < tol:
-            break
-        al *= 2
-        for _ in range(20):
-            X = Tmat - al * Gp
-            v = 1 / np.sqrt(np.sum(X * X, axis=0))
-            Tt = X * v
-            Tinv = np.linalg.inv(Tt)
-            Lt = L @ Tinv.T
-            ft, Gq = vgQ(Lt)
-            if ft < f - 0.5 * s * s * al:
-                break
-            al /= 2
-        Tmat = Tt
-        f = ft
-        G = -((Lt.T @ Gq @ Tinv).T)
-    Tinv = np.linalg.inv(Tmat)
-    return L @ Tinv.T, Tmat
+def _vgQ_varimax(L):
+    QL = L**2 - (L**2).mean(axis=0)
+    return -np.sum(QL**2) / 4.0, -L * QL
 
 
 def _vgQ_quartimax(L):
     return -np.sum(L**4) / 4.0, -(L**3)
 
 
-def _vgQ_oblimin(L, gam=0.0):
-    p, k = L.shape
+def _vgQ_cf(L, kappa=0.0):
+    """Crawford-Ferguson family (equamax is ``kappa = k / (2p)``)."""
     L2 = L**2
-    N = np.ones((k, k)) - np.eye(k)
-    C = np.eye(p) - gam / p * np.ones((p, p))
-    X = C @ L2 @ N
-    f = np.sum(L2 * X) / 4.0
-    Gq = L * X
-    return f, Gq
+    L2N = L2.sum(axis=1, keepdims=True) - L2
+    ML2 = L2.sum(axis=0, keepdims=True) - L2
+    f = (1 - kappa) * np.sum(L2 * L2N) / 4 + kappa * np.sum(L2 * ML2) / 4
+    return f, (1 - kappa) * L * L2N + kappa * L * ML2
+
+
+def _vgQ_oblimin(L, gam=0.0):
+    X = (L**2).sum(axis=1, keepdims=True) - L**2
+    if gam != 0:
+        X = X - (gam / L.shape[0]) * X.sum(axis=0)
+    return np.sum(L**2 * X) / 4.0, L * X
 
 
 def _vgQ_simplimax(L, k_target=None):
     p, k = L.shape
     if k_target is None:
-        k_target = p
+        k_target = p * (k - 1)
     L2 = L**2
-    flat = np.sort(L2, axis=None)
-    cut = flat[min(k_target, flat.size) - 1]
-    Imat = (L2 <= cut).astype(float)
-    IL = Imat * L
-    f = np.sum(IL * L)
-    Gq = 2 * IL
-    return f, Gq
+    # R's order() over the column-major matrix, ties broken by position
+    idx = np.argsort(L2.flatten(order="F"), kind="stable")[:k_target]
+    Imat = np.zeros(L2.size)
+    Imat[idx] = 1.0
+    Imat = Imat.reshape(L2.shape, order="F")
+    return np.sum(L2 * Imat), 2 * Imat * L
 
 
-def rotate_loadings(loadings: np.ndarray, rotation: str = "varimax"):
-    """Rotate a loadings matrix, reproducing ``psych``/``GPArotation`` defaults.
+def _promax(L, m=4, gpa_varimax=False):
+    """Promax: varimax, then a least-squares fit to the power target.
 
-    Returns ``(rotated_loadings, is_oblique)``. ``varimax`` uses the exact
-    ``stats::varimax`` replication; ``quartimax``/``oblimin``/``simplimax`` use
-    the gradient-projection algorithm with GPArotation's default settings.
+    ``gpa_varimax=False`` reproduces ``stats::promax`` (used by
+    ``psych::principal``); ``True`` reproduces ``psych::Promax`` (used by
+    ``psych::fa``), which starts from ``GPArotation::Varimax``.
+    Returns ``(loadings, Phi)``.
+    """
+    if gpa_varimax:
+        x, Th = _gpa(L, _vgQ_varimax)
+    else:
+        x, Th = varimax(L)
+    Q = x * np.abs(x) ** (m - 1)
+    U = np.linalg.lstsq(x, Q, rcond=None)[0]
+    d = np.diag(np.linalg.inv(U.T @ U))
+    U = U @ np.diag(np.sqrt(d))
+    z = x @ U
+    ui = np.linalg.inv(Th @ U)
+    Phi = ui @ ui.T
+    sd = np.sqrt(np.diag(Phi))
+    return z, Phi / np.outer(sd, sd)
+
+
+ROTATIONS = ("none", "varimax", "quartimax", "equamax", "promax", "oblimin", "simplimax")
+
+
+def rotate_loadings(loadings: np.ndarray, rotation: str = "varimax", fm: str = "pc"):
+    """Rotate a loadings matrix the way ``psych`` does.
+
+    ``fm="pc"`` follows ``psych::principal`` and ``fm="ml"`` follows
+    ``psych::fa``; they differ only for promax (``stats::promax`` versus
+    Kaiser-normalized ``psych::Promax``). Varimax is ``stats::varimax``; the
+    other rotations use GPArotation's gradient-projection algorithm with its
+    default settings. Returns ``(rotated_loadings, Phi)``, where ``Phi`` holds
+    the factor correlations for oblique rotations and is ``None`` otherwise.
     """
     L = np.asarray(loadings, dtype=float)
-    if L.shape[1] < 2 or rotation in ("none", None, ""):
-        return L, False
+    p, k = L.shape
+    if k < 2 or rotation in ("none", None, ""):
+        return L, None
     if rotation == "varimax":
-        out, _ = varimax(L)
-        return out, False
+        return varimax(L)[0], None
     if rotation == "quartimax":
-        out, _ = _gpa_orthogonal(L, _vgQ_quartimax)
-        return out, False
-    if rotation == "oblimin":
-        out, _ = _gpa_oblique(L, lambda x: _vgQ_oblimin(x, gam=0.0))
-        return out, True
-    if rotation == "simplimax":
-        out, _ = _gpa_oblique(L, _vgQ_simplimax)
-        return out, True
+        return _gpa(L, _vgQ_quartimax)[0], None
+    if rotation == "equamax":
+        return _gpa(L, lambda x: _vgQ_cf(x, kappa=k / (2 * p)))[0], None
+    if rotation == "promax":
+        if fm == "pc":
+            return _promax(L)
+        # psych::kaiser: row-normalize, Promax, then scale back
+        h = np.sqrt((L**2).sum(axis=1))
+        out, Phi = _promax(L / h[:, None], gpa_varimax=True)
+        return out * h[:, None], Phi
+    if rotation in ("oblimin", "simplimax"):
+        vgQ = _vgQ_oblimin if rotation == "oblimin" else _vgQ_simplimax
+        out, Tmat = _gpa(L, vgQ, oblique=True)
+        return out, Tmat.T @ Tmat
     raise ValueError(f"Unsupported rotation: {rotation}")
+
+
+def _sign_flip(L):
+    """psych's sign convention: make every column sum non-negative."""
+    signs = np.sign(L.sum(axis=0))
+    signs[signs == 0] = 1.0
+    return signs
 
 
 def principal(cmat: np.ndarray, nfactors: int = 1, rotate: str = "varimax") -> dict:
@@ -324,10 +394,13 @@ def principal(cmat: np.ndarray, nfactors: int = 1, rotate: str = "varimax") -> d
     nfactors : int
         Number of components to retain.
     rotate : str
-        ``"varimax"`` or ``"none"``.
+        One of ``ROTATIONS``.
 
     Returns a dict with ``loadings`` (p x nfactors), ``communality``,
-    ``uniqueness``, and ``values`` (all p eigenvalues of ``cmat``).
+    ``uniqueness``, ``values`` (all p eigenvalues of ``cmat``), ``Phi`` (factor
+    correlations for oblique rotations, else ``None``) and ``names`` (psych's
+    column names: ``RC*`` for orthogonal rotations and promax, ``PC*``
+    otherwise, permuted along with the columns when they are reordered).
     """
     cmat = np.asarray(cmat, dtype=float)
     p = cmat.shape[0]
@@ -340,41 +413,50 @@ def principal(cmat: np.ndarray, nfactors: int = 1, rotate: str = "varimax") -> d
     vecs = vecs[:, order]
 
     # loadings = eigvec * sqrt(eigval) for the retained components
-    pos = np.clip(vals[:nfactors], 0, None)
+    pos = np.clip(vals[:nfactors], np.finfo(float).eps, None)
     loadings = vecs[:, :nfactors] * np.sqrt(pos)
+    loadings = loadings * _sign_flip(loadings)
 
-    if nfactors > 1 and rotate not in ("none", None, ""):
-        loadings, _ = rotate_loadings(loadings, rotate)
-
-    # communalities are rotation invariant (and unaffected by sign/order); use
-    # the pre-reorder loadings so oblique pattern matrices report correctly.
+    # communalities come from the unrotated solution, so they are rotation
+    # invariant even for oblique pattern matrices
     communality = (loadings**2).sum(axis=1)
-    uniqueness = 1.0 - communality
+    uniqueness = np.diag(cmat) - communality
 
-    # order retained components by (rotated) variance, descending
-    ss = (loadings**2).sum(axis=0)
-    col_order = np.argsort(ss)[::-1]
+    names = [f"PC{i + 1}" for i in range(nfactors)]
+    Phi = None
+    if nfactors > 1 and rotate not in ("none", None, ""):
+        if rotate in ("varimax", "quartimax", "equamax", "promax"):
+            names = [f"RC{i + 1}" for i in range(nfactors)]
+        loadings, Phi = rotate_loadings(loadings, rotate, fm="pc")
+
+    # order components by (rotated) sum of squared loadings, then flip signs
+    col_order = np.argsort(-(loadings**2).sum(axis=0), kind="stable")
     loadings = loadings[:, col_order]
-
-    # sign convention: flip each column so its column sum is non-negative
-    signs = np.sign(loadings.sum(axis=0))
-    signs[signs == 0] = 1.0
+    names = [names[i] for i in col_order]
+    signs = _sign_flip(loadings)
     loadings = loadings * signs
+    if Phi is not None:
+        Phi = Phi[np.ix_(col_order, col_order)] * np.outer(signs, signs)
 
     return {
         "loadings": loadings,
         "communality": communality,
         "uniqueness": uniqueness,
         "values": vals,
+        "Phi": Phi,
+        "names": names,
     }
 
 
 def ml_factor(cmat: np.ndarray, nfactors: int, rotate: str = "varimax") -> dict:
     """Maximum-likelihood factor analysis, reproducing ``psych::fa(fm="ml")``.
 
-    Estimates uniquenesses by minimizing the ML objective (Lawley & Maxwell,
-    as in ``stats::factanal``), forms unrotated loadings, then applies the
-    requested rotation and ``psych``-style column ordering / sign convention.
+    Uniquenesses minimize the ML objective with the same L-BFGS-B setup as
+    psych (start ``1 - smc``, bounds ``[0.005, 1]``, analytic gradient,
+    ``parscale = 0.01``). Loadings are sign-flipped, named ``ML1..MLk``,
+    rotated, sign-flipped again and ordered by explained variance
+    (``diag(Phi L'L)`` for oblique rotations), with the names following their
+    columns -- exactly as psych prints them.
     """
     from scipy.optimize import minimize
 
@@ -382,57 +464,69 @@ def ml_factor(cmat: np.ndarray, nfactors: int, rotate: str = "varimax") -> dict:
     p = R.shape[0]
     nf = int(max(1, min(nfactors, p - 1)))
 
-    def loadings_from_psi(psi):
-        sc = np.diag(1.0 / np.sqrt(psi))
-        Sstar = sc @ R @ sc
-        vals, vecs = np.linalg.eigh(Sstar)
+    def eig_scaled(psi):
+        sc = 1.0 / np.sqrt(psi)
+        vals, vecs = np.linalg.eigh(sc[:, None] * R * sc[None, :])
         order = np.argsort(vals)[::-1]
-        vals = vals[order][:nf]
-        vecs = vecs[:, order][:, :nf]
-        L = np.maximum(vals - 1.0, 0.0)
-        loadings = np.sqrt(psi)[:, None] * vecs * np.sqrt(L)[None, :]
-        return loadings, vals_full(psi)
+        return vals[order], vecs[:, order]
 
-    def vals_full(psi):
-        sc = np.diag(1.0 / np.sqrt(psi))
-        Sstar = sc @ R @ sc
-        return np.sort(np.linalg.eigvalsh(Sstar))[::-1]
+    def loadings_from_psi(psi):
+        vals, vecs = eig_scaled(psi)
+        L = vecs[:, :nf] * np.sqrt(np.maximum(vals[:nf] - 1.0, 0.0))
+        return np.sqrt(psi)[:, None] * L
 
-    def objective(psi):
-        psi = np.clip(psi, 1e-4, 1.0)
-        sc = np.diag(1.0 / np.sqrt(psi))
-        Sstar = sc @ R @ sc
-        e = np.sort(np.linalg.eigvalsh(Sstar))[::-1]
-        e = e[nf:]
-        # Lawley-Maxwell objective (factanal): sum(log(e) - e) over discarded
-        return -np.sum(np.log(e) - e) - (p - nf)
+    # optimize over psi / parscale, as R's optim does
+    scale = 0.01
 
-    start = np.clip((1.0 - 0.5 * nf / p) / np.diag(np.linalg.inv(R)), 0.05, 1.0)
+    def objective(x):
+        e = eig_scaled(x * scale)[0][nf:]
+        return -(np.sum(np.log(e) - e) - nf + p)
+
+    def gradient(x):
+        psi = x * scale
+        L = loadings_from_psi(psi)
+        g = L @ L.T + np.diag(psi) - R
+        return np.diag(g) / psi**2 * scale
+
+    smc = 1.0 - 1.0 / np.diag(np.linalg.inv(R))
+    start = np.diag(R) - smc
+    upper = max(smc.max(), 1.0)
     res = minimize(
         objective,
-        start,
+        start / scale,
+        jac=gradient,
         method="L-BFGS-B",
-        bounds=[(1e-4, 1.0)] * p,
-        options={"maxiter": 1000, "ftol": 1e-10},
+        bounds=[(0.005 / scale, upper / scale)] * p,
+        options={"maxiter": 100, "maxcor": 5, "ftol": 1e7 * np.finfo(float).eps, "gtol": 0.0},
     )
-    psi = np.clip(res.x, 1e-4, 1.0)
-    loadings, allvals = loadings_from_psi(psi)
+    psi = res.x * scale
+    loadings = loadings_from_psi(psi)
+    loadings = loadings * _sign_flip(loadings)
 
-    # rescale uniquenesses to match diag(R) (factanal normalization)
+    # communalities/uniquenesses from the unrotated model (rotation invariant)
     communality = (loadings**2).sum(axis=1)
     uniqueness = np.diag(R) - communality
+    S = R.copy()
+    np.fill_diagonal(S, communality)
+    allvals = np.sort(np.linalg.eigvalsh(S))[::-1]
 
+    Phi = None
     if nf > 1 and rotate not in ("none", None, ""):
-        loadings, _ = rotate_loadings(loadings, rotate)
-        communality = (loadings**2).sum(axis=1)
-        uniqueness = np.diag(R) - communality
+        loadings, Phi = rotate_loadings(loadings, rotate, fm="ml")
 
-    ss = (loadings**2).sum(axis=0)
-    col_order = np.argsort(ss)[::-1]
-    loadings = loadings[:, col_order]
-    signs = np.sign(loadings.sum(axis=0))
-    signs[signs == 0] = 1.0
+    signs = _sign_flip(loadings)
     loadings = loadings * signs
+    names = [f"ML{i + 1}" for i in range(nf)]
+    if Phi is not None:
+        Phi = Phi * np.outer(signs, signs)
+        ev = np.diag(Phi @ loadings.T @ loadings)
+    else:
+        ev = (loadings**2).sum(axis=0)
+    col_order = np.argsort(-ev, kind="stable")
+    loadings = loadings[:, col_order]
+    names = [names[i] for i in col_order]
+    if Phi is not None:
+        Phi = Phi[np.ix_(col_order, col_order)]
 
     return {
         "loadings": loadings,
@@ -440,6 +534,8 @@ def ml_factor(cmat: np.ndarray, nfactors: int, rotate: str = "varimax") -> dict:
         "uniqueness": uniqueness,
         "values": allvals,
         "psi": psi,
+        "Phi": Phi,
+        "names": names,
     }
 
 
@@ -450,9 +546,11 @@ def gower_dist(
 
     Reproduces ``gower::gower_dist`` as used by ``radiant.multivariate::hclus``:
     numeric variables are range-normalized absolute differences (optionally
-    standardized first, matching Radiant), categorical variables contribute the
-    simple-matching distance (0 if equal, 1 otherwise), and the per-pair
-    distance is the unweighted mean across variables.
+    standardized first with R's ``scale``, matching Radiant), categorical
+    variables contribute the simple-matching distance (0 if equal, 1
+    otherwise), and the per-pair distance is the unweighted mean across
+    variables. As in gower's C code the similarities are summed and the
+    distance is ``1 - mean similarity``, so ties fall the same way as in R.
 
     Returns a condensed (SciPy ``pdist``-style) distance vector.
     """
@@ -474,24 +572,24 @@ def gower_dist(
             num_cols.append(arr)
 
     if standardize and num_cols:
-        std = []
-        for arr in num_cols:
-            mu = arr.mean()
-            sd = arr.std(ddof=1)
-            sd = sd if sd != 0 else 1.0
-            std.append((arr - mu) / sd)
-        num_cols = std
+        num_cols = [r_scale(arr) for arr in num_cols]
 
-    nvar = len(num_cols) + len(cat_cols)
-    D = np.zeros((n, n))
-    for arr in num_cols:
-        rng = arr.max() - arr.min()
-        if rng == 0:
-            continue
-        D += np.abs(arr[:, None] - arr[None, :]) / rng
-    for arr in cat_cols:
-        D += (arr[:, None] != arr[None, :]).astype(float)
-    D /= nvar
+    # variables are summed in their selected order, like gower's C loop
+    nvar = 0
+    S = np.zeros((n, n))
+    for v in vars:
+        s = data[v]
+        if is_categorical(s):
+            arr = cat_cols.pop(0)
+            S += (arr[:, None] == arr[None, :]).astype(float)
+            nvar += 1
+        else:
+            arr = num_cols.pop(0)
+            rng = arr.max() - arr.min()
+            # a constant variable: every pair is fully similar
+            S += 1.0 if rng == 0 else 1.0 - np.abs(arr[:, None] - arr[None, :]) / rng
+            nvar += 1
+    D = 1.0 - S / max(nvar, 1)
     np.fill_diagonal(D, 0.0)
     return squareform(D, checks=False)
 

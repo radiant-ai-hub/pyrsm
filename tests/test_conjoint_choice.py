@@ -148,3 +148,32 @@ def test_summary_and_plots(choc):
         assert s in out
     assert len(cc.plot("pw")) == 3  # one panel per categorical attribute
     assert cc.plot("iw") is not None and cc.plot("or") is not None
+
+
+def test_store_and_plot_options(choc):
+    cc = conjoint_choice({"choc": choc}, rvar="chosen", evar=EVAR, id="choice_id")
+    assert cc.store("PW").columns == ["Attributes", "Levels", "PW"]
+    assert cc.store("IW").height == len(EVAR)
+    assert "WTP" in cc.store("WTP").columns
+    assert cc.store("coef").height == 6
+    with pytest.raises(ValueError):
+        cc.store("bogus")
+    assert len(cc.plot("pw", scale_plot=True)) == 3
+    assert cc.plot(["iw", "or"]) is not None
+
+
+def test_minivan_example_matches_clogit_and_converges():
+    """The minivan example (price in $1,000s) converges and matches R's clogit."""
+    mv = pl.read_parquet(ROOT / "examples" / "data" / "multivariate" / "minivan.parquet")
+    cc = conjoint_choice({"minivan": mv}, rvar="choice", evar=["seat", "cargo", "eng", "price"],
+                         id="task", alt="alt")
+    assert cc.converged
+    # survival::clogit(choice ~ seat + cargo + eng + price + strata(task))
+    r_coef = [-0.570436, -0.445111, 0.420322, -0.780185, -1.585133, -0.153654]
+    r_se = [0.061263, 0.060817, 0.050411, 0.059465, 0.068199, 0.006732]
+    assert np.allclose(cc.coef["coefficient"], r_coef, atol=1e-6)
+    assert np.allclose(cc.coef["std.error"], r_se, atol=1e-6)
+    assert np.isclose(cc.fit_stats["loglik"], -2650.827, atol=1e-3)
+    market = pl.read_parquet(ROOT / "examples" / "data" / "multivariate" / "minivan_market.parquet")
+    shares = cc.predict(data=market)["prediction"]
+    assert np.isclose(shares.sum(), 1.0)

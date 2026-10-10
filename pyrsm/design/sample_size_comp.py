@@ -397,7 +397,9 @@ class sample_size_comp:
 
     def plot(self):
         """Plot power curve (power vs sample size)."""
-        from plotnine import aes, geom_line, geom_vline, ggplot, labs, theme_minimal
+        from plotnine import aes, geom_line, geom_vline, ggplot, labs
+
+        from pyrsm.plot_style import COMP, LINE, theme_pyrsm
 
         sig_level = 1 - self.conf
 
@@ -435,9 +437,9 @@ class sample_size_comp:
 
         p = (
             ggplot(plot_df, aes(x="n", y="power"))
-            + geom_line()
-            + geom_vline(xintercept=math.ceil(self.n1), linetype="dashed", color="red")
+            + geom_line(color=LINE)
+            + geom_vline(xintercept=math.ceil(self.n1), linetype="dashed", color=COMP)
             + labs(x="Sample size (per group)", y="Power", title="Power curve")
-            + theme_minimal()
+            + theme_pyrsm()
         )
         return p

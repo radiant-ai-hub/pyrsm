@@ -9,6 +9,8 @@ import pyrsm.basics.display_utils as du
 import pyrsm.basics.utils as bu
 from pyrsm.utils import cat_levels, check_dataframe, ifelse
 from pyrsm.data_scope import apply_scope, print_scope
+from pyrsm.plot_utils import plot_each
+from pyrsm.plot_style import ALPHA, FILL, REF, theme_pyrsm
 
 
 @lru_cache(maxsize=1)
@@ -548,7 +550,7 @@ class compare_means:
 
     def plot(
         self,
-        plots: Literal["scatter", "box", "density", "bar"] = "scatter",
+        plots: Literal["scatter", "box", "density", "bar"] | list[str] = "scatter",
         nobs: int = None,
     ):
         """
@@ -574,12 +576,15 @@ class compare_means:
             geom_jitter,
             ggplot,
             labs,
-            theme_bw,
         )
 
         data = self.data.drop_nulls(subset=[self.var2])
         if nobs is not None and nobs != np.inf and nobs != -1 and nobs < data.height:
             data = data.sample(nobs)
+
+        combined = plot_each(lambda p: self.plot(plots=p, nobs=nobs), plots)
+        if combined is not None:
+            return combined
 
         if plots == "scatter":
             from plotnine import stat_summary
@@ -588,29 +593,29 @@ class compare_means:
             p = (
                 ggplot(data, aes(x=self.var1, y=self.var2))
                 + geom_jitter(
-                    width=0.2, alpha=0.5, color=_get_plotting_utils().PlotConfig.FILL
+                    width=0.2, alpha=ALPHA, color=FILL
                 )
                 + stat_summary(
                     fun_y=pl_mean,
                     fun_ymin=pl_mean,
                     fun_ymax=pl_mean,
                     geom="crossbar",
-                    color="blue",
+                    color=REF,
                     linetype="solid",
                     width=0.5,
                     size=0.8,
                     fatten=0,
                 )
                 + labs(x=self.var1, y=self.var2)
-                + theme_bw()
+                + theme_pyrsm()
             )
 
         elif plots == "box":
             p = (
                 ggplot(data, aes(x=self.var1, y=self.var2))
-                + geom_boxplot(fill=_get_plotting_utils().PlotConfig.FILL, alpha=0.7)
+                + geom_boxplot(fill=FILL, alpha=ALPHA)
                 + labs(x=self.var1, y=self.var2)
-                + theme_bw()
+                + theme_pyrsm()
             )
 
         elif plots == "density":
@@ -618,17 +623,32 @@ class compare_means:
                 ggplot(data, aes(x=self.var2, color=self.var1, fill=self.var1))
                 + geom_density(alpha=0.3)
                 + labs(x=self.var2, y="Density", color=self.var1, fill=self.var1)
-                + theme_bw()
+                + theme_pyrsm()
             )
 
         elif plots == "bar":
-            # Calculate means per group
-            means = data.group_by(self.var1).agg(pl.col(self.var2).mean().alias("mean"))
+            from plotnine import geom_errorbar
+
+            # Group means with the confidence interval (black, mean +/- me) and
+            # the standard error (blue), as radiant.basics draws them.
+            means = data.group_by(self.var1).agg(
+                pl.col(self.var2).mean().alias("mean"),
+                pl.col(self.var2).std().alias("sd"),
+                pl.col(self.var2).count().alias("n"),
+            )
+            tscore = _get_scipy_stats().t.ppf((1 + self.conf) / 2, means["n"].to_numpy() - 1)
+            means = means.with_columns(
+                (pl.col("sd") / pl.col("n").sqrt()).alias("se")
+            ).with_columns(
+                (pl.col("se") * pl.Series(tscore)).alias("me")
+            )
             p = (
                 ggplot(means, aes(x=self.var1, y="mean"))
-                + geom_col(fill=_get_plotting_utils().PlotConfig.FILL, alpha=0.8)
+                + geom_col(fill=FILL, alpha=ALPHA)
+                + geom_errorbar(aes(ymin="mean - me", ymax="mean + me"), width=0.1)
+                + geom_errorbar(aes(ymin="mean - se", ymax="mean + se"), width=0.05, color="blue")
                 + labs(x=self.var1, y=f"Mean {self.var2}")
-                + theme_bw()
+                + theme_pyrsm()
             )
 
         else:

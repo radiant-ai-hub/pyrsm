@@ -1,0 +1,122 @@
+---
+title: "Sensitivity analysis"
+jupyter: python3
+---
+
+In Radiant: **Load example > Sign a contract: sensitivity analysis**, then the _Sensitivity_ tab.
+
+## Example 2
+
+> You are an actor and would like to sign a contract with either a movie company or a TV network. If you sign with a movie company, you need to pay $5,000 for the legal fees. There will be a 30% chance of having small box office and earning $200,000, a 60% chance of having medium box office with payoff equal to $1,000,000, and a 10% chance of having large box office and getting $3,000,000. If you decide to sign the contract with TV networks instead, your payoff will be $900,000. What is EMV of signing the contract with movie company? What is your optimal strategy?
+
+```{python}
+import pyrsm as rsm
+from IPython.display import Markdown
+
+
+def show(tree, final=True):
+    """Draw a decision tree (Mermaid; rendered by JupyterLab, VS Code, Quarto)."""
+    return Markdown(f"```mermaid\n{tree.to_mermaid(final=final)}\n```")
+```
+
+## Method 1: edit the value
+
+### Legal fees of $5,000
+
+```{python}
+fees_5000 = """name: Sign contract
+type: decision
+Sign with Movie Company:
+    cost: 5000
+    type: chance
+    Small Box Office:
+        p: 0.3
+        payoff: 200000
+    Medium Box Office:
+        p: 0.6
+        payoff: 1000000
+    Large Box Office:
+        p: 0.1
+        payoff: 3000000
+Sign with TV Network:
+    payoff: 900000
+"""
+```
+
+```{python}
+tree = rsm.decide.dtree(fees_5000)
+tree.summary(input=False, output=True)
+```
+
+Signing with the movie company is worth $955,000, the TV network $900,000: sign with the movie company.
+
+### Legal fees of $8,000
+
+```{python}
+fees_8000 = """name: Sign contract
+type: decision
+Sign with Movie Company:
+    cost: 8000
+    type: chance
+    Small Box Office:
+        p: 0.3
+        payoff: 200000
+    Medium Box Office:
+        p: 0.6
+        payoff: 1000000
+    Large Box Office:
+        p: 0.1
+        payoff: 3000000
+Sign with TV Network:
+    payoff: 900000
+"""
+```
+
+```{python}
+tree = rsm.decide.dtree(fees_8000)
+tree.summary(input=False, output=True)
+```
+
+With $8,000 in legal fees the movie company is worth $952,000: still the best option.
+
+## Method 2: use a variable
+
+Put the legal fees in a `variables:` section, then let them vary from 0 to $100,000 in steps of $10,000.
+
+```{python}
+fees_variable = """name: Sign contract
+variables:
+    legal fees: 5000
+type: decision
+Sign with Movie Company:
+    cost: legal fees
+    type: chance
+    Small Box Office:
+        p: 0.3
+        payoff: 200000
+    Medium Box Office:
+        p: 0.6
+        payoff: 1000000
+    Large Box Office:
+        p: 0.1
+        payoff: 3000000
+Sign with TV Network:
+    payoff: 900000
+"""
+```
+
+```{python}
+tree = rsm.decide.dtree(fees_variable)
+sens = tree.sensitivity({"legal fees": {"min": 0, "max": 100000, "step": 10000}})
+sens.to_frame()
+```
+
+```{python}
+sens.plot(decisions=["Sign with Movie Company", "Sign with TV Network"])
+```
+
+Below $60,000 in legal fees sign with the movie company; above $60,000 sign with the TV network. At $60,000 the actor is indifferent between the two.
+
+```{python}
+sens.threshold_flips()
+```

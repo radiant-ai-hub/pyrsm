@@ -53,6 +53,29 @@ def format_pval_expr(col: str | pl.Expr = "p.value", dec: int = 3) -> pl.Expr:
     return out.alias(col) if isinstance(col, str) else out
 
 
+def _r_non_finite(table: pl.DataFrame) -> pl.DataFrame:
+    """Print infinite and missing-number cells as R does: Inf, -Inf, NaN.
+
+    Polars prints ``inf``; a one-sided interval ends at infinity and
+    radiant.basics shows it as ``Inf``.
+    """
+    exprs = []
+    for name, dtype in table.schema.items():
+        if not dtype.is_float():
+            continue
+        col = pl.col(name)
+        if not table.select((col.is_infinite() | col.is_nan()).any()).item():
+            continue
+        exprs.append(
+            pl.when(col.is_nan()).then(pl.lit("NaN"))
+            .when(col == float("inf")).then(pl.lit("Inf"))
+            .when(col == float("-inf")).then(pl.lit("-Inf"))
+            .otherwise(col.cast(pl.Utf8))
+            .alias(name)
+        )
+    return table.with_columns(exprs) if exprs else table
+
+
 def print_plain_tables(*tables: pl.DataFrame, max_rows: int = -1) -> None:
     """Print polars DataFrames with consistent plain-text formatting."""
     with pl.Config(
@@ -65,7 +88,7 @@ def print_plain_tables(*tables: pl.DataFrame, max_rows: int = -1) -> None:
         tbl_hide_dtype_separator=True,
     ):
         for i, table in enumerate(tables):
-            print(table)
+            print(_r_non_finite(table))
             if i < len(tables) - 1:
                 print()
 

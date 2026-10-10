@@ -589,7 +589,12 @@ def test_logistic_filter_sort_slice_matches_r(titanic):
     }
     for name, (odds, b, se) in r_coef.items():
         row = _coef(lr, name)
-        assert row["OR"] == pytest.approx(odds, rel=1e-6), name
+        if name == "Intercept":
+            # radiant.model shows no odds ratio for the intercept
+            # (tests/test_logistic_options.py)
+            assert row["OR"] is None
+        else:
+            assert row["OR"] == pytest.approx(odds, rel=1e-6), name
         assert row["coefficient"] == pytest.approx(b, rel=1e-6), name
         assert row["std.error"] == pytest.approx(se, rel=1e-5), name
 

@@ -1,251 +1,112 @@
-"""Tests for pyrsm.basics.central_limit_theorem module."""
+"""Tests for pyrsm.basics.clt (radiant.basics ``clt``)."""
 
-import warnings
+import numpy as np
+import pytest
+from plotnine.composition import Compose
 
-from pyrsm.basics import central_limit_theorem
-
-
-class TestCLTNormalDistribution:
-    """Test CLT with normal distribution."""
-
-    def test_clt_normal_basic(self):
-        """Test basic normal distribution simulation."""
-        clt = central_limit_theorem(
-            dist="normal",
-            sample_size=100,
-            num_samples=50,
-            num_bins=20,
-            mean=0,
-            sd=1,
-        )
-        assert clt.dist == "normal"
-        assert clt.sample_size == 100
-        assert clt.num_samples == 50
-        assert clt.num_bins == 20
-        assert clt.params["mean"] == 0
-        assert clt.params["sd"] == 1
-
-    def test_clt_normal_simulate(self):
-        """Test normal distribution simulation runs and returns plots."""
-        clt = central_limit_theorem(
-            dist="normal",
-            sample_size=100,
-            num_samples=50,
-            num_bins=20,
-            figsize=(8, 8),
-            mean=0,
-            sd=1,
-        )
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            clt.simulate()
-        # simulate() calls plot_distribution internally which stores plots
-
-    def test_clt_normal_custom_params(self):
-        """Test normal distribution with custom parameters."""
-        clt = central_limit_theorem(
-            dist="normal",
-            sample_size=200,
-            num_samples=100,
-            num_bins=30,
-            mean=10,
-            sd=5,
-        )
-        assert clt.params["mean"] == 10
-        assert clt.params["sd"] == 5
+from pyrsm.basics import clt
 
 
-class TestCLTBinomialDistribution:
-    """Test CLT with binomial distribution."""
-
-    def test_clt_binomial_basic(self):
-        """Test basic binomial distribution simulation."""
-        clt = central_limit_theorem(
-            dist="binomial",
-            sample_size=100,
-            num_samples=50,
-            num_bins=20,
-            size=10,
-            prob=0.5,
-        )
-        assert clt.dist == "binomial"
-        assert clt.params["size"] == 10
-        assert clt.params["prob"] == 0.5
-
-    def test_clt_binomial_simulate(self):
-        """Test binomial distribution simulation runs."""
-        clt = central_limit_theorem(
-            dist="binomial",
-            sample_size=100,
-            num_samples=50,
-            num_bins=20,
-            figsize=(8, 8),
-            size=10,
-            prob=0.3,
-        )
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            clt.simulate()
+@pytest.mark.parametrize(
+    "dist,kwargs,pop_mean",
+    [
+        ("Normal", dict(norm_mean=10, norm_sd=2), 10),
+        ("Binomial", dict(binom_size=10, binom_prob=0.2), 2),
+        ("Uniform", dict(unif_min=10, unif_max=20), 15),
+        ("Exponential", dict(expo_rate=2), 0.5),
+    ],
+)
+def test_simulates_n_by_m_from_the_population(dist, kwargs, pop_mean):
+    c = clt(dist, n=200, m=300, seed=1, **kwargs)
+    assert c.sim.shape == (200, 300)
+    assert c.dist == dist
+    assert c.population()[0] == pytest.approx(pop_mean)
+    # every draw comes from the population: the grand mean is close to it
+    assert c.sim.mean() == pytest.approx(pop_mean, rel=0.05)
 
 
-class TestCLTUniformDistribution:
-    """Test CLT with uniform distribution."""
-
-    def test_clt_uniform_basic(self):
-        """Test basic uniform distribution simulation."""
-        clt = central_limit_theorem(
-            dist="uniform",
-            sample_size=100,
-            num_samples=50,
-            num_bins=20,
-            min=0,
-            max=1,
-        )
-        assert clt.dist == "uniform"
-        assert clt.params["min"] == 0
-        assert clt.params["max"] == 1
-
-    def test_clt_uniform_simulate(self):
-        """Test uniform distribution simulation runs."""
-        clt = central_limit_theorem(
-            dist="uniform",
-            sample_size=100,
-            num_samples=50,
-            num_bins=20,
-            figsize=(8, 8),
-            min=0,
-            max=10,
-        )
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            clt.simulate()
+def test_exponential_uses_rate_not_scale():
+    # R's rexp(rate = 4) has mean 1 / 4
+    c = clt("Exponential", n=1000, m=100, expo_rate=4, seed=2)
+    assert c.sim.mean() == pytest.approx(0.25, rel=0.05)
 
 
-class TestCLTExponentialDistribution:
-    """Test CLT with exponential distribution."""
-
-    def test_clt_exponential_basic(self):
-        """Test basic exponential distribution simulation."""
-        clt = central_limit_theorem(
-            dist="exponential",
-            sample_size=100,
-            num_samples=50,
-            num_bins=20,
-            rate=1.0,
-        )
-        assert clt.dist == "exponential"
-        assert clt.params["rate"] == 1.0
-
-    def test_clt_exponential_simulate(self):
-        """Test exponential distribution simulation runs."""
-        clt = central_limit_theorem(
-            dist="exponential",
-            sample_size=100,
-            num_samples=50,
-            num_bins=20,
-            figsize=(8, 8),
-            rate=2.0,
-        )
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            clt.simulate()
+def test_sum_and_mean_statistics():
+    c = clt("Uniform", n=50, m=40, seed=3)
+    assert np.allclose(c.stat("sum"), c.sim.sum(axis=0))
+    assert np.allclose(c.stat("mean"), c.sim.mean(axis=0))
+    with pytest.raises(ValueError):
+        c.stat("median")
 
 
-class TestCLTEdgeCases:
-    """Test edge cases and validation."""
-
-    def test_clt_invalid_distribution(self):
-        """Test with invalid distribution name."""
-        clt = central_limit_theorem(
-            dist="invalid",
-            sample_size=100,
-            num_samples=50,
-            num_bins=20,
-        )
-        # Should print "Invalid distribution" but not crash
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            clt.simulate()  # Should handle gracefully
-
-    def test_clt_bins_clamping(self):
-        """Test that bins are clamped to valid range."""
-        # Test num_bins > 50 gets clamped
-        clt = central_limit_theorem(
-            dist="normal",
-            sample_size=100,
-            num_samples=50,
-            num_bins=100,
-            mean=0,
-            sd=1,
-        )
-        assert clt.num_bins == 50  # Should be clamped to 50
-
-        # Test num_bins < 1 gets clamped
-        clt = central_limit_theorem(
-            dist="normal",
-            sample_size=100,
-            num_samples=50,
-            num_bins=0,
-            mean=0,
-            sd=1,
-        )
-        assert clt.num_bins == 1  # Should be clamped to 1
-
-    def test_clt_small_sample_size(self):
-        """Test with small sample size."""
-        clt = central_limit_theorem(
-            dist="normal",
-            sample_size=5,
-            num_samples=10,
-            num_bins=5,
-            figsize=(6, 6),
-            mean=0,
-            sd=1,
-        )
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            clt.simulate()
-
-    def test_clt_large_sample_size(self):
-        """Test with larger sample size."""
-        clt = central_limit_theorem(
-            dist="normal",
-            sample_size=1000,
-            num_samples=100,
-            num_bins=30,
-            figsize=(10, 10),
-            mean=0,
-            sd=1,
-        )
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            clt.simulate()
+def test_clt_spread_matches_theory():
+    c = clt("Binomial", n=100, m=2000, binom_size=10, binom_prob=0.2, seed=4)
+    pop_mean, pop_sd = c.population()
+    assert c.stat("sum").std(ddof=1) == pytest.approx(np.sqrt(100) * pop_sd, rel=0.1)
+    assert c.stat("mean").std(ddof=1) == pytest.approx(pop_sd / np.sqrt(100), rel=0.1)
 
 
-class TestCLTFigsize:
-    """Test figsize parameter."""
+def test_seed_makes_runs_reproducible():
+    a = clt("Normal", n=10, m=10, seed=7)
+    b = clt("Normal", n=10, m=10, seed=7)
+    assert np.array_equal(a.sim, b.sim)
 
-    def test_clt_custom_figsize(self):
-        """Test with custom figure size."""
-        clt = central_limit_theorem(
-            dist="normal",
-            sample_size=100,
-            num_samples=50,
-            num_bins=20,
-            figsize=(12, 8),
-            mean=0,
-            sd=1,
-        )
-        assert clt.figsize == (12, 8)
 
-    def test_clt_default_figsize(self):
-        """Test default figure size."""
-        clt = central_limit_theorem(
-            dist="normal",
-            sample_size=100,
-            num_samples=50,
-            num_bins=20,
-            mean=0,
-            sd=1,
-        )
-        assert clt.figsize == (10, 10)
+def test_distribution_spellings_and_alias():
+    import pyrsm as rsm
+
+    assert rsm.basics.clt is clt and clt.__name__ == "clt"
+    assert clt("norm", n=5, m=5).dist == "Normal"
+    assert clt("EXPONENTIAL", n=5, m=5).dist == "Exponential"
+    with pytest.raises(ValueError, match="Distribution must be one of"):
+        clt("Poisson")
+
+
+@pytest.mark.parametrize(
+    "kwargs,message",
+    [
+        (dict(dist="Normal", n=1), "sample size"),
+        (dict(dist="Normal", m=1), "2 or more samples"),
+        (dict(dist="Uniform", unif_min=2, unif_max=1), "maximum value"),
+        (dict(dist="Normal", norm_sd=0), "standard deviation"),
+        (dict(dist="Exponential", expo_rate=0), "positive rate"),
+        (dict(dist="Binomial", binom_size=0), "size of 1 or more"),
+        (dict(dist="Binomial", binom_prob=1.2), "probability between 0 and 1"),
+    ],
+)
+def test_input_checks(kwargs, message):
+    with pytest.raises(ValueError, match=message):
+        clt(**kwargs)
+
+
+def test_summary_reports_simulated_and_clt_values(capsys):
+    clt("Uniform", n=12, m=50, unif_min=0, unif_max=1, seed=5).summary(
+        stat="mean"
+    )
+    out = capsys.readouterr().out
+    assert "Distribution: Uniform" in out
+    assert "Sample means:" in out
+    assert "Simulated" in out and "CLT" in out
+    # theoretical st. dev of the mean: (1 / sqrt(12)) / sqrt(12) = 1 / 12
+    assert "0.083" in out
+
+
+@pytest.mark.parametrize("stat", ["sum", "mean"])
+def test_plot_has_four_panels(stat):
+    c = clt("Exponential", n=30, m=40, seed=6)
+    p = c.plot(stat=stat, bins=10)
+    assert isinstance(p, Compose)
+
+
+def test_stats_match_the_summary():
+    c = clt("Uniform", n=12, m=50, seed=5)
+    st = c.stats("mean")
+    assert st["clt"]["sd"] == pytest.approx(1 / 12)
+    assert st["simulated"]["mean"] == pytest.approx(c.stat("mean").mean())
+
+
+def test_summary_does_not_claim_normality_at_any_sample_size(capsys):
+    clt("Exponential", n=2, m=50, seed=1).summary(stat="mean")
+    out = capsys.readouterr().out
+    assert "approximately normal" not in out
+    assert "gets closer to normal as the sample size grows" in out

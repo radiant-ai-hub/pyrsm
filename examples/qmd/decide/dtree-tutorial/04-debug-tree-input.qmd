@@ -1,0 +1,78 @@
+---
+title: "Debug decision tree input"
+jupyter: python3
+---
+
+In Radiant: **Load example > Sign a contract: debug the input** and press _Calculate_.
+
+```{python}
+import pyrsm as rsm
+from IPython.display import Markdown
+
+
+def show(tree, final=True):
+    """Draw a decision tree (Mermaid; rendered by JupyterLab, VS Code, Quarto)."""
+    return Markdown(f"```mermaid\n{tree.to_mermaid(final=final)}\n```")
+```
+
+The tree below has the four most common problems: a missing colon, a missing value, and two indentation mistakes.
+
+```{python}
+with_errors = """name: Sign contract
+type: decision
+Sign with Movie Company:
+type: chance
+    Small Box Office:
+        p: 0.3
+        payoff: 200000
+    Medium Box Office:
+    p: 0.6
+        payoff: 1000000
+    Large Box Office:
+        p:
+        payoff
+Sign with TV Network:
+    payoff: 900000
+"""
+```
+
+```{python}
+tree = rsm.decide.dtree(with_errors)
+tree.summary(input=False)
+```
+
+The messages name the lines to fix, as in Radiant:
+
+- **Line 13** (`payoff`) has no `:` and no value.
+- **Line 4** (`type: chance`) must be indented under `Sign with Movie Company:` (line 3), and line 5 must be indented the same as line 4.
+- **Line 9** (`p: 0.6`) must be indented under `Medium Box Office:`.
+- **Line 12** has a `p:` without a probability.
+
+The corrected tree:
+
+```{python}
+fixed = """name: Sign contract
+variables:
+    legal fees: 5000
+type: decision
+Sign with Movie Company:
+    cost: legal fees
+    type: chance
+    Small Box Office:
+        p: 0.3
+        payoff: 200000
+    Medium Box Office:
+        p: 0.6
+        payoff: 1000000
+    Large Box Office:
+        p: 0.1
+        payoff: 3000000
+Sign with TV Network:
+    payoff: 900000
+"""
+```
+
+```{python}
+tree = rsm.decide.dtree(fixed)
+tree.summary(input=False, output=True)
+```

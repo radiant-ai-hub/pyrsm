@@ -159,3 +159,49 @@ def test_prmap_summary_smoke(mv_data, capsys):
     out = capsys.readouterr().out
     assert "Attribute based brand map" in out
     assert "Attribute - Factor loadings" in out
+
+
+# -- store factor scores (store.full_factor, inherited by prmap) ---------------
+
+_PM_STORE = ["computer", "computer_filter", "computer_na", "computer_3", "retailers_pref"]
+
+
+@pytest.mark.parametrize("key", _PM_STORE)
+def test_prmap_store_matches_r(mv_data, mv_ref, key):
+    import polars as pl
+
+    case = mv_ref("prmap_store")[key]
+    df = mv_data("retailers" if key.startswith("retailers") else "computer")
+    if key == "computer_na":
+        df = df.with_columns(
+            pl.when(pl.int_range(pl.len()) == 1).then(None).otherwise(pl.col("value")).alias("value")
+        )
+    pm = prmap(
+        {"data": df},
+        case["brand"],
+        case["attr"],
+        pref=case["pref"],
+        nr_dim=case["nr_dim"],
+        data_filter=case["data_filter"],
+    )
+    out = pm.store(df, name=case["name"])
+    # same columns in the same order (labels RC1 RC3 RC2 give name1 name3 name2)
+    assert out.columns == case["columns"]
+    assert out.height == df.height
+    for col, ref in case["stored"].items():
+        got = out[col].to_list()
+        assert [g is None for g in got] == [r is None for r in ref]
+        assert np.allclose(
+            [g for g in got if g is not None], [r for r in ref if r is not None], atol=1e-10
+        )
+
+
+def test_prmap_store_defaults(mv_data):
+    df = mv_data("computer")
+    pm = prmap({"computer": df}, "brand", "high_end:business")
+    out = pm.store()
+    assert out.columns[-2:] == ["factor1", "factor2"]
+    out = pm.store(df, name=["x", "y"])
+    assert out.columns[-2:] == ["x", "y"]
+    with pytest.raises(ValueError, match="names"):
+        pm.store(df, name=["x"])

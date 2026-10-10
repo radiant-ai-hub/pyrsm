@@ -1,10 +1,11 @@
 import numpy as np
 from scipy import stats
 
-from .utils import check, iround, plot_continuous
+from .utils import check, check_positive, iround, plot_continuous
 
 
 def prob_expo(rate, lb=None, ub=None, plb=None, pub=None):
+    check_positive(Rate=rate)
     if lb is not None and lb < 0:
         lb = 0
     if ub is not None and ub < 0:

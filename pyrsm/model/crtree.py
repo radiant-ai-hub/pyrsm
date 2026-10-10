@@ -117,6 +117,11 @@ def _format_nr(x: float, dec: int = 2, perc: bool = False) -> str:
     return f"{x:,.{dec}f}"
 
 
+def _fmt_cut(x: float) -> str:
+    """A split cut-off: whole numbers without a decimal point."""
+    return str(int(x)) if x == int(x) else _r_num2str(x)
+
+
 def _r_print_matrix(rownames, colnames, columns, digits: int = 7) -> str:
     """Print a numeric matrix the way R does (each column formatted on its own)."""
     cols = [_r_format(c, digits) for c in columns]
@@ -762,6 +767,199 @@ class crtree:
             )
         return pred
 
+    def rules(self, dec: int = 4) -> pl.DataFrame:
+        """
+        One row per terminal node: the conditions that lead to it, its size
+        and its prediction, highest prediction first.
+
+        Conditions on the same variable are merged along the path, so a node
+        reached by ``age >= 9.5`` and then ``age < 56.5`` reads
+        ``9.5 <= age < 56.5``. Integer variables use whole-number cut-offs, as
+        in the tree plot. For a classification tree the prediction is the
+        probability of ``lev`` (adjusted for a prior, as in the plot); for a
+        regression tree it is the mean response in the node.
+
+        Parameters
+        ----------
+        dec : int, default 4
+            Significant digits of the numeric cut-offs.
+
+        Returns
+        -------
+        pl.DataFrame
+            Columns ``node`` (rpart's node number), ``rule``, ``n``, ``share``
+            (fraction of the estimation sample) and ``prediction``.
+        """
+        frame = self.fit.frame
+        byid = {r["id"]: r for r in frame}
+        labels = self._split_labels(dec)
+        root_n = byid[1]["n"]
+        nclass = len(self.ylevels) if self.mod_type == "classification" else 0
+
+
+        rows = []
+        for r in frame:
+            if not r["leaf"]:
+                continue
+            path = []
+            nid = r["id"]
+            while nid > 1:
+                parent = nid // 2
+                path.append((byid[parent]["var"], labels[parent][nid % 2]))
+                nid = parent
+            path.reverse()
+            bounds: dict[str, dict[str, float | str]] = {}
+            for var, lab in path:
+                kind, op, value = self._condition(var, lab)
+                b = bounds.setdefault(var, {})
+                if kind == "cat":
+                    b["in"] = value  # deeper splits are subsets: keep the last
+                elif op == ">=":
+                    b[">="] = max(b.get(">=", -math.inf), value)
+                else:
+                    b["<"] = min(b.get("<", math.inf), value)
+            parts = []
+            for var, b in bounds.items():
+                if "in" in b:
+                    levels = str(b["in"]).split(",")
+                    sep = " = " if len(levels) == 1 else " in "
+                    parts.append(var + sep + ", ".join(levels))
+                elif ">=" in b and "<" in b:
+                    parts.append(f"{_fmt_cut(b['>='])} <= {var} < {_fmt_cut(b['<'])}")
+                elif ">=" in b:
+                    parts.append(f"{var} >= {_fmt_cut(b['>='])}")
+                else:
+                    parts.append(f"{var} < {_fmt_cut(b['<'])}")
+            if nclass:
+                pred = float(r["yval2"][1 + nclass])
+            else:
+                pred = float(r["yval"])
+            rows.append(
+                {
+                    "node": int(r["id"]),
+                    "rule": " and ".join(parts),
+                    "n": int(r["n"]),
+                    "share": r["n"] / root_n,
+                    "prediction": pred,
+                }
+            )
+        rows.sort(key=lambda row: -row["prediction"])
+        return pl.DataFrame(rows)
+
+    def node_table(self, dec: int = 4) -> pl.DataFrame:
+        """
+        Every node of the tree in rpart's print order (parent before its
+        children, left before right), for an indented view of the hierarchy.
+
+        Parameters
+        ----------
+        dec : int, default 4
+            Significant digits of the numeric cut-offs.
+
+        Returns
+        -------
+        pl.DataFrame
+            Columns ``node`` (rpart's node number), ``depth`` (0 for the root),
+            ``split`` (the condition that leads into the node from its parent,
+            e.g. ``age >= 10``; empty for the root), ``last`` (True for the
+            second child of a parent), ``leaf``, ``n``, ``share`` and
+            ``prediction`` (probability of ``lev``, prior-adjusted as in the
+            plot, or the node mean). A classification tree adds ``counts`` (per
+            level, in ``ylevels`` order) and ``error`` (share not in the node's
+            most common level); a regression tree adds ``rmse`` (of the node
+            mean) and ``sse`` (its sum of squared errors, which -- unlike the
+            RMSE -- adds up: a node's sse is its children's plus what its split
+            removes). ``removed`` is the share of the root's impurity that the
+            node's split removes (Gini, prior-weighted as rpart's split
+            criterion; or the sum of squared errors, so the splits add up to
+            R-squared); empty for terminal nodes.
+        """
+        frame = self.fit.frame
+        byid = {r["id"]: r for r in frame}
+        labels = self._split_labels(dec)
+        root_n = byid[1]["n"]
+        nclass = len(self.ylevels) if self.mod_type == "classification" else 0
+
+        def split_text(nid: int) -> str:
+            if nid == 1:
+                return ""
+            parent = nid // 2
+            var = byid[parent]["var"]
+            kind, op, value = self._condition(var, labels[parent][nid % 2])
+            if kind == "cat":
+                levels = str(value).split(",")
+                return var + (" = " if len(levels) == 1 else " in ") + ", ".join(levels)
+            return f"{var} {op} {_fmt_cut(float(value))}"
+
+        # What each split removed, as a share of the root's impurity: Gini for a
+        # classification tree (the split criterion; class shares weighted by a
+        # prior when one is set, as rpart does), the sum of squared errors for
+        # a regression tree (so the splits add up to the tree's R-squared).
+        if nclass:
+            counts = {r["id"]: np.asarray(r["yval2"][1 : 1 + nclass], dtype=float) for r in frame}
+            root_counts = counts[1]
+            if self.prior is not None and self.cost is None and nclass == 2:
+                weight = np.array([self.prior, 1 - self.prior]) / root_counts
+            else:
+                weight = np.ones(nclass)
+
+            def shares(nid: int) -> np.ndarray:
+                w = counts[nid] * weight
+                return w / w.sum()
+
+            def gini(nid: int) -> float:
+                return float(1 - np.sum(shares(nid) ** 2))
+
+            def mass(nid: int) -> float:
+                return float(np.sum(counts[nid] * weight))
+
+            def removed(nid: int) -> float:
+                left, right = 2 * nid, 2 * nid + 1
+                drop = gini(nid) - (
+                    mass(left) * gini(left) + mass(right) * gini(right)
+                ) / mass(nid)
+                return mass(nid) / mass(1) * drop / gini(1)
+        else:
+            dev = {r["id"]: float(r["dev"]) for r in frame}
+
+            def removed(nid: int) -> float:
+                return (dev[nid] - dev[2 * nid] - dev[2 * nid + 1]) / dev[1]
+
+        rows = []
+        for r in frame:
+            nid = r["id"]
+            row = {
+                "node": int(nid),
+                "depth": int(nid).bit_length() - 1,
+                "split": split_text(nid),
+                "last": nid > 1 and nid % 2 == 1,
+                "leaf": bool(r["leaf"]),
+                "n": int(r["n"]),
+                "share": r["n"] / root_n,
+                "prediction": float(r["yval2"][1 + nclass]) if nclass else float(r["yval"]),
+            }
+            if nclass:
+                c = counts[nid]
+                row["counts"] = [int(round(v)) for v in c]
+                row["error"] = float(1 - c.max() / c.sum())
+            else:
+                row["rmse"] = math.sqrt(float(r["dev"]) / float(r["wt"]))
+                row["sse"] = float(r["dev"])
+            row["removed"] = None if r["leaf"] else removed(nid)
+            rows.append(row)
+        return pl.DataFrame(rows)
+
+    def _condition(self, var: str, lab: str) -> tuple[str, str, float | str]:
+        """A split label as (kind, operator, value); integer cut-offs rounded up
+        to whole numbers, as in the tree plot."""
+        for op in (">=", "<"):
+            if lab.startswith(op):
+                cut = float(lab[len(op):].strip())
+                if var in self.int_vars:
+                    cut = float(math.ceil(cut))
+                return ("num", op, cut)
+        return ("cat", "in", lab)
+
     # -- mermaid tree --------------------------------------------------------
     def to_mermaid(self, orient: str = "LR", dec: int = 2) -> str:
         """Mermaid source for the tree, as drawn by Radiant's ``plot.crtree``."""
@@ -856,8 +1054,9 @@ class crtree:
     def _prune_plot(self):
         from plotnine import (
             aes, geom_hline, geom_line, geom_vline, ggplot, labs, scale_x_continuous,
-            theme_bw,
         )
+
+        from pyrsm.plot_style import LINE, theme_pyrsm
 
         fit = self.unpruned if self.unpruned is not None else self.fit
         cpt = fit.cptable
@@ -879,12 +1078,12 @@ class crtree:
             + geom_line()
             + geom_vline(xintercept=size1[0], linetype="dashed")
             + geom_hline(yintercept=xerror.min(), linetype="dashed")
-            + geom_vline(xintercept=size2[0], linetype="dashdot", color="blue")
+            + geom_vline(xintercept=size2[0], linetype="dashdot", color=LINE)
             + geom_hline(yintercept=xerror[ind1] + xstd[ind1], linetype="dashdot",
-                         color="blue")
+                         color=LINE)
             + labs(title="Evaluate tree pruning based on cross-validation",
                    x="Number of nodes", y="Relative error")
-            + theme_bw()
+            + theme_pyrsm()
         )
         if cpt.shape[0] < 10:
             p = p + scale_x_continuous(breaks=list(nodes))
@@ -900,7 +1099,9 @@ class crtree:
         return p + labs(caption=footnote)
 
     def _imp_plot(self):
-        from plotnine import aes, coord_flip, geom_bar, ggplot, labs, scale_x_discrete, theme_bw
+        from plotnine import aes, coord_flip, geom_bar, ggplot, labs, scale_x_discrete
+
+        from pyrsm.plot_style import FILL, theme_pyrsm
 
         imp = self.fit.variable_importance()
         if not imp:
@@ -911,19 +1112,20 @@ class crtree:
         ).sort("imp")
         return (
             ggplot(df, aes(x="vars", y="imp"))
-            + geom_bar(stat="identity", fill="slateblue")
+            + geom_bar(stat="identity", fill=FILL)
             + coord_flip()
             + scale_x_discrete(limits=df["vars"].to_list())
             + labs(title="Variable importance", x="", y="Importance")
-            + theme_bw()
+            + theme_pyrsm()
         )
 
     def _pip(self, rep: int = 5):
         """Permutation importance (AUC or R-squared decrease)."""
         from plotnine import (
             aes, coord_flip, geom_bar, ggplot, ggtitle, labs, scale_x_discrete, theme,
-            theme_bw,
         )
+
+        from pyrsm.plot_style import FILL, theme_pyrsm
 
         from pyrsm.model.perf import auc
 
@@ -952,12 +1154,12 @@ class crtree:
         )
         p = (
             ggplot(df, aes(x="variable", y="importance"))
-            + geom_bar(stat="identity", fill="slateblue")
+            + geom_bar(stat="identity", fill=FILL)
             + coord_flip()
             + scale_x_discrete(limits=df["variable"].to_list())
             + labs(x="", y=xlab)
             + ggtitle("Permutation Importance")
-            + theme_bw()
+            + theme_pyrsm()
             + theme(figure_size=(6, max(5, len(df) * 0.4)))
         )
         return p, df.sort("importance", descending=True)

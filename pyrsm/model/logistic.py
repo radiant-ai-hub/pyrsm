@@ -61,6 +61,11 @@ def _get_correlation():
     return correlation
 
 
+def _formula_model(formula: str, data: pl.DataFrame):
+    """The design of ``formula`` (no fit), to read its explanatory variables."""
+    return smf.glm(formula, data=to_model_pandas(data), family=Binomial(link=Logit()))
+
+
 class logistic:
     """
     A class to perform logistic regression modeling (binary classification)
@@ -114,7 +119,42 @@ class logistic:
         data_filter: str = "",
         sort: str = "",
         slice: str = "",
+        standardize: bool | int | float = False,
+        center: bool = False,
+        stepwise: bool | str = False,
+        robust: bool = False,
+        ci_type: str | None = None,
     ) -> None:
+        """
+        Logistic regression (GLM, binomial family, logit link)
+
+        Parameters
+        ----------
+        standardize : bool or int, default False
+            Standardize the numeric explanatory variables by 1 or 2 (``True``)
+            standard deviations (weighted when ``weights`` is set), as
+            radiant.model. The response is not scaled; odds ratios are then per
+            1 or 2 standard deviations.
+        center : bool, default False
+            Mean-center the numeric explanatory variables. Ignored when
+            ``standardize`` is set.
+        stepwise : bool or str, default False
+            Stepwise selection by AIC as R's ``step()``: ``"backward"`` (or
+            ``True``), ``"forward"`` or ``"both"``. ``summary()`` prints the trace.
+        robust : bool, default False
+            Heteroskedasticity-consistent (HC1) standard errors, as
+            ``sandwich::vcovHC(type = "HC1")``, with normal (z) tests. Used for
+            the coefficient table, confidence intervals, odds ratios, the OR
+            plot and tests on ``test`` variables. Turned on automatically, as
+            in radiant.model, for sampling weights: non-integer weights with
+            two values, the smallest below 1.
+        ci_type : str, optional
+            Coefficient confidence intervals: ``"profile"`` (profile
+            likelihood, R's ``confint``) or ``"wald"`` (R's
+            ``confint.default``). By default profile likelihood below 5,000
+            observations and Wald otherwise, as radiant.model. Robust standard
+            errors always use Wald intervals.
+        """
         if isinstance(data, dict):
             self.name = list(data.keys())[0]
             self.data = data[self.name]
@@ -136,24 +176,56 @@ class logistic:
         self.rvar = rvar
         self.lev = lev
         self.evar = convert_to_list(evar)
-        self.ivar = convert_to_list(ivar)
-        self.formula = formula
+        # radiant.model's squared / cubed terms, I(x^2), in Python's spelling
+        from pyrsm.model.model import r_powers
+
+        self.ivar = r_powers(convert_to_list(ivar))
+        self.formula = r_powers(formula) if formula else formula
+
+        # The response as the student knows it (e.g. Yes / No), for plots
+        self.rv = (
+            self.data.get_column(self.rvar)
+            if self.rvar is not None and self.rvar in self.data.columns
+            else None
+        )
 
         # Apply binary conversion on polars DataFrame
         if self.lev is not None and self.rvar is not None:
             self.data = check_binary(self.data, self.rvar, self.lev)
 
+        # Estimation options (radiant.model's "check" boxes)
+        if standardize is True:
+            standardize = 2
+        self.standardize = float(standardize or 0)
+        if self.standardize == int(self.standardize):
+            self.standardize = int(self.standardize)
+        self.center = bool(center) and not self.standardize
+        if stepwise is True:
+            stepwise = "backward"
+        if stepwise and stepwise not in ("backward", "forward", "both"):
+            raise ValueError("stepwise must be 'backward', 'forward' or 'both'")
+        self.stepwise = stepwise or ""
+        self.robust = bool(robust)
+        self.removed: list[str] = []
+        self.added: list[str] = []
+        self.step_trace = ""
+
         # Handle weights
         if weights is not None and weights != "None":
             self.weights_name = weights
             self.weights = self.data.get_column(weights)
+            w = self.weights.drop_nulls()
+            # radiant.model: sampling weights (two values, non-integer, the
+            # smallest below 1) call for robust standard errors.
+            if (
+                not w.dtype.is_integer()
+                and w.n_unique() == 2
+                and w.min() < 1
+                and not bool((w == w.round(0)).all())
+            ):
+                self.robust = True
         else:
             self.weights_name = self.weights = None
-
-        if self.weights is None:
-            weights = None
-        else:
-            weights = self.weights.to_pandas()
 
         # Convert categorical/string columns to Enum BEFORE fitting (Enum level
         # order is kept; text columns get their order of appearance) so patsy
@@ -173,80 +245,234 @@ class logistic:
             )
             self._enum_types.update(enum_types)
 
-        def glm_model(data):
-            return smf.glm(
-                formula=self.formula,
-                data=to_model_pandas(data),
-                freq_weights=weights,
-                family=Binomial(link=Logit()),
-            )
-
-        if self.formula:
-            model = glm_model(self.data)
-            self.evar = extract_evars(model, self.data.columns)
-            self.rvar = extract_rvar(model, self.data.columns)
-            if self.lev is None:
-                self.lev = self.data[self.rvar][0]
-        else:
+        if not self.formula:
             if self.evar is None or len(self.evar) == 0:
                 self.formula = f"{self.rvar} ~ 1"
             else:
                 self.formula = f"{self.rvar} ~ {' + '.join(self.evar)}"
             if self.ivar:
                 self.formula += f" + {' + '.join(self.ivar)}"
-            model = glm_model(self.data)
+            formula_given = False
+        else:
+            formula_given = True
+            self.evar = extract_evars(_formula_model(self.formula, self.data), self.data.columns)
 
         # As R's glm(): levels that do not occur in the estimation rows are
         # dropped (the next level becomes the base), and collinear terms are
-        # dropped rather than split by a pseudo-inverse
-        used = formula_vars(model, self.data.columns)
+        # dropped rather than split by a pseudo-inverse (see ``_glm``)
+        used = formula_vars(_formula_model(self.formula, self.data), self.data.columns)
         if self.weights_name is not None:
             used = used + [self.weights_name]
         self.data = drop_unused_levels(self.data, used)
         self._enum_types = {
             c: self.data[c].dtype for c in self._enum_types if c in self.data.columns
         }
-        self.fitted = fit_like_r(glm_model(self.data), kind="glm", weights=weights)
+
+        # The data in original units, for prediction; numeric explanatory
+        # variables are scaled for estimation when asked (not the response).
+        self.data_raw = self.data
+        self.scale_means: dict[str, float] = {}
+        self.scale_sds: dict[str, float] = {}
+        if self.standardize or self.center:
+            self._calc_scaling()
+            self.data = self._scale(self.data)
+
+        pdf = to_model_pandas(self.data)
+        self.fitted = self._glm(self.formula, pdf)
+        if formula_given:
+            self.rvar = extract_rvar(self.fitted.model, self.data.columns)
+            if self.lev is None:
+                self.lev = self.data[self.rvar][0]
+
+        if self.stepwise:
+            from pyrsm.model.model import step_select
+
+            def stats(fit, base):
+                # drop1 / add1 for glm: Df, Deviance
+                if base is None:
+                    return [None, fit.deviance]
+                return [abs(fit.df_resid - base.df_resid), fit.deviance]
+
+            out = step_select(
+                full_fit=self.fitted,
+                formula=self.formula,
+                rvar=self.rvar,
+                direction=self.stepwise,
+                pdf=pdf,
+                fit_formula=self._glm,
+                aic=lambda fit: fit.aic,
+                stats=stats,
+                columns=["Df", "Deviance"],
+            )
+            self.step_trace = out["trace"]
+            self.removed, self.added = out["removed"], out["added"]
+            self.formula = out["formula"]
+            self.fitted = out["fit"]
+            self.ivar = [t for t in self.ivar if t in out["current"]]
         self.aliased = self.fitted.aliased
 
         self.fitted.nobs_dropped = self.data.height - self.fitted.nobs
 
-        # Build coefficient table as polars DataFrame (without aliased terms,
-        # which R reports as NA and Radiant leaves out)
+        # Confidence intervals: profile likelihood below 5,000 observations,
+        # Wald otherwise (radiant.model); robust standard errors use Wald.
+        if ci_type is None:
+            ci_type = "profile" if self.fitted.nobs < 5000 else "wald"
+        if ci_type not in ("profile", "wald"):
+            raise ValueError("ci_type must be 'profile' or 'wald'")
+        self.ci_type = "wald" if self.robust else ci_type
+
+        # Coefficient inference: HC1 when robust. sandwich's HC1 is HC0 times
+        # n / (n - k); statsmodels' GLM "HC1" uses a different correction.
+        if self.robust:
+            inf = self.fitted.model.fit(cov_type="HC0")
+            n, k = self.fitted.model.exog.shape
+            res = getattr(inf, "_results", inf)
+            res.cov_params_default = res.cov_params_default * n / (n - k)
+            # bse, z-values, p-values and intervals are cached from the HC0
+            # covariance during the fit: recompute them from the HC1 one.
+            res._cache = {}
+            self.fitted_inference = inf
+        else:
+            self.fitted_inference = self.fitted
+        inf = self.fitted_inference
+
+        # Build coefficient table as polars DataFrame
+        from pyrsm.model.model import r_label as r_powers_label
+
+        # without aliased terms, which R reports as NA and Radiant leaves out
         est = ~self.fitted.params.index.isin(self.aliased)
         params = self.fitted.params[est]
-        or_vals = np.exp(params)
+        or_vals = np.exp(params.values)
         or_pct = 100 * np.where(or_vals < 1, -(1 - or_vals), or_vals - 1)
+        # No odds ratio for the intercept, as radiant.model
+        is_intercept = np.array([i == "Intercept" for i in params.index])
+        or_vals = np.where(is_intercept, np.nan, or_vals)
+        or_pct = np.where(is_intercept, np.nan, or_pct)
         self.coef = pl.DataFrame(
             {
-                "index": params.index.str.replace("[T.", "[", regex=False).tolist(),
-                "OR": or_vals,
-                "OR%": or_pct,
+                "index": [
+                    r_powers_label(i)
+                    for i in params.index.str.replace("[T.", "[", regex=False)
+                ],
+                "OR": pl.Series(or_vals, dtype=pl.Float64).fill_nan(None),
+                "OR%": pl.Series(or_pct, dtype=pl.Float64).fill_nan(None),
                 "coefficient": params.values,
-                "std.error": self.fitted.bse[est].values,
-                "z.value": self.fitted.tvalues[est].values,
-                "p.value": self.fitted.pvalues[est].values,
-                "  ": sig_stars(self.fitted.pvalues[est].values),
+                "std.error": np.asarray(inf.bse[est]),
+                "z.value": np.asarray(inf.tvalues[est]),
+                "p.value": np.asarray(inf.pvalues[est]),
+                "  ": sig_stars(np.asarray(inf.pvalues[est])),
             }
         ).drop_nulls(subset=["coefficient"])
 
-    def summary(self, vif=False, test=None, ci=False, dec=3, plain=True) -> None:
+    def _glm(self, formula: str, pdf: pd.DataFrame):
+        """Fit the logistic GLM (classical covariance; see ``fitted_inference``)."""
+        weights = pdf[self.weights_name] if self.weights_name else None
+        model = smf.glm(
+            formula=formula,
+            data=pdf,
+            freq_weights=weights,
+            family=Binomial(link=Logit()),
+        )
+        # aliased (perfectly collinear) columns are dropped as R's glm() does
+        return fit_like_r(model, kind="glm", weights=model.freq_weights)
+
+    def _calc_scaling(self) -> None:
+        """Means and standard deviations of the numeric explanatory variables.
+
+        R's ``scale_df``: ``sd`` without weights, a weighted population
+        standard deviation with them.
+        """
+        w = None
+        if self.weights is not None:
+            w = self.weights.cast(pl.Float64).to_numpy()
+        for c in self.evar:
+            if c not in self.data.columns:
+                continue
+            dtype = self.data[c].dtype
+            if not dtype.is_numeric() or dtype == pl.Boolean:
+                continue
+            x = self.data[c].cast(pl.Float64).to_numpy()
+            ok = ~np.isnan(x)
+            if w is not None:
+                ok &= ~np.isnan(w)
+                ww = w[ok] / w[ok].sum()
+                mean = float(np.sum(ww * x[ok]))
+                sd = float(np.sqrt(np.sum(ww * (x[ok] - mean) ** 2)))
+            else:
+                mean = float(np.mean(x[ok]))
+                sd = float(np.std(x[ok], ddof=1)) if ok.sum() > 1 else 0.0
+            self.scale_means[c] = mean
+            self.scale_sds[c] = sd
+
+    def _scale(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Apply the estimation-data scaling to ``df``."""
+        exprs = []
+        for c, mean in self.scale_means.items():
+            if c not in df.columns:
+                continue
+            sd = self.scale_sds.get(c, 0.0)
+            if self.standardize and sd > 0:
+                exprs.append(
+                    ((pl.col(c).cast(pl.Float64) - mean) / (self.standardize * sd)).alias(c)
+                )
+            else:
+                exprs.append((pl.col(c).cast(pl.Float64) - mean).alias(c))
+        return df.with_columns(exprs) if exprs else df
+
+    def conf_int(self, conf: float = 0.95) -> pd.DataFrame:
+        """Coefficient confidence intervals (``ci_type``), as radiant.model."""
+        from pyrsm.model.model import profile_ci
+
+        alpha = 1 - conf
+        if self.ci_type == "profile":
+            return profile_ci(self.fitted, alpha=alpha)
+        ci = self.fitted_inference.conf_int(alpha=alpha)
+        ci = pd.DataFrame(np.asarray(ci), index=self.fitted.params.index)
+        return ci
+
+    def summary(
+        self,
+        vif=False,
+        test=None,
+        ci=False,
+        odds=False,
+        conf: float = 0.95,
+        dec=3,
+        plain=True,
+    ) -> None:
         """
         Summarize the logistic regression model output
 
         Parameters
         ----------
         vif : bool, default False
-            Print the generalized variance inflation factors.
+            Print the generalized variance inflation factors (as ``car::vif``).
         test : list[str] or None, optional
-            List of variable names to test using a Chi-Square test.
+            Variables to test: likelihood-ratio Chi-squared test, or a robust
+            Wald test when ``robust=True``.
         ci : bool, default False
-            Print the confidence intervals for the coefficients.
+            Print confidence intervals for the coefficients (``ci_type``).
+        odds : bool, default False
+            Print the odds ratios with confidence intervals.
+        conf : float, default 0.95
+            Confidence level for ``ci`` and ``odds``.
         dec : int, default 3
             Number of decimal places to round to.
         plain : bool, default False
             Force plain text output (useful for non-notebook environments like Shiny).
         """
+        from pyrsm.model.model import gvif, r_label
+
+        if self.stepwise:
+            # As Radiant's report: the selection trace, then the summary.
+            print(self.step_trace)
+            title = {
+                "backward": "Backward",
+                "forward": "Forward",
+                "both": "Forward and Backward",
+            }[self.stepwise]
+            line = "-" * 52
+            print(f"\n{line}\n{title} stepwise selection of variables\n{line}")
 
         self._summary_header()
         if not plain and du.is_notebook():
@@ -264,13 +490,38 @@ class logistic:
                 print("\nVariance Inflation Factors cannot be calculated")
             else:
                 print("\nVariance inflation factors:")
-                print(f"\n{calc_vif(self.fitted, dec=dec).to_string()}")
+                print(f"\n{gvif(self.fitted, dec=dec).to_string()}")
 
-        if ci:
-            print("\nConfidence intervals:")
-            df = or_ci(self.fitted, dec=dec).set_index("index")
-            df.index.name = None
-            print(f"\n{df.to_string()}")
+        if ci or odds:
+            low, high = [f"{round(100 * p, 4):g}%" for p in ((1 - conf) / 2, 1 - (1 - conf) / 2)]
+            cis = self.conf_int(conf=conf)
+            coef = self.fitted.params
+            labels = [r_label(i).replace("[T.", "[") for i in coef.index]
+            if ci:
+                tab = pd.DataFrame(
+                    {
+                        "coefficient": coef.values,
+                        low: cis.iloc[:, 0].values,
+                        high: cis.iloc[:, 1].values,
+                        "+/-": cis.iloc[:, 1].values - coef.values,
+                    },
+                    index=labels,
+                ).round(dec)
+                print("\nConfidence intervals:")
+                print(f"\n{tab.to_string()}")
+            if odds:
+                orlab = "std odds ratio" if self.standardize else "odds ratio"
+                keep = [i != "Intercept" for i in coef.index]
+                tab = pd.DataFrame(
+                    {
+                        orlab: np.exp(coef.values),
+                        low: np.exp(cis.iloc[:, 0].values),
+                        high: np.exp(cis.iloc[:, 1].values),
+                    },
+                    index=labels,
+                )[keep].round(dec)
+                print("\nOdds ratios:")
+                print(f"\n{tab.to_string()}")
 
         if test is not None and len(test) > 0:
             self.chisq_test(test=test, dec=dec)
@@ -281,24 +532,43 @@ class logistic:
         print(f"Data                 : {self.name}")
         print_scope(self, 21)
         print(f"Response variable    : {self.rvar}")
-        print(f"Level                : {self.lev}")
+        print(f"Level                : {self.lev} in {self.rvar}")
         print(f"Explanatory variables: {', '.join(self.evar)}")
         if self.weights is not None:
             print(f"Weights used         : {self.weights_name}")
-        print(f"Null hyp.: There is no effect of x on {self.rvar}")
-        print(f"Alt. hyp.: There is an effect of x on {self.rvar}\n")
+        if self.stepwise:
+            if self.stepwise == "backward":
+                change = "removed: " + (", ".join(self.removed) or "none")
+            else:
+                from pyrsm.model.model import r_label
+
+                change = "selected: " + r_label(self.formula.split("~", 1)[1].strip())
+            print(f"Stepwise selection   : {self.stepwise} (AIC), {change}")
+        print(f"Null hyp.: there is no effect of x on {self.rvar}")
+        print(f"Alt. hyp.: there is an effect of x on {self.rvar}")
+        if self.standardize:
+            print(
+                f"**Standardized odds-ratios and coefficients shown ({self.standardize} X SD)**"
+            )
+        elif self.center:
+            print("**Centered odds-ratios and coefficients shown (x - mean(x))**")
+        if self.robust:
+            print("**Robust standard errors used**")
+        print()
 
     def _summary_plain(self, dec: int = 3) -> None:
         """Print plain text coefficient table."""
         df = self.coef.clone()
         df = df.with_columns(
             [
-                pl.col("OR").round(dec),
+                pl.col("OR").round(dec).cast(pl.Utf8).fill_null(""),
                 pl.col("coefficient").round(dec),
                 pl.col("std.error").round(dec),
                 pl.col("z.value").round(dec),
                 du.format_pval_expr("p.value", dec),
-                (pl.col("OR%").round(max(dec - 2, 0)).cast(pl.Utf8) + "%").alias("OR%"),
+                (pl.col("OR%").round(max(dec - 2, 0)).cast(pl.Utf8) + "%")
+                .fill_null("")
+                .alias("OR%"),
                 pl.col("index"),
             ]
         )
@@ -345,8 +615,16 @@ class logistic:
         pl.DataFrame
             DataFrame containing the predictions and the data used to make those predictions.
         """
+        from pyrsm.model.model import check_pred_vars
+
+        check_pred_vars(
+            self.evar,
+            data=None if data is None else check_dataframe(data),
+            cmd=cmd if isinstance(cmd, dict) else None,
+            data_cmd=data_cmd if isinstance(data_cmd, dict) else None,
+        )
         if data is None:
-            pred_data = self.data.select(self.evar)
+            pred_data = self.data_raw.select(self.evar)
         else:
             data = check_dataframe(data)
             pred_data = data.select(self.evar)
@@ -369,6 +647,10 @@ class logistic:
             if self._enum_types:
                 pred_data = apply_enum_types(pred_data, self._enum_types)
 
+        # A standardized/centered model is evaluated on scaled inputs; the
+        # output shows the inputs in original units.
+        model_data = self._scale(pred_data) if self.scale_means else pred_data
+
         if ci:
             if data_cmd is not None:
                 raise ValueError(
@@ -376,14 +658,14 @@ class logistic:
                 )
             else:
                 # predict_ci returns pandas, convert result to polars
-                ci_result = predict_ci(self.fitted, to_model_pandas(pred_data), conf=conf)
+                ci_result = predict_ci(self.fitted, to_model_pandas(model_data), conf=conf)
                 pred = pl.concat(
                     [pred_data, pl.from_pandas(ci_result)], how="horizontal"
                 )
 
         else:
             # Get predictions from statsmodels (needs pandas), add to polars DataFrame
-            predictions = self.fitted.predict(to_model_pandas(pred_data))
+            predictions = self.fitted.predict(to_model_pandas(model_data))
             pred = pred_data.with_columns(
                 pl.lit(predictions.values).alias("prediction")
             )
@@ -400,7 +682,9 @@ class logistic:
 
     def plot(
         self,
-        plots: Literal["pred", "pdp", "pip", "or"] = "pred",
+        plots: Literal[
+            "pred", "pdp", "pip", "or", "dashboard", "dist", "corr", "scatter", "fit", "influence"
+        ] = "pred",
         data=None,
         incl=None,
         excl=None,
@@ -420,6 +704,18 @@ class logistic:
     ) -> None:
         """
         Plots for a logistic regression model
+
+        ``"dashboard"`` shows the diagnostics applied work uses for a binary
+        classifier: calibration, ROC curve (AUC), cumulative gains and the
+        distribution of predicted probabilities by outcome.
+
+        As radiant.model: ``"fit"`` compares the actual and predicted
+        probability in 30 bins of the predicted probability, ``"scatter"``
+        shows each explanatory variable by response level (bar charts for
+        categorical variables), ``"influence"`` the standardized deviance
+        residuals with Cook's distance, and ``"or"`` (``"coef"``) the odds
+        ratios with confidence intervals (``alpha``). ``nobs`` samples the
+        rows for ``"corr"`` and ``"scatter"``.
         """
         plots = convert_to_list(plots)
         excl = convert_to_list(excl)
@@ -443,6 +739,23 @@ class logistic:
         # dates enter the model as numbers (as in R's glm)
         data = dates_to_numeric(data)
 
+        if "dashboard" in plots:
+            from pyrsm.model.model import logit_dashboard
+
+            return logit_dashboard(self.fitted, lev=self.lev, figsize=figsize or (10, 9))
+
+        if "influence" in plots:
+            from pyrsm.model.model import influence_plot
+
+            return influence_plot(self.fitted)
+        if "fit" in plots:
+            return _fit_plot(self.fitted)
+        if "scatter" in plots:
+            raw = self.data_raw
+            if self.rv is not None and len(self.rv) == raw.height:
+                raw = raw.with_columns(self.rv.alias(self.rvar))
+            return _scatter_plot(raw, self.rvar, self.evar, nobs=nobs)
+
         if "dist" in plots:
             (
                 distr_plot,
@@ -457,7 +770,7 @@ class logistic:
             return cr.plot(nobs=nobs, figsize=figsize)
         elif "or" in plots or "coef" in plots:
             return or_plot(
-                self.fitted,
+                self.fitted_inference,
                 alpha=alpha,
                 intercept=intercept,
                 incl=incl,
@@ -511,10 +824,16 @@ class logistic:
         """
         Chisq-test for competing models
         """
+        if self.stepwise:
+            print("\nModel comparisons are not conducted when Stepwise has been selected.")
+            return
         if test is None:
             test = self.evar
         else:
             test = ifelse(isinstance(test, str), [test], test)
+        from pyrsm.model.model import r_powers
+
+        test = r_powers(list(test))
 
         evar = [c for c in self.evar if c not in test]
         if self.ivar is not None and len(self.ivar) > 0:
@@ -530,26 +849,34 @@ class logistic:
         else:
             formula += f"{' + '.join(evar + sint)}"
 
-        print(f"\nModel 1: {formula}")
-        print(f"Model 2: {self.formula}")
+        from pyrsm.model.model import r_label
 
-        sub_fitted = fit_like_r(
-            smf.glm(
-                formula=formula,
-                data=to_model_pandas(self.data),
-                freq_weights=self.weights,
-                family=Binomial(link=Logit()),
-            ),
-            kind="glm",
-            weights=self.weights,
-        )
+        print(f"\nModel 1: {r_label(formula)}")
+        print(f"Model 2: {r_label(self.formula)}")
 
-        lrtest = -2 * (sub_fitted.llf - self.fitted.llf)
-        df = self.fitted.df_model - sub_fitted.df_model
+        pdf = to_model_pandas(self.data)
+        sub_fitted = self._glm(formula, pdf.loc[self.fitted.model.data.row_labels])
+
         stats = _get_scipy_stats()
-        # df 0: removing the variables changes nothing (a collinear term
-        # takes their place), so there is nothing to test
-        pvalue = stats.chi2.sf(lrtest, df) if df > 0 else 1.0
+        kept = set(sub_fitted.params.index)
+        if self.robust and any(c not in kept for c in self.fitted.params.index):
+            # Wald test with the robust covariance, as car::linearHypothesis
+            # with a vcov: every coefficient the restricted model leaves out
+            names = list(self.fitted.params.index)
+            idx = [names.index(c) for c in names if c not in kept]
+            L = np.zeros((len(idx), len(names)))
+            for row, col in enumerate(idx):
+                L[row, col] = 1.0
+            wald = self.fitted_inference.wald_test(L, use_f=False, scalar=True)
+            lrtest = float(wald.statistic)
+            df = len(idx)
+            pvalue = float(wald.pvalue)
+        else:
+            lrtest = -2 * (sub_fitted.llf - self.fitted.llf)
+            df = self.fitted.df_model - sub_fitted.df_model
+            # df 0: removing the variables changes nothing (a collinear term
+            # takes their place), so there is nothing to test
+            pvalue = stats.chi2.sf(lrtest, df) if df > 0 else 1.0
 
         pr2_full = 1 - self.fitted.llf / self.fitted.llnull
         pr2_sub = 1 - sub_fitted.llf / sub_fitted.llnull
@@ -557,3 +884,65 @@ class logistic:
         print(f"Pseudo R-squared, Model 1 vs 2: {pr2_sub:.3f} vs {pr2_full:.3f}")
         pvalue = du.format_pval(pvalue, dec)
         print(f"Chi-squared: {round(lrtest, dec)} df ({df:.0f}), p.value {pvalue}")
+
+
+def _fit_plot(fitted):
+    """Actual vs predicted probability in 30 bins (radiant.model "Model fit")."""
+    from plotnine import aes, geom_col, geom_line, ggplot, labs, scale_y_continuous
+
+    from pyrsm.plot_style import FILL, REF, theme_pyrsm
+    from pyrsm.bins import xtile
+
+    actual = np.asarray(fitted.model.endog, dtype=float)
+    pred = np.asarray(fitted.fittedvalues, dtype=float)
+    if len(pred) < 30:
+        raise ValueError("Insufficient observations to generate Model fit plot")
+    bins = np.asarray(xtile(pred, 30))
+    df = pd.DataFrame({"bin": bins, "actual": actual, "pred": pred})
+    lo, hi = df["bin"].min(), df["bin"].max()
+    if df.loc[df["bin"] == lo, "actual"].mean() < df.loc[df["bin"] == hi, "actual"].mean():
+        df["bin"] = 1 + hi - df["bin"]
+    agg = df.groupby("bin", as_index=False).agg(actual=("actual", "mean"), pred=("pred", "mean"))
+    return (
+        ggplot(agg, aes(x="bin"))
+        + geom_col(aes(y="actual"), fill=FILL, alpha=0.6)
+        + geom_line(aes(y="pred"), color=REF, size=1)
+        + scale_y_continuous(limits=(0, 1))
+        + labs(
+            title="Actual vs Fitted values (binned)",
+            x="Predicted probability bins",
+            y="Probability",
+        )
+        + theme_pyrsm()
+    )
+
+
+def _scatter_plot(data: pl.DataFrame, rvar: str, evar: list[str], nobs: int = 1000):
+    """Each explanatory variable by response level (radiant.model "Scatter")."""
+    from plotnine import aes, geom_bar, geom_jitter, ggplot, labs, position_fill
+
+    from pyrsm.plot_style import ALPHA, FILL, theme_pyrsm
+    from pyrsm.plot_utils import compose_plots
+
+    df = data.select([rvar, *evar])
+    if nobs and nobs > 0 and nobs < df.height:
+        df = df.sample(nobs, seed=1234)
+    df = df.with_columns(pl.col(rvar).cast(pl.Utf8)).to_pandas()
+    plots = []
+    for v in evar:
+        if pd.api.types.is_numeric_dtype(df[v]):
+            p = (
+                ggplot(df, aes(x=rvar, y=v))
+                + geom_jitter(alpha=ALPHA, color=FILL, width=0.25, height=0)
+                + labs(x=rvar, y=v)
+                + theme_pyrsm()
+            )
+        else:
+            p = (
+                ggplot(df, aes(x=v, fill=rvar))
+                + geom_bar(position=position_fill(), alpha=0.5)
+                + labs(x=v, y="")
+                + theme_pyrsm()
+            )
+        plots.append(p)
+    return compose_plots(plots, ncol=1, width_per_col=7, height_per_row=3)

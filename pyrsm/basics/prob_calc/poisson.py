@@ -33,7 +33,8 @@ def prob_pois(lamb, lb=None, ub=None, plb=None, pub=None):
             p_ub = 0
     p_int = None
     if lb is not None and ub is not None:
-        p_int = max(np.sum([stats.poisson.pmf(k, lamb) for k in range(lb, ub + 1)]), 0)
+        # P(lb <= X <= ub); works for float bounds such as 1.0 from a form
+        p_int = max(stats.poisson.cdf(ub, lamb) - p_lb, 0)
     if pub is not None:
         if pub < 0:
             pub = 0
@@ -44,14 +45,23 @@ def prob_pois(lamb, lb=None, ub=None, plb=None, pub=None):
             plb = 0
         elif plb > 1:
             plb = 1
-    if plb is None:
-        v_lb = None
-    else:
-        v_lb = stats.poisson.ppf(plb, lamb)
-    if pub is None:
-        v_ub = None
-    else:
-        v_ub = stats.poisson.ppf(pub, lamb)
+    # Probability bounds map to the smallest value whose cumulative
+    # probability reaches the bound (R's qpois), then get the same
+    # discrete table as a value bound.
+    def at_value(prob):
+        if prob is None:
+            return None, None, None, None
+        v = stats.poisson.ppf(prob, lamb)
+        if not np.isfinite(v):
+            raise ValueError("Probability bounds must be smaller than 1")
+        v = int(v)
+        p_e = stats.poisson.pmf(v, lamb)
+        p_le = stats.poisson.cdf(v, lamb)
+        return v, p_e, p_le - p_e, p_le
+
+    v_lb, vp_elb, vp_lb, vp_lelb = at_value(plb)
+    v_ub, vp_eub, vp_ub, vp_leub = at_value(pub)
+    vp_int = vp_leub - vp_lb if plb is not None and pub is not None else None
     check(lb, ub, plb, pub)
     return {
         "p_lb": p_lb,
@@ -66,6 +76,13 @@ def prob_pois(lamb, lb=None, ub=None, plb=None, pub=None):
         "pub": pub,
         "p_elb": p_elb,
         "p_eub": p_eub,
+        "vp_elb": vp_elb,
+        "vp_lb": vp_lb,
+        "vp_lelb": vp_lelb,
+        "vp_eub": vp_eub,
+        "vp_ub": vp_ub,
+        "vp_leub": vp_leub,
+        "vp_int": vp_int,
     }
 
 
@@ -110,14 +127,22 @@ def summary_prob_pois(dct, type="values", dec=3, ret=False):
         v_lb, v_ub = dct["v_lb"], dct["v_ub"]
         add(summary_dict, "Lower bound", "" if plb is None else f"{plb} ({v_lb})")
         add(summary_dict, "Upper bound", "" if pub is None else f"{pub} ({v_ub})")
-        if (pub is None or pub <= 1) or (plb is None or plb >= 0):
-            if plb is not None and plb >= 0:
-                add(summary_dict, f"P(X  < {v_lb})", plb)
-                add(summary_dict, f"P(X  > {v_lb})", round(1 - plb, dec))
-            if pub is not None and pub <= 1:
-                add(summary_dict, f"P(X  < {v_ub})", pub)
-                add(summary_dict, f"P(X  > {v_ub})", round(1 - pub, dec))
-
+        for prob, v, p_e, p_l in (
+            (plb, v_lb, dct["vp_elb"], dct["vp_lb"]),
+            (pub, v_ub, dct["vp_eub"], dct["vp_ub"]),
+        ):
+            if prob is None:
+                continue
+            add(summary_dict, f"P(X  = {v})", p_e)
+            if v > 0:
+                add(summary_dict, f"P(X  < {v})", p_l)
+                add(summary_dict, f"P(X <= {v})", round(p_l + p_e, dec))
+            add(summary_dict, f"P(X  > {v})", round(1 - (p_l + p_e), dec))
+            add(summary_dict, f"P(X >= {v})", round(1 - p_l, dec))
+        if plb is not None and pub is not None:
+            vp_int = dct["vp_int"]
+            add(summary_dict, f"P({v_lb} <= X <= {v_ub})", vp_int)
+            add(summary_dict, f"1 - P({v_lb} <= X <= {v_ub})", round(1 - vp_int, dec))
     if ret:
         return summary_dict
     else:

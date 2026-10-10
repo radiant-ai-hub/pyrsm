@@ -44,6 +44,36 @@ pc_dist = {
     "Uniform": "unif",
 }
 
+#: Defaults from the radiant.basics probability calculator UI
+#: (inst/app/tools/analysis/prob_calc_ui.R), per distribution:
+#: ``params`` -- distribution parameters, filled in by ``prob_calc`` when omitted;
+#: ``values`` / ``probs`` -- the bounds the R app pre-fills for each calculation
+#: type. ``None`` is an empty input (R's NA, or -Inf for a lower bound).
+#: Bounds are a starting point for an interactive UI and are never applied
+#: implicitly: ``prob_calc("norm")`` computes no probabilities.
+pc_defaults = {
+    "binom": {"params": {"n": 10, "p": 0.2},
+              "values": {"lb": None, "ub": 3}, "probs": {"plb": None, "pub": 0.3}},
+    "chisq": {"params": {"df": 1},
+              "values": {"lb": None, "ub": 3.841}, "probs": {"plb": None, "pub": 0.95}},
+    "disc": {"params": {"v": "1 2 3 4 5 6", "p": "1/6"},
+             "values": {"lb": None, "ub": 3}, "probs": {"plb": None, "pub": 0.95}},
+    "expo": {"params": {"rate": 1},
+             "values": {"lb": None, "ub": 2.996}, "probs": {"plb": None, "pub": 0.95}},
+    "fdist": {"params": {"df1": 10, "df2": 10},
+              "values": {"lb": None, "ub": 2.978}, "probs": {"plb": None, "pub": 0.95}},
+    "lnorm": {"params": {"meanlog": 0, "sdlog": 1},
+              "values": {"lb": 0, "ub": 1}, "probs": {"plb": 0.025, "pub": 0.975}},
+    "norm": {"params": {"mean": 0, "sd": 1},
+             "values": {"lb": None, "ub": 0}, "probs": {"plb": 0.025, "pub": 0.975}},
+    "pois": {"params": {"lamb": 1},
+             "values": {"lb": None, "ub": 3}, "probs": {"plb": None, "pub": 0.95}},
+    "tdist": {"params": {"df": 10},
+              "values": {"lb": None, "ub": 2.228}, "probs": {"plb": 0.025, "pub": 0.975}},
+    "unif": {"params": {"min": 0, "max": 1},
+             "values": {"lb": None, "ub": 0.3}, "probs": {"plb": None, "pub": 0.3}},
+}
+
 
 class prob_calc:
     """
@@ -70,10 +100,15 @@ class prob_calc:
     >>> pc = rsm.basics.prob_calc("norm", mean=0, sd=1, plb=0.95)
     >>> pc.dct["plb"]
     0.95
+    >>> rsm.basics.prob_calc("chisq", ub=3.841).args["df"]  # radiant.basics default
+    1
     """
 
     def __init__(self, distribution: str, **kwargs) -> None:
         self.distribution = distribution
+        # distribution parameters left out take the radiant.basics defaults
+        defaults = pc_defaults.get(distribution, {}).get("params", {})
+        kwargs = {**{k: v for k, v in defaults.items() if k not in kwargs}, **kwargs}
         self.args = kwargs
         if self.distribution == "binom":
             self.dct = prob_binom(**kwargs)
@@ -146,7 +181,10 @@ class prob_calc:
         nonprob = {}
         prob = {}
         for k, v in pdict.items():
-            if k.startswith("P("):
+            # print 3 rather than 3.0, as radiant.basics does
+            if isinstance(v, float) and v.is_integer():
+                v = int(v)
+            if k.startswith("P(") or k.startswith("1 - P("):
                 prob[k] = v
             else:
                 nonprob[k] = v
@@ -158,28 +196,19 @@ class prob_calc:
                 if v is not None:
                     pad = " " * (maxlen - len(k))
                     print(f"{k}{pad}: {v}")
-        # Probability section: ensure '=' is present and aligned after closing parenthesis
-        if prob:
+        # Probability section: "P(...) =" with the values in one column, as in
+        # radiant.basics
+        # as in radiant.basics, only the interval lines are padded:
+        # "P(1 <= X <= 3)     = 0.621" above "1 - P(1 <= X <= 3) = 0.379"
+        lines = [(k, v) for k, v in prob.items() if v is not None]
+        if lines:
             print()
-            # Only format if there are probability keys
-            prob_keys = list(prob.keys())
-            if prob_keys:
-                # Find max length for left side (before value)
-                maxlen = max(len(k) for k in prob_keys)
-                for k, v in prob.items():
-                    if v is not None:
-                        # Find position after closing parenthesis
-                        close_paren = k.find(")")
-                        if close_paren != -1:
-                            left = k[: close_paren + 1]
-                            right = k[close_paren + 1 :].strip()
-                            # Add '=' after closing parenthesis, then right part
-                            prob_str = f"{left} = {right}" if right else f"{left} ="
-                            pad = " " * (maxlen - len(prob_str))
-                            print(f"{prob_str}{pad} {v}")
-                        else:
-                            pad = " " * (maxlen - len(k))
-                            print(f"{k}{pad} {v}")
+            width = max(
+                (len(k) for k, _ in lines if not k.startswith("P(X")), default=0
+            )
+            for k, v in lines:
+                pad = "" if k.startswith("P(X") else " " * (width - len(k))
+                print(f"{k}{pad} = {v}")
 
     def plot(self):
         """

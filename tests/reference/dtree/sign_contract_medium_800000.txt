@@ -1,0 +1,21 @@
+Variable input values:
+               
+legal fees 5000
+
+Initial decision tree:
+                             Probability       Payoff     Cost     Type
+ Sign contract                                                         
+  ¦--Sign with Movie Company                          5,000.00 decision
+  ¦   ¦--Small Box Office        30.00 %   200,000.00            chance
+  ¦   ¦--Medium Box Office       60.00 %   800,000.00            chance
+  ¦   °--Large Box Office        10.00 % 3,000,000.00            chance
+  °--Sign with TV Network                  900,000.00          decision
+
+Final decision tree:
+                             Probability       Payoff     Cost     Type
+ Sign contract                             900,000.00                  
+  ¦--Sign with Movie Company               835,000.00 5,000.00 decision
+  ¦   ¦--Small Box Office        30.00 %   200,000.00            chance
+  ¦   ¦--Medium Box Office       60.00 %   800,000.00            chance
+  ¦   °--Large Box Office        10.00 % 3,000,000.00            chance
+  °--Sign with TV Network                  900,000.00          decision

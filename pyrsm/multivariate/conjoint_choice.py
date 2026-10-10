@@ -400,7 +400,31 @@ class conjoint_choice:
         out = self.PW.filter(pl.col("Levels") != "(slope)").with_columns(
             (pl.col("PW") / -bp).alias("WTP")
         )
-        return out.with_columns(pl.col("WTP").round(dec)) if dec is not None else out
+        return out.with_columns(pl.col("PW", "WTP").round(dec)) if dec is not None else out
+
+    def store(self, what: str = "PW", price: str = "price") -> pl.DataFrame:
+        """
+        Results as a data frame to store as a new dataset.
+
+        Parameters
+        ----------
+        what : str, default "PW"
+            "PW" part-worths, "IW" importance weights, "WTP" willingness to
+            pay (needs the numeric ``price`` attribute) or "coef" the
+            coefficient table.
+        price : str, default "price"
+            Price attribute used for "WTP".
+        """
+        what = what.upper() if what.lower() != "coef" else "coef"
+        if what == "PW":
+            return self.PW
+        if what == "IW":
+            return self.IW
+        if what == "WTP":
+            return self.wtp(price)
+        if what == "coef":
+            return self.coef
+        raise ValueError("what must be 'PW', 'IW', 'WTP' or 'coef'")
 
     def predict(self, data=None, cmd=None, data_cmd=None, dec=None) -> pl.DataFrame:
         """
@@ -470,6 +494,7 @@ class conjoint_choice:
         self,
         plots: Literal["pw", "iw", "or"] = "pw",
         conf: float = 0.95,
+        scale_plot: bool = False,
     ):
         """
         Plots for a conjoint choice model
@@ -482,12 +507,18 @@ class conjoint_choice:
             intervals.
         conf : float, default 0.95
             Confidence level for the "or" plot.
+        scale_plot : bool, default False
+            Give every part-worth plot the same y-axis range (as
+            ``pyrsm.multivariate.conjoint``).
         """
         from plotnine import (
-            aes, coord_flip, element_text, geom_bar, geom_errorbar, geom_hline, geom_line,
-            geom_point, ggplot, labs, scale_x_discrete, scale_y_log10, theme, theme_bw,
+            aes, coord_cartesian, coord_flip, element_text, geom_col, geom_errorbar,
+            geom_hline, geom_line, geom_point, ggplot, labs, scale_x_discrete,
+            scale_y_log10, theme,
         )
         from scipy.stats import norm
+
+        from pyrsm.plot_style import ALPHA, LINE, MUTED, POINT_FILL, theme_pyrsm
 
         plots = _as_list(plots)
         unknown = [p for p in plots if p not in ("pw", "iw", "or")]
@@ -495,25 +526,31 @@ class conjoint_choice:
             raise ValueError(f"Unknown plot type(s): {', '.join(unknown)}. Use 'pw', 'iw' or 'or'")
         out = []
         if "pw" in plots:
+            pw = self.PW.filter(pl.col("Levels") != "(slope)")["PW"]
+            ylim = (min(pw.min(), 0.0), max(pw.max(), 0.0)) if pw.len() else None
             for v, levs in self.levels.items():
                 dat = self.PW.filter(pl.col("Attributes") == v).to_pandas()
-                out.append(
+                g = (
                     ggplot(dat, aes(x="Levels", y="PW", group=1))
-                    + geom_line(color="blue", linetype="dashdot", size=0.7)
-                    + geom_point(color="blue", size=4, fill="white")
+                    + geom_line(color=LINE, linetype="dashdot", size=0.7)
+                    + geom_point(color=LINE, size=4, fill=POINT_FILL)
                     + scale_x_discrete(limits=levs)
-                    + labs(title=f"Part-worths for {v}", x="", y="Part-worth")
-                    + theme_bw()
+                    + labs(title=f"Part-worths for {v}", x="", y="PW")
+                    + theme_pyrsm()
                     + theme(axis_text_x=element_text(angle=45, hjust=1))
                 )
+                if scale_plot and ylim:
+                    g = g + coord_cartesian(ylim=ylim)
+                out.append(g)
         if "iw" in plots:
             dat = self.IW.to_pandas()
             out.append(
-                ggplot(dat, aes(x="Attributes", y="IW"))
-                + geom_bar(stat="identity", fill="slateblue", alpha=0.7)
+                ggplot(dat, aes(x="Attributes", y="IW", fill="Attributes"))
+                + geom_col(alpha=ALPHA)
                 + scale_x_discrete(limits=self.IW["Attributes"].to_list())
-                + labs(title="Importance weights", x="", y="Importance")
-                + theme_bw()
+                + labs(title="Importance weights", x="", y="IW")
+                + theme_pyrsm()
+                + theme(legend_position="none")
             )
         if "or" in plots:
             zq = norm.ppf(1 - (1 - conf) / 2)
@@ -525,13 +562,13 @@ class conjoint_choice:
             ).to_pandas()
             out.append(
                 ggplot(dat, aes(x="index", y="OR", ymin="low", ymax="high"))
-                + geom_hline(yintercept=1, linetype="dashed", color="gray")
-                + geom_errorbar(width=0.2)
-                + geom_point(color="blue", size=3)
+                + geom_hline(yintercept=1, linetype="dashed", color=MUTED)
+                + geom_errorbar(width=0.2, color=LINE)
+                + geom_point(color=LINE, size=3, fill=POINT_FILL)
                 + scale_x_discrete(limits=self.coef["index"].to_list()[::-1])
                 + scale_y_log10()
                 + coord_flip()
                 + labs(title=f"Odds ratios ({100 * conf:.0f}% CI)", x="", y="Odds ratio")
-                + theme_bw()
+                + theme_pyrsm()
             )
         return as_plot_result(out)

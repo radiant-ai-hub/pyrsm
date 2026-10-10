@@ -1,0 +1,13 @@
+name: Sign with Movie Company
+variables: main_tree
+cost: legal fees
+type: chance
+Small Box Office:
+    p: 0.3
+    payoff: 200000
+Medium Box Office:
+    p: 0.6
+    payoff: 1000000
+Large Box Office:
+    p: 0.1
+    payoff: 3000000

@@ -265,3 +265,14 @@ class TestComparePropPlot:
             warnings.simplefilter("ignore", UserWarning)
             p = cp.plot(plots="dodge")
         assert p is not None
+
+
+def test_significance_column_has_a_blank_header():
+    """polars turns a bare "" column name into "column_8"; the stars column stays unnamed."""
+    import polars as pl
+    import pyrsm as rsm
+
+    titanic = pl.read_parquet("examples/data/model/titanic.parquet")
+    cp = rsm.basics.compare_props({"titanic": titanic}, var1="pclass", var2="survived", lev="Yes")
+    assert cp.comp_stats.columns[-1] == ""
+    assert "column_8" not in cp.comp_stats.columns

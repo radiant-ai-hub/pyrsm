@@ -588,26 +588,10 @@ def sig_stars(pval) -> pl.Series:
     )["sig"]
 
 
-def polychoric_corr(x, y, inf=10):
-    """Compute polychoric correlation between two ordinal variables.
-
-    Estimates the correlation between two latent normal variables from
-    their observed ordinal (discretized) versions using maximum likelihood.
-    Equivalent to R's polycor::polychor().
-
-    Parameters
-    ----------
-    x, y : array-like
-        Ordinal variables (integer-coded).
-    inf : float
-        Value used for +/- infinity thresholds.
-
-    Returns
-    -------
-    float
-        Estimated polychoric correlation.
-    """
-    from scipy.optimize import minimize_scalar
+def _polychoric_nll(x, y, inf=10):
+    """Negative log-likelihood of rho for two ordinal variables, thresholds fixed
+    at their marginal values (the two-step polychoric estimator), or None when a
+    variable has fewer than two levels."""
     from scipy.stats import norm
 
     x = np.asarray(x, dtype=float)
@@ -616,7 +600,7 @@ def polychoric_corr(x, y, inf=10):
     x, y = x[keep], y[keep]
     n = x.size
     if n == 0:
-        return 0.0
+        return None
 
     # Integer-code the levels and build the contingency table in one vectorized
     # pass (np.add.at) instead of a Python loop over every observation.
@@ -624,7 +608,7 @@ def polychoric_corr(x, y, inf=10):
     _, y_idx = np.unique(y, return_inverse=True)
     p, m = int(x_idx.max()) + 1, int(y_idx.max()) + 1
     if p < 2 or m < 2:
-        return 0.0
+        return None
     n_table = np.zeros((p, m))
     np.add.at(n_table, (x_idx, y_idx), 1.0)
 
@@ -672,7 +656,34 @@ def polychoric_corr(x, y, inf=10):
         probs = np.clip(probs[nz], 1e-20, None)
         return -np.sum(counts * np.log(probs))
 
-    result = minimize_scalar(_neg_ll, bounds=(-0.999, 0.999), method="bounded")
+    return _neg_ll
+
+
+def polychoric_corr(x, y, inf=10):
+    """Compute polychoric correlation between two ordinal variables.
+
+    Estimates the correlation between two latent normal variables from
+    their observed ordinal (discretized) versions using maximum likelihood.
+    Equivalent to R's polycor::polychor().
+
+    Parameters
+    ----------
+    x, y : array-like
+        Ordinal variables (integer-coded).
+    inf : float
+        Value used for +/- infinity thresholds.
+
+    Returns
+    -------
+    float
+        Estimated polychoric correlation.
+    """
+    from scipy.optimize import minimize_scalar
+
+    neg_ll = _polychoric_nll(x, y, inf)
+    if neg_ll is None:
+        return 0.0
+    result = minimize_scalar(neg_ll, bounds=(-0.999, 0.999), method="bounded")
     return result.x
 
 
@@ -696,7 +707,8 @@ def polyserial_corr(x_num, y_codes):
         return 0.0
 
     r_xy = np.corrcoef(x, y)[0, 1]
-    sy = y.std(ddof=1)
+    # polycor: sqrt((n - 1) / n) * sd(y), i.e. the population sd of y
+    sy = y.std(ddof=0)
 
     # sum of normal densities at the category thresholds
     levels = np.sort(np.unique(y))
@@ -710,6 +722,94 @@ def polyserial_corr(x_num, y_codes):
     n = x.size
     rho = np.sqrt((n - 1) / n) * r_xy * sy / dens_sum
     return float(np.clip(rho, -0.9999, 0.9999))
+
+
+def _optim_hessian_1d(f, x, h=1e-3):
+    """Second derivative of ``f`` at ``x`` as R's ``optim(hessian = TRUE)`` computes it.
+
+    ``optimhess`` differentiates a numerical gradient (step ``ndeps = 1e-3``),
+    which in one dimension is (f(x + 2h) - 2 f(x) + f(x - 2h)) / (2h)^2.
+    """
+    return (f(x + 2 * h) - 2 * f(x) + f(x - 2 * h)) / (4 * h * h)
+
+
+def _bounded_rho(f, start, maxcor=0.9999):
+    """Minimize ``f`` over rho near ``start`` (R: ``optim(rho, f, method = "BFGS")``)."""
+    from scipy.optimize import minimize
+
+    clipped = lambda r: f(float(np.clip(r[0] if np.ndim(r) else r, -maxcor, maxcor)))
+    res = minimize(clipped, x0=[start], method="BFGS")
+    return float(np.clip(res.x[0], -maxcor, maxcor))
+
+
+def polychoric_corr_se(x, y, inf=10):
+    """Polychoric correlation and its standard error, as ``polycor::polychor(std.err = TRUE)``.
+
+    Two-step estimate (thresholds from the marginals, held fixed); the standard
+    error is ``sqrt(1 / hessian)`` of the negative log-likelihood in rho.
+
+    Returns
+    -------
+    tuple[float, float]
+        ``(rho, se)``; ``se`` is NaN when it cannot be computed.
+    """
+    neg_ll = _polychoric_nll(x, y, inf)
+    if neg_ll is None:
+        return 0.0, float("nan")
+    rho = _bounded_rho(neg_ll, polychoric_corr(x, y, inf=inf))
+    hess = _optim_hessian_1d(neg_ll, rho)
+    se = float(np.sqrt(1.0 / hess)) if hess > 0 else float("nan")
+    return rho, se
+
+
+def polyserial_corr_se(x_num, y_codes, maxcor=0.9999):
+    """Polyserial correlation and its standard error, as ``polycor::polyserial(std.err = TRUE)``.
+
+    R starts from the two-step estimate and re-optimizes rho (thresholds fixed)
+    by BFGS, then takes ``sqrt(1 / hessian)``; so with standard errors the
+    correlation itself can differ slightly from :func:`polyserial_corr`.
+
+    Returns
+    -------
+    tuple[float, float]
+        ``(rho, se)``.
+    """
+    from scipy.stats import norm
+
+    x = np.asarray(x_num, dtype=float)
+    y = np.asarray(y_codes, dtype=float)
+    keep = ~(np.isnan(x) | np.isnan(y))
+    x, y = x[keep], y[keep]
+    n = x.size
+    levels, codes = np.unique(y, return_inverse=True)
+    s = levels.size
+    if n < 2 or s < 2 or x.std(ddof=1) == 0:
+        return 0.0, float("nan")
+    z = (x - x.mean()) / x.std(ddof=1)
+    counts = np.bincount(codes, minlength=s)
+    cuts = norm.ppf(np.cumsum(counts)[:-1] / n)
+    cts = np.concatenate(([-np.inf], cuts, [np.inf]))
+    lo, hi = cts[codes], cts[codes + 1]
+    log_dz = norm.logpdf(z)
+
+    def neg_ll(rho):
+        rho = float(np.clip(rho, -maxcor, maxcor))
+        d = np.sqrt(1.0 - rho * rho)
+        probs = norm.cdf((hi - rho * z) / d) - norm.cdf((lo - rho * z) / d)
+        return -float(np.sum(log_dz + np.log(np.clip(probs, 1e-300, None))))
+
+    start = polyserial_corr(x, y)
+    rho = _bounded_rho(neg_ll, start, maxcor)
+    hess = _optim_hessian_1d(neg_ll, rho)
+    se = float(np.sqrt(1.0 / hess)) if hess > 0 else float("nan")
+    return rho, se
+
+
+def pearson_se(r, n):
+    """Standard error of a Pearson correlation as ``polycor::hetcor`` reports it."""
+    rho = r * (1 + (1 - r * r) / (2 * (n - 3)))
+    v = ((1 - rho * rho) ** 2 / (n + 6)) * (1 + (14 + 11 * rho * rho) / (2 * (n + 6)))
+    return float(np.sqrt(v))
 
 
 def polychoric_matrix(data_matrix):
@@ -733,3 +833,18 @@ def polychoric_matrix(data_matrix):
             corr[i, j] = r
             corr[j, i] = r
     return corr
+
+
+def named_data(data):
+    """``(name, frame)`` from a frame or a one-item ``{name: frame}`` dict.
+
+    The dict form is how a call names the dataset it reads -- the same
+    convention the model and basics classes use, so output can say which data
+    it was computed from. A bare frame has no name (``None``).
+    """
+    if isinstance(data, dict):
+        if len(data) != 1:
+            raise ValueError("Pass one dataset as {name: data}.")
+        name, frame = next(iter(data.items()))
+        return str(name), frame
+    return None, data

@@ -1,6 +1,9 @@
 """Tests for pyrsm.multivariate.full_factor against radiant.multivariate."""
 
+from pathlib import Path
+
 import numpy as np
+import polars as pl
 import pytest
 from conftest import mv_mat, mv_sign_align, mv_to_ordered_enum
 
@@ -172,3 +175,67 @@ def test_full_factor_resp_attr_limits_cover_loadings(mv_data):
     assert lim_both >= symmetric_limit(ff.floadings) - 1e-12
     # the plot builds with both components
     assert ff.plot(plots=["attr", "resp"]) is not None
+
+
+# -- every rotation in Radiant's UI, exactly as R prints it --------------------
+
+_ROT_REF = "full_factor_toothpaste_rotations"
+_ROT_CASES = [
+    (method, nf, rot)
+    for method in ("PCA", "maxlik")
+    for nf in (2, 3)
+    for rot in ("none", "varimax", "quartimax", "equamax", "promax", "oblimin", "simplimax")
+]
+
+
+@pytest.mark.parametrize("method,nf,rot", _ROT_CASES)
+def test_full_factor_rotation_matches_r(mv_data, mv_ref, method, nf, rot):
+    case = mv_ref(_ROT_REF)["cases"][f"{method}_{nf}_{rot}"]
+    ff = full_factor(
+        {"toothpaste": mv_data("toothpaste")}, "v1:v6", method=method, nr_fact=nf, rotation=rot
+    )
+    # PCA is exact; ML differs only by the L-BFGS-B convergence of the
+    # uniquenesses (R's optim vs SciPy), ~3e-5 on loadings for 3 factors
+    tol = 1e-8 if method == "PCA" else 1e-4
+    # no column alignment: order and signs must be psych's
+    assert np.abs(ff.floadings - mv_mat(case["floadings"])).max() < tol
+    assert np.abs(ff.communality - np.array(case["communality"])).max() < tol
+    assert np.abs(ff.scores - mv_mat(case["scores"])).max() < 5 * tol
+    if case["Phi"] is None:
+        assert ff.phi is None
+    else:
+        assert np.abs(ff.phi - mv_mat(case["Phi"])).max() < tol
+    # psych::fa labels the GPArotation solutions after 20 random starts, so the
+    # printed labels are only deterministic for the other rotations
+    if not (method == "maxlik" and rot in ("quartimax", "oblimin", "simplimax")):
+        assert ff.fnames == case["floadings"]["colnames"]
+
+
+def test_full_factor_maxlik_alias(mv_data):
+    ff = full_factor({"toothpaste": mv_data("toothpaste")}, "v1:v6", nr_fact=2, method="maxlik")
+    assert ff.method == "ML"
+    assert ff.fnames == ["ML1", "ML2"]
+
+
+@pytest.mark.parametrize("rot", ["equamax", "promax"])
+def test_full_factor_new_rotations_summary_and_plot(mv_data, capsys, rot):
+    ff = full_factor({"toothpaste": mv_data("toothpaste")}, "v1:v6", nr_fact=2, rotation=rot)
+    ff.summary()
+    out = capsys.readouterr().out
+    assert f"Rotation    : {rot}" in out
+    assert ff.plot(plots=["attr", "resp"]) is not None
+
+
+def test_respondent_scale():
+    tp = pl.read_parquet(Path(__file__).resolve().parents[1] / "examples" / "data" / "multivariate" / "toothpaste.parquet")
+    ff = full_factor({"tp": tp}, vars=["v1", "v2", "v3", "v4", "v5", "v6"], nr_fact=2)
+    p = ff.plot(plots=["resp", "attr"])
+    # default: the scores are shrunk to the range of the loadings
+    expected = np.abs(ff.floadings).max() / np.abs(ff.scores).max()
+    assert np.isclose(ff._resp_scale, expected)
+    assert p.labels.get("subtitle", "").startswith("Respondent scores x ")
+    ff.plot(plots=["resp", "attr"], resp_scale=0.25)
+    assert ff._resp_scale == 0.25
+    # respondents alone are drawn as they are
+    ff.plot(plots="resp")
+    assert ff._resp_scale == 1.0

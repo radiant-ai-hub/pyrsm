@@ -14,7 +14,7 @@ import polars as pl
 from pyrsm.utils import format_nr
 
 from ._correlation import heterogeneous_corr
-from ._labels import label_positions, text_repel_kwargs
+from ._label_layout import layout_labels
 from ._plotting import as_plot_result, symmetric_limit
 from ._utils import (
     apply_filter,
@@ -90,6 +90,7 @@ class prmap:
         self.data_filter = data_filter
         self.sort = sort
         self.slice = slice
+        unscoped = self.data
         self.data = apply_scope(self.data, data_filter, sort, slice)
         self.brand = brand
         self.attr = get_vars(self.data.columns, attr)
@@ -100,7 +101,14 @@ class prmap:
         self.hcor = hcor
 
         sel = [brand] + self.attr + self.pref
-        sub = self.data.select(sel).drop_nulls()
+        # Original row positions (numbered before the scope) so ``store`` can
+        # put each respondent's scores back on its own row, as in full_factor.
+        work = apply_scope(
+            unscoped.with_row_index("__row_idx__"), data_filter, sort, slice
+        ).select(["__row_idx__", *sel]).drop_nulls()
+        self._orig_height = unscoped.height
+        self._row_idx = work["__row_idx__"].to_numpy()
+        sub = work.select(sel)
         brands = [str(x).strip() for x in sub[brand].to_list()]
         self.nobs = sub.height
 
@@ -115,9 +123,8 @@ class prmap:
         self.communality = pr["communality"]
         self.uniqueness = pr["uniqueness"]
         self.eigen = pr["values"]
-        self.fnames = [
-            f"RC{i + 1}" if self.nr_dim > 1 else "PC1" for i in range(self.nr_dim)
-        ]
+        # psych's labels, permuted along with the columns (e.g. RC1 RC3 RC2)
+        self.fnames = pr["names"]
 
         f_data = as_numeric_matrix(sub, self.attr)
         row_scores = factor_scores(standardize(f_data), self.loadings)
@@ -236,6 +243,43 @@ class prmap:
             )
         )
 
+    def store(self, data=None, name: str | list[str] | None = None):
+        """Append the factor scores to the data, returning a Polars DataFrame.
+
+        Radiant's "Store factor scores" (``store.full_factor``, which prmap
+        objects inherit): the scores of every analysed *row* (not the brand
+        means in ``scores``) go into columns ``<name>1..<name>k`` (default
+        ``factor1..factorK``), where the number is taken from the factor label,
+        so with labels ``RC1 RC3 RC2`` the columns are ``name1 name3 name2``.
+        Rows dropped by the filter or by missing values get ``null``. A list
+        of ``nr_dim`` names is used as given.
+        """
+        if data is None:
+            target = self.data
+        else:
+            _, target = get_data(data)
+        if name is None or isinstance(name, str):
+            prefix = name or "factor"
+            name = [prefix + "".join(ch for ch in fn if ch.isdigit()) for fn in self.fnames]
+        if len(name) != self.nr_dim:
+            raise ValueError(f"Provide {self.nr_dim} names to store the factor scores.")
+
+        scores = self._row_scores
+        if target.height == scores.shape[0]:
+            series = [pl.Series(nm, scores[:, j]) for j, nm in enumerate(name)]
+        elif target.height == self._orig_height:
+            full = np.full((self._orig_height, self.nr_dim), np.nan)
+            full[self._row_idx] = scores
+            series = [
+                pl.Series(nm, full[:, j]).fill_nan(None) for j, nm in enumerate(name)
+            ]
+        else:
+            raise ValueError(
+                "Cannot store scores: row count of target data does not match "
+                "the analysis sample."
+            )
+        return target.with_columns(series)
+
     def plot(
         self,
         plots=("brand", "attr"),
@@ -272,7 +316,7 @@ class prmap:
             comps.append(attr)
         if "pref" in plots and pref is not None:
             comps.append(pref)
-        lim = symmetric_limit(*comps, pad=1.7) if comps else symmetric_limit(brand, pad=1.7)
+        lim = symmetric_limit(*comps, pad=1.05) if comps else symmetric_limit(brand, pad=1.05)
 
         pairs = [(dim[0] - 1, dim[1] - 1)] if dim else [
             (i, j)
@@ -298,99 +342,87 @@ class prmap:
             labs,
             scale_color_manual,
             theme,
-            theme_classic,
         )
+
+        from pyrsm.plot_style import COMP, LINE, MUTED, REF, theme_pyrsm
 
         from ._plotting import add_square_axes
 
-        colors = {"brand": "black", "attr": "darkblue", "pref": "red"}
-        g = ggplot()
-        g = add_square_axes(g, lim)
+        # Radiant: brand black, attr darkblue, pref red -> REF / LINE / COMP
+        colors = {"brand": REF, "attr": LINE, "pref": COMP}
 
-        # gather labels for repel placement
+        # the labelled points: brands, then attribute and preference arrow tips
         lab_pts, lab_txt, lab_col = [], [], []
         if "brand" in plots:
             for r, name in enumerate(brand_lab):
                 lab_pts.append([brand[r, i], brand[r, j]])
                 lab_txt.append(name)
                 lab_col.append("brand")
+        arr_rows = []
         if "attr" in plots:
             for r, name in enumerate(self.attr):
                 lab_pts.append([attr[r, i], attr[r, j]])
                 lab_txt.append(name)
                 lab_col.append("attr")
+                arr_rows.append((0.9 * attr[r, i], 0.9 * attr[r, j], "attr", len(lab_pts) - 1))
         if "pref" in plots and pref is not None:
             for r, name in enumerate(self.pref):
                 lab_pts.append([pref[r, i], pref[r, j]])
                 lab_txt.append(name)
                 lab_col.append("pref")
+                arr_rows.append((0.9 * pref[r, i], 0.9 * pref[r, j], "pref", len(lab_pts) - 1))
 
-        if "brand" in plots:
-            bdat = pl.DataFrame(
-                {"x": brand[:, i], "y": brand[:, j]}
-            ).to_pandas()
-            g = g + geom_point(bdat, aes(x="x", y="y"), color="black")
-
-        # arrows for attr/pref (shortened to 0.9, closed arrowheads)
-        arr_rows = []
-        if "attr" in plots:
-            for r in range(attr.shape[0]):
-                arr_rows.append((0.9 * attr[r, i], 0.9 * attr[r, j], "attr"))
-        if "pref" in plots and pref is not None:
-            for r in range(pref.shape[0]):
-                arr_rows.append((0.9 * pref[r, i], 0.9 * pref[r, j], "pref"))
-        if arr_rows:
-            adat = pl.DataFrame(
-                {
-                    "xend": [a[0] for a in arr_rows],
-                    "yend": [a[1] for a in arr_rows],
-                    "type": [a[2] for a in arr_rows],
-                }
-            ).to_pandas()
-            g = g + geom_segment(
-                adat,
-                aes(x=0, y=0, xend="xend", yend="yend", color="type"),
-                arrow=arrow(length=0.1, type="closed"),
-                linetype="dashed",
-                size=0.3,
-            )
-
-        if lab_pts:
-            anchors = np.array(lab_pts)
-            lab_xy = label_positions(anchors, lim=lim, seed=seed)
-            ldat = pl.DataFrame(
-                {
-                    "ax": anchors[:, 0],
-                    "ay": anchors[:, 1],
-                    "lx": lab_xy[:, 0],
-                    "ly": lab_xy[:, 1],
-                    "label": lab_txt,
-                    "type": lab_col,
-                }
-            ).to_pandas()
-            repel = text_repel_kwargs(ldat[["ax", "ay"]].to_numpy())
-            if repel:
-                label_aes = aes(x="ax", y="ay", label="label", color="type", group=1)
-            else:
-                label_aes = aes(x="lx", y="ly", label="label", color="type")
+        def base(lim_):
+            g = add_square_axes(ggplot(), lim_)
+            if "brand" in plots:
+                bdat = pl.DataFrame({"x": brand[:, i], "y": brand[:, j]}).to_pandas()
+                g = g + geom_point(bdat, aes(x="x", y="y"), color=REF)
+            # arrows for attr/pref (shortened to 0.9, closed arrowheads)
+            if arr_rows:
+                adat = pl.DataFrame(
+                    {
+                        "xend": [a[0] for a in arr_rows],
+                        "yend": [a[1] for a in arr_rows],
+                        "type": [a[2] for a in arr_rows],
+                    }
+                ).to_pandas()
                 g = g + geom_segment(
-                    ldat,
-                    aes(x="ax", y="ay", xend="lx", yend="ly"),
-                    color="grey",
-                    size=0.2,
+                    adat,
+                    aes(x=0, y=0, xend="xend", yend="yend", color="type"),
+                    arrow=arrow(length=0.1, type="closed"),
+                    linetype="dashed",
+                    size=0.3,
                 )
-            g = g + geom_text(
-                ldat,
-                label_aes,
-                size=fontsz * 2,
-                **repel,
+            return (
+                g
+                + scale_color_manual(values=colors)
+                + labs(x=f"Dimension {i + 1}", y=f"Dimension {j + 1}")
+                + theme_pyrsm()
+                + theme(legend_position="none")
             )
 
-        g = (
-            g
-            + scale_color_manual(values=colors)
-            + labs(x=f"Dimension {i + 1}", y=f"Dimension {j + 1}")
-            + theme_classic()
-            + theme(legend_position="none")
+        if not lab_pts:
+            return base(lim)
+        anchors = np.array(lab_pts)
+        lay = layout_labels(
+            base, anchors[:, 0], anchors[:, 1], lab_txt, size=fontsz * 2, lim=lim,
+            segments=[(0.0, 0.0, a[0], a[1]) for a in arr_rows],
+            segment_owner=[a[3] for a in arr_rows],
+            # arrowheads: a label should not sit on another arrow's tip
+            marks=[(a[0], a[1]) for a in arr_rows],
+            mark_owner=[a[3] for a in arr_rows],
+            seed=seed,
         )
-        return g
+        g = base(lay.lim)
+        if lay.leader.any():
+            ex, ey = lay.leader_ends()
+            ldat = pl.DataFrame(
+                {"x": lay.x[lay.leader], "y": lay.y[lay.leader],
+                 "xend": ex[lay.leader], "yend": ey[lay.leader]}
+            ).to_pandas()
+            g = g + geom_segment(ldat, aes(x="x", y="y", xend="xend", yend="yend"),
+                                 color=MUTED, size=0.3)
+        tdat = pl.DataFrame(
+            {"x": lay.lx, "y": lay.ly, "label": lab_txt, "type": lab_col}
+        ).to_pandas()
+        return g + geom_text(tdat, aes(x="x", y="y", label="label", color="type"), size=fontsz * 2)

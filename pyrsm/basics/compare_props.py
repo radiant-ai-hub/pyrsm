@@ -9,6 +9,8 @@ import pyrsm.basics.display_utils as du
 import pyrsm.basics.utils as bu
 from pyrsm.utils import check_dataframe, ifelse, sig_stars
 from pyrsm.data_scope import apply_scope, print_scope
+from pyrsm.plot_utils import plot_each
+from pyrsm.plot_style import ALPHA, FILL, theme_pyrsm
 
 
 @lru_cache(maxsize=1)
@@ -249,16 +251,17 @@ class compare_props:
         cl = bu.ci_label(self.alt_hyp, self.conf)
         self.comp_stats = pl.DataFrame(
             comp_stats,
+            # Typed, as compare_means: polars renames a bare "" to "column_8".
             schema=[
-                "Null hyp.",
-                "Alt. hyp.",
-                "diff",
-                "p.value",
-                "chisq.value",
-                "df",
-                cl[0],
-                cl[1],
-                "",
+                ("Null hyp.", pl.Utf8),
+                ("Alt. hyp.", pl.Utf8),
+                ("diff", pl.Float64),
+                ("p.value", pl.Float64),
+                ("chisq.value", pl.Float64),
+                ("df", pl.Int64),
+                (cl[0], pl.Float64),
+                (cl[1], pl.Float64),
+                ("", pl.Utf8),
             ],
             orient="row",
         )
@@ -376,7 +379,7 @@ class compare_props:
         display(gt1)
         display(gt2)
 
-    def plot(self, plots: str = "bar"):
+    def plot(self, plots: str | list[str] = "bar"):
         """
         Plot proportions comparison.
 
@@ -393,14 +396,17 @@ class compare_props:
         from plotnine import (
             aes,
             geom_col,
+            geom_errorbar,
             ggplot,
             ggtitle,
             labs,
             position_dodge,
-            theme_bw,
         )
 
-        pu = _get_plotting_utils()
+
+        combined = plot_each(lambda p: self.plot(plots=p), plots)
+        if combined is not None:
+            return combined
 
         if plots == "bar":
             # Compute mean proportions by var1
@@ -411,14 +417,23 @@ class compare_props:
                 .alias("proportion")
             )
             means = data.group_by(self.var1).agg(
-                pl.col("proportion").mean().alias("mean_prop")
+                pl.col("proportion").mean().alias("mean_prop"),
+                pl.len().alias("n"),
             )
+            # Confidence interval (black, p +/- me) and standard error (blue),
+            # as radiant.basics draws them.
+            zscore = _get_scipy_stats().norm.ppf((1 + self.conf) / 2)
+            means = means.with_columns(
+                (pl.col("mean_prop") * (1 - pl.col("mean_prop")) / pl.col("n")).sqrt().alias("se")
+            ).with_columns((pl.col("se") * zscore).alias("me"))
             p = (
                 ggplot(means, aes(x=self.var1, y="mean_prop"))
-                + geom_col(fill=pu.PlotConfig.FILL, alpha=0.7)
+                + geom_col(fill=FILL, alpha=ALPHA)
+                + geom_errorbar(aes(ymin="mean_prop - me", ymax="mean_prop + me"), width=0.1)
+                + geom_errorbar(aes(ymin="mean_prop - se", ymax="mean_prop + se"), width=0.05, color="blue")
                 + labs(x=self.var1, y=f"Proportion ({self.lev})")
                 + ggtitle(f'Proportion comparison: "{self.lev}" in {self.var2}')
-                + theme_bw()
+                + theme_pyrsm()
             )
             return p
 
@@ -438,7 +453,7 @@ class compare_props:
                 + geom_col(position=position_dodge(), alpha=0.8)
                 + labs(x=self.var1, y="Proportion", fill=self.var2)
                 + ggtitle(f"Proportion comparison by {self.var1}")
-                + theme_bw()
+                + theme_pyrsm()
             )
             return p
 

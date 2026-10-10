@@ -1,0 +1,14 @@
+name: open a new store
+type: decision
+open:
+    cost: 2000000
+    type: chance
+    success:
+        p: 0.6
+        payoff: 5000000
+    failure:
+        p: 0.4
+        payoff: -1000000
+
+not open:
+    payoff: 0

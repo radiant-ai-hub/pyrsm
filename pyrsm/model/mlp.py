@@ -342,6 +342,14 @@ class mlp:
         --------
         >>> predictions = model.predict(new_data)
         """
+        from pyrsm.model.model import check_pred_vars
+
+        check_pred_vars(
+            self.evar,
+            data=None if data is None else check_dataframe(data),
+            cmd=cmd if isinstance(cmd, dict) else None,
+            data_cmd=data_cmd if isinstance(data_cmd, dict) else None,
+        )
         if data is None:
             pred_data = self.data.select(self.evar)
         else:
@@ -419,7 +427,7 @@ class mlp:
         Parameters
         ----------
         plots : {'pred', 'pdp', 'pip', 'dashboard'}, default='pred'
-            Type of plot to generate. Options are 'pred' for prediction plot, 'pdp' for partial dependence plot, 'pip' for permutation importance plot, and 'dashboard' for a regression dashboard.
+            Type of plot to generate. Options are 'pred' for prediction plot, 'pdp' for partial dependence plot, 'pip' for permutation importance plot, and 'dashboard' for a regression dashboard. 'pdp_sklearn' is accepted as an alias of 'pdp' (all plots are plotnine).
         data : pl.DataFrame, optional
             Data to use for the plots. If None, uses the training data.
         incl : list of str, optional
@@ -448,7 +456,7 @@ class mlp:
         maxq : float, default=0.975
             Maximum quantile for the prediction plot.
         figsize : tuple[int, int], default None
-            Figure size for the plots in inches (e.g., "(3, 6)"). Relevant for the 'pdp_sklearn' plot.
+            Figure size for the plots in inches (e.g., "(6, 4)"). Relevant for the 'pdp' (and 'pdp_sklearn') plot.
         ret : bool, optional
             Whether to return the variable (permutation) importance scores for a "pip" plot.
 
@@ -505,7 +513,9 @@ class mlp:
                 ret=ret,
             )
 
-        if "pdp" in plots:
+        if "pdp" in plots or "pdp_sklearn" in plots:
+            # "pdp_sklearn" (formerly sklearn's PartialDependenceDisplay) is kept as an
+            # alias of the plotnine "pdp" plot so existing calls keep working.
             if data is None:
                 data_dct = {
                     "data": self.data.select(self.evar + [self.rvar]),
@@ -525,7 +535,7 @@ class mlp:
                 }
 
             _, pdp_sk, _, _ = _get_visualize_plots()
-            return pdp_sk(
+            p = pdp_sk(
                 self.fitted,
                 data=data_dct,
                 rvar=self.rvar,
@@ -540,26 +550,11 @@ class mlp:
                 fix=fix,
                 hline=hline,
             )
+            if figsize is not None and p is not None:
+                from plotnine import theme
 
-        if "pdp_sklearn" in plots:
-            import matplotlib.pyplot as plt
-            from sklearn.inspection import PartialDependenceDisplay as pdp
-
-            if figsize is None:
-                figsize = (8, len(self.data_onehot.columns) * 2)
-            fig, ax = plt.subplots(figsize=figsize)
-            ax.set_title("Partial Dependence Plots")
-            pdp.from_estimator(
-                self.fitted,
-                self.data_onehot.cast(
-                    {pl.UInt8: pl.Float64, pl.Int64: pl.Float64}
-                ).to_pandas(),
-                self.data_onehot.columns,
-                ax=ax,
-                n_cols=2,
-            )
-            plt.show()
-            plt.close()
+                p = p + theme(figure_size=figsize)
+            return p
 
         if "pip" in plots or "vimp" in plots:
             _, _, pip_plot_sk, _ = _get_visualize_plots()

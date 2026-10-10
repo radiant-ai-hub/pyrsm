@@ -72,11 +72,13 @@ def add_square_axes(g, lim: float, zero_lines: bool = True):
     """Add square origin-centered axes (and zero lines) to a plotnine plot."""
     from plotnine import coord_fixed, geom_hline, geom_vline
 
+    from pyrsm.plot_style import REF
+
     if zero_lines:
         g = (
             g
-            + geom_vline(xintercept=0, color="grey", size=0.3)
-            + geom_hline(yintercept=0, color="grey", size=0.3)
+            + geom_vline(xintercept=0, color=REF, size=0.3)
+            + geom_hline(yintercept=0, color=REF, size=0.3)
         )
     g = g + coord_fixed(ratio=1, xlim=(-lim, lim), ylim=(-lim, lim))
     return g

@@ -1,0 +1,39 @@
+Start:  AIC=49700.32
+price ~ 1
+
+          Df  Sum of Sq        RSS   AIC
++ carat    1 4.0379e+10 6.5764e+09 43805
++ clarity  7 1.4644e+09 4.5492e+10 49619
+<none>                  4.6956e+10 49700
++ depth    1 5.9045e+06 4.6950e+10 49702
++ noise    1 1.4699e+06 4.6954e+10 49702
+
+Step:  AIC=43805.17
+price ~ carat
+
+          Df  Sum of Sq        RSS   AIC
++ clarity  7 2.0795e+09 4.4969e+09 42679
++ depth    1 6.5201e+07 6.5112e+09 43777
+<none>                  6.5764e+09 43805
++ noise    1 2.6614e+04 6.5764e+09 43807
+- carat    1 4.0379e+10 4.6956e+10 49700
+
+Step:  AIC=42678.89
+price ~ carat + clarity
+
+          Df  Sum of Sq        RSS   AIC
++ depth    1 1.1682e+07 4.4853e+09 42673
+<none>                  4.4969e+09 42679
++ noise    1 9.0912e+05 4.4960e+09 42680
+- clarity  7 2.0795e+09 6.5764e+09 43805
+- carat    1 4.0995e+10 4.5492e+10 49619
+
+Step:  AIC=42673.09
+price ~ carat + clarity + depth
+
+          Df  Sum of Sq        RSS   AIC
+<none>                  4.4853e+09 42673
++ noise    1 8.1535e+05 4.4845e+09 42675
+- depth    1 1.1682e+07 4.4969e+09 42679
+- clarity  7 2.0260e+09 6.5112e+09 43777
+- carat    1 4.0984e+10 4.5469e+10 49620

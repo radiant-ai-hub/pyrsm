@@ -86,12 +86,29 @@ def _mnl_fit(X: np.ndarray, y: np.ndarray, codes: np.ndarray, ngroups: int):
         res = minimize(nll_grad, np.zeros(p), jac=True, method="BFGS")
     beta = res.x
 
-    # analytic Hessian: sum_n p_n x_n x_n' - sum_g xbar_g xbar_g'
-    xb = X @ beta
-    prob, _, _ = _segment_probs(xb, codes, ngroups)
-    XB = np.zeros((ngroups, p))
-    np.add.at(XB, codes, X * prob[:, None])
-    H = (X * prob[:, None]).T @ X - XB.T @ XB
+    def hessian(beta):
+        # analytic Hessian: sum_n p_n x_n x_n' - sum_g xbar_g xbar_g'
+        prob, _, _ = _segment_probs(X @ beta, codes, ngroups)
+        XB = np.zeros((ngroups, p))
+        np.add.at(XB, codes, X * prob[:, None])
+        return (X * prob[:, None]).T @ X - XB.T @ XB
+
+    # Newton-Raphson from the BFGS solution (as R's clogit and mlogit): the
+    # log-likelihood is concave, so a few steps reach the optimum even when
+    # BFGS stops early on badly scaled data (e.g., price in $1,000s).
+    for _ in range(25):
+        _, grad = nll_grad(beta)
+        try:
+            step = np.linalg.solve(hessian(beta), grad)
+        except np.linalg.LinAlgError:
+            break
+        beta = beta - step
+        if np.max(np.abs(step)) < 1e-10 * (1 + np.max(np.abs(beta))):
+            break
+    fval, grad = nll_grad(beta)
+    converged = bool(np.max(np.abs(grad)) < 1e-6 * max(1.0, abs(fval)))
+
+    H = hessian(beta)
     try:
         bse = np.sqrt(np.clip(np.diag(np.linalg.inv(H)), 0, None))
     except np.linalg.LinAlgError:
@@ -100,7 +117,7 @@ def _mnl_fit(X: np.ndarray, y: np.ndarray, codes: np.ndarray, ngroups: int):
     zvalues = beta / bse
     # survival function keeps tiny p-values accurate (1 - cdf underflows to 0)
     pvalues = 2 * norm.sf(np.abs(zvalues))
-    llf = -res.fun
+    llf = -fval
     # null model: equal probability within each task
     llnull = -float(np.log(np.bincount(codes, minlength=ngroups)).sum())
     prsquared = 1 - llf / llnull if llnull != 0 else np.nan
@@ -112,7 +129,7 @@ def _mnl_fit(X: np.ndarray, y: np.ndarray, codes: np.ndarray, ngroups: int):
         "llf": float(llf),
         "llnull": float(llnull),
         "prsquared": float(prsquared),
-        "converged": bool(res.success),
+        "converged": converged,
     }
 
 
@@ -400,17 +417,19 @@ class cbc:
         attribute for ``"pw"`` and a bar plot for ``"iw"``. Returns a single
         plot when one is produced, otherwise a list.
         """
+        import pandas as pd
         from plotnine import (
             aes,
             element_text,
-            geom_bar,
+            geom_col,
             geom_line,
             geom_point,
             ggplot,
             labs,
             theme,
-            theme_classic,
         )
+
+        from pyrsm.plot_style import ALPHA, LINE, POINT_FILL, theme_pyrsm
 
         if isinstance(plots, str):
             plots = [plots]
@@ -424,21 +443,24 @@ class cbc:
                     .with_columns(pl.col("Levels").cast(pl.Utf8))
                     .to_pandas()
                 )
+                # preserve level order on the x axis
+                levs = list(dict.fromkeys(dat["Levels"]))
+                dat["Levels"] = pd.Categorical(dat["Levels"], categories=levs, ordered=True)
                 out.append(
                     ggplot(dat, aes(x="Levels", y="PW", group=1))
-                    + geom_line(color="blue", linetype="dashdot", size=0.7)
-                    + geom_point(color="blue", size=4, fill="white")
+                    + geom_line(color=LINE, linetype="dashdot", size=0.7)
+                    + geom_point(color=LINE, size=4, fill=POINT_FILL)
                     + labs(title=f"Part-worths for {v}", x="", y="PW")
-                    + theme_classic()
+                    + theme_pyrsm()
                     + theme(axis_text_x=element_text(angle=45, hjust=1))
                 )
         if "iw" in plots:
             dat = self.IW.to_pandas()
             out.append(
                 ggplot(dat, aes(x="Attributes", y="IW", fill="Attributes"))
-                + geom_bar(stat="identity", alpha=0.5)
+                + geom_col(alpha=ALPHA)
                 + labs(title="Importance weights", x="", y="IW")
-                + theme_classic()
+                + theme_pyrsm()
                 + theme(legend_position="none")
             )
         if not out:

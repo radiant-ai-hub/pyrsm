@@ -1,7 +1,8 @@
 import polars as pl
-from plotnine import aes, geom_col, geom_hline, ggplot, labs, theme_bw
+from plotnine import aes, geom_col, geom_hline, ggplot, labs
 
 from pyrsm.utils import check_dataframe
+from pyrsm.plot_style import FILL, REF, theme_pyrsm
 
 
 def prop_calc(df: pl.DataFrame, group: str, rvar: str, lev: str) -> pl.DataFrame:
@@ -38,7 +39,7 @@ def prop_plot(
     rvar: str,
     lev: str,
     breakeven: float | None = None,
-    color: str = "slateblue",
+    color: str = FILL,
 ):
     """
     Plot proportions by a grouping variable
@@ -67,10 +68,10 @@ def prop_plot(
         ggplot(dfp, aes(x=group, y=rvar))
         + geom_col(fill=color)
         + labs(y=f"Proportion of {rvar} equal to '{lev}'")
-        + theme_bw()
+        + theme_pyrsm()
     )
 
     if breakeven is not None:
-        p = p + geom_hline(yintercept=breakeven, linetype="dashed")
+        p = p + geom_hline(yintercept=breakeven, linetype="dashed", color=REF)
 
     return p

@@ -1,10 +1,11 @@
 import numpy as np
 from scipy import stats
 
-from .utils import check, iround, plot_continuous
+from .utils import check, check_positive, iround, plot_continuous
 
 
 def prob_tdist(df, lb=None, ub=None, plb=None, pub=None):
+    check_positive(**{"Degrees of freedom": df})
     if lb is None:
         p_lb = None
     else:

@@ -766,31 +766,32 @@ class nb:
                 labs,
                 scale_x_discrete,
                 theme,
-                theme_bw,
             )
+
+            from pyrsm.plot_style import ALPHA, FILL, theme_pyrsm
 
             vimp = self.vimp(lev)
             ymax = float(vimp["auc"].max())
             if "Predict" not in vimp.columns:
                 return (
                     ggplot(vimp, aes(x="vars", y="auc"))
-                    + geom_col(fill="slateblue", alpha=0.5)
+                    + geom_col(fill=FILL, alpha=ALPHA)
                     + scale_x_discrete(limits=vimp["vars"].to_list())
                     + labs(x="", y="Variable Importance (AUC)")
                     + coord_flip(ylim=(0.5, ymax))
-                    + theme_bw()
+                    + theme_pyrsm()
                     + theme(axis_text_y=element_text(ha="left"))
                 )
             pairs = list(dict.fromkeys(vimp["Predict"].to_list()))
             vimp = vimp.with_columns(pl.col("vars").cast(pl.Enum(self.evar)))
             return (
                 ggplot(vimp, aes(x="Predict", y="auc", fill="vars"))
-                + geom_col(position="dodge", alpha=0.5)
+                + geom_col(position="dodge", alpha=ALPHA)
                 + scale_x_discrete(limits=pairs[::-1])
                 + guides(fill=guide_legend(title=""))
                 + labs(x="", y="Variable Importance (AUC)")
                 + coord_flip(ylim=(0.5, ymax))
-                + theme_bw()
+                + theme_pyrsm()
                 + theme(axis_text_y=element_text(ha="left"))
             )
         raise ValueError(f"Unknown plot type(s): {', '.join(map(str, plots))}")

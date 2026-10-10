@@ -15,10 +15,10 @@ from plotnine import (
     labs,
     scale_x_discrete,
     theme,
-    theme_bw,
 )
 
 from pyrsm.eda.explore import explore
+from pyrsm.plot_style import ALPHA, FILL, theme_pyrsm
 
 
 def _is_categorical(df: pl.DataFrame, col: str, nint: int = 25) -> bool:
@@ -34,44 +34,9 @@ def _is_categorical(df: pl.DataFrame, col: str, nint: int = 25) -> bool:
 
 def _compose_plots(plot_list: list, ncol: int = 2):
     """Compose multiple plotnine plots into a grid layout."""
-    if len(plot_list) == 0:
-        return None
-    if len(plot_list) == 1:
-        return plot_list[0]
+    from pyrsm.plot_utils import compose_plots
 
-    nrow = ceil(len(plot_list) / ncol)
-
-    # Build rows of plots
-    rows = []
-    for i in range(nrow):
-        start = i * ncol
-        end = min(start + ncol, len(plot_list))
-        row_plots = plot_list[start:end]
-
-        if len(row_plots) == 1:
-            row = row_plots[0]
-        else:
-            row = row_plots[0]
-            for p in row_plots[1:]:
-                row = row | p
-        rows.append(row)
-
-    # Stack rows vertically
-    if len(rows) == 1:
-        combined = rows[0]
-    else:
-        combined = rows[0]
-        for row in rows[1:]:
-            combined = combined / row
-
-    # Auto-adjust figure size
-    height_per_row = 3
-    width_per_col = 4
-    fig_width = width_per_col * min(ncol, len(plot_list))
-    fig_height = height_per_row * nrow
-    combined = combined + theme(figure_size=(fig_width, fig_height))
-
-    return combined
+    return compose_plots(plot_list, ncol=ncol)
 
 
 def _is_notebook() -> bool:
@@ -421,10 +386,10 @@ class distr:
 
                 p = (
                     ggplot(col_data, aes(x="value"))
-                    + geom_bar(fill="slateblue", alpha=0.8)
+                    + geom_bar(fill=FILL, alpha=ALPHA)
                     + labs(x="", y="Count")
                     + ggtitle(c)
-                    + theme_bw()
+                    + theme_pyrsm()
                     + theme(
                         plot_title=element_text(size=10, weight="bold"),
                         axis_text_x=element_text(rotation=45, ha="right"),
@@ -440,10 +405,10 @@ class distr:
                 col_data = self.data.select(pl.col(c).cast(pl.Float64).alias("value"))
                 p = (
                     ggplot(col_data, aes(x="value"))
-                    + geom_histogram(bins=bins, fill="slateblue", alpha=0.8)
+                    + geom_histogram(bins=bins, fill=FILL, alpha=ALPHA)
                     + labs(x="", y="Count")
                     + ggtitle(c)
-                    + theme_bw()
+                    + theme_pyrsm()
                     + theme(plot_title=element_text(size=10, weight="bold"))
                 )
 

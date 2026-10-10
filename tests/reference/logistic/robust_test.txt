@@ -1,0 +1,27 @@
+Logistic regression (GLM)
+Data                 : d
+Response variable    : survived
+Level                : Yes in survived
+Explanatory variables: pclass, sex, age 
+Null hyp.: there is no effect of x on survived
+Alt. hyp.: there is an effect of x on survived
+**Robust standard errors used**
+
+                OR    OR% coefficient std.error z.value p.value    
+ (Intercept)                    3.515     0.329  10.688  < .001 ***
+ pclass|2nd  0.280 -72.0%      -1.274     0.198  -6.430  < .001 ***
+ pclass|3rd  0.102 -89.8%      -2.283     0.232  -9.842  < .001 ***
+ sex|male    0.083 -91.7%      -2.491     0.163 -15.301  < .001 ***
+ age         0.966  -3.4%      -0.034     0.007  -5.305  < .001 ***
+
+Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+
+Pseudo R-squared:0.304, Adjusted Pseudo R-squared:0.298
+AUC: 0.839, Log-likelihood: -490.864, AIC: 991.728, BIC: 1016.477
+Chi-squared: 428.257 df(4), p.value < .001 
+Nr obs: 1,043 
+
+Model 1: survived ~ pclass + sex
+Model 2: survived ~ pclass + sex + age
+Pseudo R-squared, Model 1 vs 2: 0.281 0.304
+Chi-squared: 28.138 df(1), p.value < .001

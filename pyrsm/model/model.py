@@ -8,6 +8,7 @@ import statsmodels as sm
 import statsmodels.formula.api as smf
 from plotnine import (
     aes,
+    geom_abline,
     geom_density,
     geom_errorbarh,
     geom_histogram,
@@ -16,19 +17,23 @@ from plotnine import (
     geom_line,
     geom_point,
     geom_smooth,
+    geom_text,
     geom_vline,
     ggplot,
     ggtitle,
     labs,
+    scale_x_continuous,
     scale_x_log10,
+    scale_y_continuous,
     stat_function,
     stat_qq,
     stat_qq_line,
     stat_summary,
     theme,
-    theme_bw,
 )
 from scipy import stats
+
+from pyrsm.plot_style import ALPHA, FILL, LINE, REF, theme_pyrsm
 from scipy.special import expit
 from sklearn import metrics
 from sklearn.model_selection import (
@@ -466,6 +471,69 @@ def extract_rvar(model, cn):
     return re.findall(pattern, model.formula)[0]
 
 
+_R_POWER = re.compile(r"I\(\s*([A-Za-z_.][\w.]*)\s*\^\s*([0-9]+)\s*\)")
+_PY_POWER = re.compile(r"I\(\s*([A-Za-z_.][\w.]*)\s*\*\*\s*([0-9]+)\s*\)")
+
+
+def r_powers(term):
+    """R's ``I(x^2)`` as the formula engine's ``I(x ** 2)``.
+
+    In a Python formula ``^`` is bitwise XOR, so radiant.model's squared and
+    cubed terms (``qterms``) must be rewritten before estimation. Applies to a
+    single term, a list of terms, or a whole formula.
+    """
+    if term is None:
+        return None
+    if isinstance(term, (list, tuple)):
+        return [r_powers(t) for t in term]
+    return _R_POWER.sub(lambda m: f"I({m.group(1)} ** {m.group(2)})", str(term))
+
+
+def r_label(term: str) -> str:
+    """``I(x ** 2)`` back to R's ``I(x^2)``, for labels a student reads."""
+    return _PY_POWER.sub(lambda m: f"I({m.group(1)}^{m.group(2)})", str(term))
+
+
+def check_pred_vars(evar, data=None, cmd=None, data_cmd=None) -> None:
+    """
+    Refuse a prediction request that does not fit the model, with Radiant's message
+
+    Parameters
+    ----------
+    evar : list[str]
+        Explanatory variables in the model
+    data : DataFrame, optional
+        Prediction data. Every explanatory variable must be a column.
+    cmd, data_cmd : dict, optional
+        Prediction command(s). Every name must be an explanatory variable.
+
+    Raises
+    ------
+    ValueError
+        Naming the variables in the model and the ones that are missing
+    """
+    evar = list(evar or [])
+    if data is not None:
+        columns = list(data.columns)
+        missing = [v for v in evar if v not in columns]
+        if missing:
+            raise ValueError(
+                "All variables in the model must also be in the prediction data\n"
+                f"Variables in the model: {', '.join(evar)}\n"
+                f"Variables not available in prediction data: {', '.join(missing)}"
+            )
+    for command in (cmd, data_cmd):
+        if not command or not isinstance(command, dict):
+            continue
+        extra = [k for k in command if k not in evar]
+        if extra:
+            raise ValueError(
+                "The command entered contains variable names that are not in the model\n"
+                f"Variables in the model: {', '.join(evar)}\n"
+                f"Variables not available in prediction data: {', '.join(extra)}"
+            )
+
+
 def convert_to_list(v):
     if v is None:
         return []
@@ -853,7 +921,7 @@ def or_plot(fitted, alpha=0.05, intercept=False, incl=None, excl=None, figsize=N
 
     Returns
     -------
-    Matplotlit object
+    plotnine.ggplot
         Plot of Odds ratios
     """
 
@@ -890,12 +958,12 @@ def or_plot(fitted, alpha=0.05, intercept=False, incl=None, excl=None, figsize=N
 
     return (
         ggplot(df, aes(x="OR", y="index"))
-        + geom_vline(xintercept=1, linetype="dashdot", color="slateblue")
-        + geom_errorbarh(aes(xmin="xmin", xmax="xmax"), height=0.2, color="slateblue")
-        + geom_point(color="slateblue")
+        + geom_vline(xintercept=1, linetype="dashdot", color=REF)
+        + geom_errorbarh(aes(xmin="xmin", xmax="xmax"), height=0.2, color=LINE)
+        + geom_point(color=LINE)
         + scale_x_log10()
         + labs(x="Odds-ratio", y="")
-        + theme_bw()
+        + theme_pyrsm()
     )
 
 
@@ -976,6 +1044,98 @@ def vif(fitted, dec=3):
     return df
 
 
+def gvif(fitted, dec: int | None = 3) -> pd.DataFrame:
+    """
+    Generalized variance inflation factors as ``car::vif``
+
+    Computed from the correlation matrix of the coefficient estimates (the
+    model's covariance without the intercept), so it is right for weighted
+    and GLM fits as well as OLS. One row per term: ``vif`` is the GVIF and
+    ``Rsq`` = 1 - 1/GVIF, sorted from largest to smallest.
+    """
+    design = fitted.model.data.design_info
+    names = list(fitted.params.index)
+    cov = np.asarray(fitted.cov_params())
+    keep = [i for i, n in enumerate(names) if n != "Intercept"]
+    cov = cov[np.ix_(keep, keep)]
+    sd = np.sqrt(np.diag(cov))
+    R = cov / np.outer(sd, sd)
+    det_all = np.linalg.det(R)
+    position = {names[i]: j for j, i in enumerate(keep)}
+    rows = []
+    for term, sl in design.term_name_slices.items():
+        if term == "Intercept":
+            continue
+        cols = [position[names[i]] for i in range(sl.start, sl.stop) if names[i] in position]
+        rest = [j for j in range(len(keep)) if j not in cols]
+        a = np.linalg.det(R[np.ix_(cols, cols)])
+        b = np.linalg.det(R[np.ix_(rest, rest)]) if rest else 1.0
+        rows.append((r_label(term), a * b / det_all))
+    df = pd.DataFrame(rows, columns=["index", "vif"]).set_index("index")
+    df["Rsq"] = 1 - 1 / df["vif"]
+    df = df.sort_values("vif", ascending=False)
+    df.index.name = None
+    return df.round(dec) if dec is not None else df
+
+
+def profile_ci(fitted, alpha: float = 0.05) -> pd.DataFrame:
+    """
+    Profile-likelihood confidence intervals for a GLM, as R's ``confint(glm)``
+
+    For each coefficient the interval holds the values b at which the
+    deviance of the model refit with that coefficient fixed at b (the other
+    coefficients re-estimated) exceeds the minimum deviance by at most the
+    chi-squared(1) quantile -- equivalently the signed root of the deviance
+    difference lies within +/- z(1 - alpha/2).
+
+    Returns
+    -------
+    pandas DataFrame with the lower and upper bound, indexed by coefficient
+    """
+    from scipy.optimize import brentq
+    from statsmodels.genmod.generalized_linear_model import GLM
+
+    model = fitted.model
+    y, X = model.endog, model.exog
+    w = getattr(model, "freq_weights", None)
+    offset = getattr(model, "offset", None)
+    base_offset = np.zeros(len(y)) if offset is None else np.asarray(offset)
+    dev_hat = fitted.deviance
+    q = stats.norm.ppf(1 - alpha / 2) ** 2
+    params = np.asarray(fitted.params)
+    bse = np.asarray(fitted.bse)
+
+    def excess(j: int, b: float, start) -> float:
+        others = np.delete(X, j, axis=1)
+        off = base_offset + X[:, j] * b
+        if others.shape[1] == 0:
+            mu = model.family.link.inverse(off)
+            dev = model.family.deviance(y, mu, freq_weights=w if w is not None else 1.0)
+        else:
+            fit = GLM(y, others, family=model.family, offset=off, freq_weights=w).fit(
+                start_params=start
+            )
+            dev = fit.deviance
+        return (dev - dev_hat) - q
+
+    out = []
+    for j in range(len(params)):
+        start = np.delete(params, j)
+        bounds = []
+        for direction in (-1, 1):
+            step = max(bse[j], 1e-8) * np.sqrt(q)
+            edge = params[j] + direction * step
+            for _ in range(60):
+                if excess(j, edge, start) > 0:
+                    break
+                step *= 2
+                edge = params[j] + direction * step
+            lo, hi = sorted([params[j], edge])
+            bounds.append(brentq(lambda b: excess(j, b, start), lo, hi, xtol=1e-10))
+        out.append(bounds)
+    return pd.DataFrame(out, index=fitted.params.index)
+
+
 def predict_ci(fitted, df, conf=0.95, alpha=None):
     """
     Compute predicted probabilities with confidence intervals based on a
@@ -1012,11 +1172,14 @@ def predict_ci(fitted, df, conf=0.95, alpha=None):
     model.summary()
     pred = predict_ci(model, df)
 
-    plt.clf()
-    plt.plot(x1, pred["prediction"])
-    plt.plot(x1, pred["2.5%"], color='black', linestyle="--", linewidth=0.5)
-    plt.plot(x1, pred["97.5%"], color='black', linestyle="--", linewidth=0.5)
-    plt.show()
+    from plotnine import aes, geom_line, ggplot
+    pdat = pred.assign(x1=x1)
+    (
+        ggplot(pdat, aes(x="x1"))
+        + geom_line(aes(y="prediction"))
+        + geom_line(aes(y="2.5%"), linetype="dashed")
+        + geom_line(aes(y="97.5%"), linetype="dashed")
+    )
     """
 
     if conf < 0 or conf > 1:
@@ -1147,8 +1310,8 @@ def coef_plot(
 
     Returns
     -------
-    Matplotlib object
-        Plot of Odds ratios
+    plotnine.ggplot
+        Coefficient plot
     """
     df = fitted.conf_int(alpha=alpha).reset_index().iloc[::-1]
     df["coefficient"] = fitted.params[df["index"]].dropna().values
@@ -1187,11 +1350,11 @@ def coef_plot(
 
     return (
         ggplot(df, aes(x="coefficient", y="index"))
-        + geom_vline(xintercept=0, linetype="dashdot", color="slateblue")
-        + geom_errorbarh(aes(xmin="xmin", xmax="xmax"), height=0.2, color="slateblue")
-        + geom_point(color="slateblue")
+        + geom_vline(xintercept=0, linetype="dashdot", color=REF)
+        + geom_errorbarh(aes(xmin="xmin", xmax="xmax"), height=0.2, color=LINE)
+        + geom_point(color=LINE)
         + labs(x="Coefficient", y="")
-        + theme_bw()
+        + theme_pyrsm()
     )
 
 
@@ -1216,8 +1379,8 @@ def coef_ci(fitted, alpha: float = 0.05, intercept: bool = True, dec: int = 3):
 
     df = pd.DataFrame({"coefficient": fitted.params})
 
-    low, high = [100 * alpha / 2, 100 * (1 - (alpha / 2))]
-    df[[f"{low}%", f"{high}%"]] = fitted.conf_int(alpha=alpha)
+    low, high = [round(100 * alpha / 2, 4), round(100 * (1 - (alpha / 2)), 4)]
+    df[[f"{low:g}%", f"{high:g}%"]] = fitted.conf_int(alpha=alpha)
 
     if dec is None:
         df["p.values"] = format_pvals(fitted.pvalues, 3)
@@ -1280,7 +1443,12 @@ def evalreg(df, rvar: str, pred: str, dec: int = 3):
     return result.with_columns([pl.col(c).round(dec) for c in numeric_cols])
 
 
-def reg_dashboard(fitted, nobs: int = 1000):
+def _fit_line(method: str):
+    """A dashed fit line (``method`` is "lm" or "loess") in the reference color."""
+    return geom_smooth(method=method, se=False, color=REF, linetype="dashdot", size=0.75)
+
+
+def reg_dashboard(fitted, nobs: int = 1000, lines: list[str] | None = None):
     """
     Plot regression residual dashboard
 
@@ -1292,6 +1460,11 @@ def reg_dashboard(fitted, nobs: int = 1000):
         Set to None or -1 to plot all values.
         The Residuals vs Order plot will only be valid
         if all observations are plotted
+    lines : list[str] or None
+        None keeps the default linear fit lines. Otherwise the lines to add,
+        as in Radiant: "line" adds a 45-degree line to the Actual vs Fitted
+        and Q-Q plots and a linear fit to the residual plots; "loess" adds a
+        local polynomial fit to the first three plots. ``[]`` adds none.
     """
     if hasattr(fitted.model, "endog"):
         endog = fitted.model.endog
@@ -1311,69 +1484,227 @@ def reg_dashboard(fitted, nobs: int = 1000):
     if (nobs != -1 and nobs is not None) and (nobs < data.height):
         data = data.sample(nobs, seed=1234)
 
+    default_lines = lines is None
+    lines = [] if lines is None else list(lines)
+
     # Plot 1: Actual vs Fitted values
     p1 = (
         ggplot(data, aes(x="fitted", y="actual"))
-        + geom_point(alpha=0.5, color="slateblue")
-        + geom_smooth(method="lm", color="blue")
+        + geom_point(alpha=ALPHA, color=FILL)
         + labs(x="Fitted values", y="Actual values")
         + ggtitle("Actual vs Fitted values")
-        + theme_bw()
+        + theme_pyrsm()
     )
 
     # Plot 2: Residuals vs Fitted values
     p2 = (
         ggplot(data, aes(x="fitted", y="resid"))
-        + geom_point(alpha=0.5, color="slateblue")
-        + geom_smooth(method="lm", color="blue")
-        + geom_hline(yintercept=0, linetype="dashed", color="gray")
+        + geom_point(alpha=ALPHA, color=FILL)
+        + geom_hline(yintercept=0, linetype="dashed", color=REF)
         + labs(x="Fitted values", y="Residuals")
         + ggtitle("Residuals vs Fitted values")
-        + theme_bw()
+        + theme_pyrsm()
     )
 
     # Plot 3: Residuals vs Row order
     p3 = (
         ggplot(data, aes(x="order", y="resid"))
-        + geom_line()
-        + geom_hline(yintercept=0, linetype="dashed", color="gray")
+        + geom_line(color=LINE)
+        + geom_hline(yintercept=0, linetype="dashed", color=REF)
         + labs(x="Row order", y="Residuals")
         + ggtitle("Residuals vs Row order")
-        + theme_bw()
+        + theme_pyrsm()
     )
 
     # Plot 4: Q-Q plot
     p4 = (
         ggplot(data, aes(sample="std_resid"))
-        + stat_qq(color="slateblue")
-        + stat_qq_line()
+        + stat_qq(color=LINE)
         + labs(x="Theoretical quantiles", y="Sample quantiles")
         + ggtitle("Normal Q-Q plot")
-        + theme_bw()
+        + theme_pyrsm()
     )
+
+    if default_lines:
+        p1 = p1 + geom_smooth(method="lm", color=REF)
+        p2 = p2 + geom_smooth(method="lm", color=REF)
+        p4 = p4 + stat_qq_line(color=REF)
+    else:
+        if "line" in lines:
+            p1 = p1 + geom_abline(linetype="dashdot", color=REF)
+            p2 = p2 + _fit_line("lm")
+            p3 = p3 + _fit_line("lm")
+            p4 = p4 + stat_qq_line(color=REF, linetype="dashdot")
+        if "loess" in lines:
+            p1 = p1 + _fit_line("loess")
+            p2 = p2 + _fit_line("loess")
+            p3 = p3 + _fit_line("loess")
 
     # Plot 5: Histogram of residuals
     p5 = (
         ggplot(data, aes(x="resid"))
-        + geom_histogram(fill="slateblue", color="white", bins=30)
+        + geom_histogram(fill=FILL, color="white", bins=30)
         + labs(x="Residuals", y="Count")
         + ggtitle("Histogram of residuals")
-        + theme_bw()
+        + theme_pyrsm()
     )
 
     # Plot 6: Residuals vs Normal density
     p6 = (
         ggplot(data, aes(x="std_resid"))
-        + geom_density(fill="green", alpha=0.5)
-        + stat_function(fun=stats.norm.pdf, color="black", size=1)
+        + geom_density(fill=FILL, alpha=ALPHA)
+        + stat_function(fun=stats.norm.pdf, color=REF, size=1)
         + labs(x="Standardized residuals", y="Density")
         + ggtitle("Residuals vs Normal density")
-        + theme_bw()
+        + theme_pyrsm()
     )
 
     # Compose into 3x2 grid and set figure size
     dashboard = (p1 | p2) / (p3 | p4) / (p5 | p6) + theme(figure_size=(10, 12))
     return dashboard
+
+
+def logit_dashboard_data(fitted, qnt: int = 10) -> dict[str, pl.DataFrame | float]:
+    """
+    The numbers behind ``logit_dashboard``.
+
+    Parameters
+    ----------
+    fitted : statsmodels GLM (Binomial) results, as stored on ``pyrsm.model.logistic``
+    qnt : int
+        Number of predicted-probability bins for the calibration and gains views.
+
+    Returns
+    -------
+    dict with
+        calibration : per bin, mean predicted probability, observed rate and n
+        roc : false and true positive rates per threshold
+        gains : cumulative share of observations vs cumulative share of positives
+        predictions : predicted probability and actual outcome per observation
+        auc : area under the ROC curve
+    """
+    if hasattr(fitted.model, "endog"):
+        actual = np.asarray(fitted.model.endog, dtype=float)
+    else:
+        actual = np.asarray(fitted.model["endog"], dtype=float)
+    pred = np.asarray(fitted.fittedvalues, dtype=float)
+    df = pl.DataFrame({"pred": pred, "actual": actual})
+
+    # Calibration: bins of (roughly) equal size by predicted probability.
+    ranks = df["pred"].rank(method="ordinal").to_numpy()
+    bins = np.minimum((ranks - 1) * qnt // len(ranks), qnt - 1).astype(int) + 1
+    calibration = (
+        df.with_columns(pl.Series("bin", bins))
+        .group_by("bin")
+        .agg(
+            pl.col("pred").mean().alias("predicted"),
+            pl.col("actual").mean().alias("observed"),
+            pl.len().alias("n"),
+        )
+        .sort("bin")
+    )
+
+    fpr, tpr, _ = metrics.roc_curve(actual, pred)
+    roc = pl.DataFrame({"fpr": fpr, "tpr": tpr})
+    auc_value = float(metrics.roc_auc_score(actual, pred))
+
+    # Cumulative gains: contact the highest predicted probabilities first.
+    order = np.argsort(-pred, kind="stable")
+    cum_pos = np.cumsum(actual[order])
+    cuts = np.ceil(np.arange(1, qnt + 1) * len(order) / qnt).astype(int) - 1
+    gains = pl.concat(
+        [
+            pl.DataFrame({"cum_prop": [0.0], "cum_gains": [0.0]}),
+            pl.DataFrame(
+                {
+                    "cum_prop": (cuts + 1) / len(order),
+                    "cum_gains": cum_pos[cuts] / max(cum_pos[-1], 1.0),
+                }
+            ),
+        ]
+    )
+    return {
+        "calibration": calibration,
+        "roc": roc,
+        "gains": gains,
+        "predictions": df,
+        "auc": auc_value,
+    }
+
+
+def logit_dashboard(fitted, lev: str | None = None, qnt: int = 10, figsize=(10, 9)):
+    """
+    Diagnostic dashboard for a binary classifier (logistic regression)
+
+    The four views applied analytics uses to decide whether a classifier can be
+    relied on: are the probabilities calibrated, does the model rank well
+    (ROC/AUC), how much of the response does targeting the top of the list
+    capture (cumulative gains), and how well do the predicted probabilities
+    separate the two outcomes.
+
+    Parameters
+    ----------
+    fitted : statsmodels GLM (Binomial) results
+    lev : str, optional
+        Label for the positive outcome in the legend.
+    qnt : int
+        Number of predicted-probability bins for the calibration and gains views.
+    figsize : tuple
+        Figure size of the composed dashboard.
+    """
+    d = logit_dashboard_data(fitted, qnt=qnt)
+    positive = str(lev) if lev is not None else "1"
+    unit = scale_x_continuous(limits=(0, 1))
+    unit_y = scale_y_continuous(limits=(0, 1))
+
+    p1 = (
+        ggplot(d["calibration"], aes(x="predicted", y="observed"))
+        + geom_abline(intercept=0, slope=1, linetype="dashed", color=REF)
+        + geom_line(color=LINE)
+        + geom_point(color=LINE, size=2.5)
+        + unit
+        + unit_y
+        + labs(x="Mean predicted probability", y="Observed rate")
+        + ggtitle(f"Calibration ({qnt} bins)")
+        + theme_pyrsm()
+    )
+    p2 = (
+        ggplot(d["roc"], aes(x="fpr", y="tpr"))
+        + geom_abline(intercept=0, slope=1, linetype="dashed", color=REF)
+        + geom_line(color=LINE, size=1)
+        + unit
+        + unit_y
+        + labs(x="False positive rate", y="True positive rate")
+        + ggtitle(f"ROC curve (AUC = {d['auc']:.3f})")
+        + theme_pyrsm()
+    )
+    p3 = (
+        ggplot(d["gains"], aes(x="cum_prop", y="cum_gains"))
+        + geom_abline(intercept=0, slope=1, linetype="dashed", color=REF)
+        + geom_line(color=LINE)
+        + geom_point(color=LINE)
+        + unit
+        + unit_y
+        + labs(x="Share of observations targeted", y=f"Share of '{positive}' captured")
+        + ggtitle("Cumulative gains")
+        + theme_pyrsm()
+    )
+    preds = d["predictions"].with_columns(
+        pl.when(pl.col("actual") == 1)
+        .then(pl.lit(positive))
+        .otherwise(pl.lit(f"not {positive}"))
+        .alias("outcome")
+    )
+    p4 = (
+        ggplot(preds, aes(x="pred", fill="outcome"))
+        + geom_density(alpha=0.5)
+        + unit
+        + labs(x="Predicted probability", y="Density", fill="Actual")
+        + ggtitle("Predicted probabilities by outcome")
+        + theme_pyrsm()
+        + theme(legend_position="bottom")
+    )
+    return (p1 | p2) / (p3 | p4) + theme(figure_size=figsize)
 
 
 def sim_prediction(
@@ -1445,7 +1776,12 @@ def sim_prediction(
 
 
 def scatter_plot(
-    fitted, df, nobs: int = 1000, figsize: tuple = None, resid=False
+    fitted,
+    df,
+    nobs: int = 1000,
+    figsize: tuple = None,
+    resid=False,
+    lines: list[str] | None = None,
 ) -> None:
     """
     Scatter plot of explanatory and response variables from a fitted regression
@@ -1462,7 +1798,11 @@ def scatter_plot(
         A tuple that determines the figure size (ignored, kept for compatibility)
     resid : bool
         If True, use residuals as the response variable
+    lines : list[str] or None
+        For numeric explanatory variables: "line" adds a linear fit, "loess"
+        a local polynomial fit, and "jitter" jitters the points
     """
+    lines = list(lines or [])
     # Convert to polars
     if isinstance(df, pd.DataFrame):
         df = pl.from_pandas(df)
@@ -1488,12 +1828,21 @@ def scatter_plot(
         col = df[exog_name]
         if col.dtype.is_numeric():
             # Scatter plot for numeric variables
+            points = (
+                geom_jitter(alpha=ALPHA, color=FILL, width=0.2, height=0)
+                if "jitter" in lines
+                else geom_point(alpha=ALPHA, color=FILL)
+            )
             p = (
                 ggplot(df, aes(x=exog_name, y=endog_name))
-                + geom_point(alpha=0.5, color="slateblue")
+                + points
                 + labs(x=exog_name, y=endog_name)
-                + theme_bw()
+                + theme_pyrsm()
             )
+            if "line" in lines:
+                p = p + _fit_line("lm")
+            if "loess" in lines:
+                p = p + _fit_line("loess")
         else:
             # Jitter plot for categorical variables with mean lines
             # means_df = df.group_by(exog_name).agg(pl.col(endog_name).mean().alias("mean"))
@@ -1501,43 +1850,27 @@ def scatter_plot(
 
             p = (
                 ggplot(df, aes(x=exog_name, y=endog_name))
-                + geom_jitter(alpha=0.5, width=0.2, color="slateblue")
+                + geom_jitter(alpha=ALPHA, width=0.2, color=FILL)
                 + stat_summary(
                     fun_y=pl_mean,
                     fun_ymin=pl_mean,
                     fun_ymax=pl_mean,
                     geom="crossbar",
-                    color="blue",
+                    color=REF,
                     linetype="solid",
                     width=0.5,
                     size=0.8,
                     fatten=0,
                 )
                 + labs(x=exog_name, y=endog_name)
-                + theme_bw()
+                + theme_pyrsm()
             )
         plots.append(p)
 
-    # Compose plots into a grid (2 columns)
-    if len(plots) == 1:
-        result = plots[0]
-    else:
-        # Build rows of 2 plots each
-        rows = []
-        for i in range(0, len(plots), 2):
-            if i + 1 < len(plots):
-                rows.append(plots[i] | plots[i + 1])
-            else:
-                rows.append(plots[i])
+    # Compose plots into a grid (2 columns, 5 x 3 inches per plot)
+    from pyrsm.plot_utils import compose_plots
 
-        # Stack rows vertically
-        result = rows[0]
-        for row in rows[1:]:
-            result = result / row
-
-        # Set figure size for composition
-        nr_rows = len(rows)
-        result = result + theme(figure_size=(10, 3 * nr_rows))
+    result = compose_plots(plots, ncol=2, width_per_col=5, height_per_row=3)
 
     return result
 
@@ -1547,6 +1880,7 @@ def residual_plot(
     df,
     nobs: int = 1000,
     figsize: tuple = None,
+    lines: list[str] | None = None,
 ) -> None:
     """
     Plot of variables vs residuals
@@ -1562,7 +1896,62 @@ def residual_plot(
         determined based on the number of variables in the model
     """
 
-    return scatter_plot(fitted, df, nobs=nobs, figsize=figsize, resid=True)
+    return scatter_plot(fitted, df, nobs=nobs, figsize=figsize, resid=True, lines=lines)
+
+
+def influence_plot(fitted, figsize: tuple = None):
+    """
+    Influential observations: standardized residuals by observation, with the
+    point size showing Cook's distance (as in Radiant)
+
+    Observations with an absolute standardized residual below 1 are not shown,
+    except the three with the largest Cook's distance, which are labeled with
+    their row number. Dashed lines mark +/- 1 and +/- 3.
+
+    Parameters
+    ----------
+    fitted : A fitted linear regression model
+
+    Returns
+    -------
+    plotnine.ggplot
+    """
+    infl = fitted.get_influence()
+    if hasattr(fitted, "resid_deviance"):
+        # GLM: standardized deviance residuals (R's rstandard.glm)
+        h = np.asarray(infl.hat_matrix_diag, dtype=float)
+        std_resid = np.asarray(fitted.resid_deviance, dtype=float) / np.sqrt(1 - h)
+    else:
+        std_resid = np.asarray(infl.resid_studentized_internal, dtype=float)
+    cooksd = np.asarray(infl.cooks_distance[0], dtype=float)
+    index = np.arange(1, len(std_resid) + 1)
+    top = set(np.argsort(-np.nan_to_num(cooksd, nan=-np.inf))[:3].tolist())
+    is_top = np.array([i in top for i in range(len(index))])
+    keep = (np.abs(std_resid) >= 1) | is_top
+    df = pd.DataFrame(
+        {
+            "index": index[keep],
+            "std_resid": std_resid[keep],
+            "cooksd": cooksd[keep],
+            "label": np.where(is_top[keep], index[keep].astype(str), ""),
+        }
+    )
+    big = np.nanmax(np.abs(std_resid)) if len(std_resid) else 0
+    lim = (min(-4.0, -big - 0.5), max(4.0, big + 0.7))
+    return (
+        ggplot(df, aes(x="index", y="std_resid"))
+        + geom_hline(yintercept=[-3, -1, 1, 3], linetype="dashed", color=REF, size=0.4)
+        + geom_point(aes(size="cooksd"), alpha=0.5, color=LINE)
+        + geom_text(aes(label="label"), nudge_y=0.35, size=9)
+        + scale_y_continuous(breaks=list(range(-4, 5)), limits=lim)
+        + labs(
+            title="Influential observations",
+            x="Observation index",
+            y="Standardized residuals",
+            size="Cook's distance",
+        )
+        + theme_pyrsm()
+    )
 
 
 def cross_validation(
@@ -1656,3 +2045,218 @@ def cross_validation(
 
 
 # %%
+
+
+def _r_format_column(values: list, digits: int = 5) -> list[str]:
+    """Format a numeric column the way R's ``print.anova`` does.
+
+    ``zapsmall`` to ``digits``, then R's ``formatReal``: fixed notation unless
+    it would be wider than scientific notation, at most ``digits``
+    significant digits.
+    """
+    import math
+
+    finite = [v for v in values if v is not None and math.isfinite(v)]
+    if not finite:
+        return ["" for _ in values]
+    # print.anova zaps each column first: zapsmall(x, digits)
+    mx = max(abs(v) for v in finite)
+    if mx > 0:
+        # R (>= 4.4) zapsmall: round(x, max(0, digits - log10(mx))), the
+        # fractional number of places itself rounded to the nearest integer
+        places = int(math.floor(max(0.0, digits - math.log10(mx)) + 0.5))
+        values = [None if v is None or not math.isfinite(v) else round(v, places) for v in values]
+        finite = [v for v in values if v is not None]
+    neg = any(v < 0 for v in finite)
+    sig, left, right, wide_exp = [], [], [], False
+    for v in finite:
+        if v == 0:
+            sig.append(1), left.append(1), right.append(0)
+            continue
+        mant, exp = f"{abs(v):.{digits - 1}e}".split("e")
+        exp = int(exp)
+        wide_exp = wide_exp or abs(exp) >= 100
+        s = len(mant.replace(".", "").rstrip("0")) or 1
+        sig.append(s)
+        left.append(max(1, exp + 1))
+        right.append(max(0, s - 1 - exp))
+    rgt = max(right)
+    fixed_width = neg + max(left) + (rgt + 1 if rgt > 0 else 0)
+    mf = max(sig) - 1
+    sci_width = neg + (mf + 1 if mf > 0 else 0) + 1 + (5 if wide_exp else 4)
+    out = []
+    for v in values:
+        if v is None or not math.isfinite(v):
+            out.append("")
+        elif fixed_width <= sci_width:
+            out.append(f"{v:.{rgt}f}")
+        else:
+            out.append(f"{v:.{mf}e}")
+    return out
+
+
+def _r_formula_lines(formula: str, width: int = 60) -> str:
+    """Wrap a formula as R's ``deparse`` does: break after ``+`` past ``width``."""
+    lhs, rhs = formula.split("~", 1)
+    terms = [t.strip() for t in rhs.split("+")]
+    lines, line = [], f"{lhs.strip()} ~ {terms[0]}"
+    for term in terms[1:]:
+        if len(line) + 3 > width:
+            lines.append(line + " + ")
+            line = "    " + term
+        else:
+            line += " + " + term
+    lines.append(line)
+    return "\n".join(lines)
+
+
+def _step_block(label: str, aic: float, formula: str, columns: list[str], table: list) -> str:
+    """One step of R's ``step()`` trace: header, formula and the AIC table.
+
+    ``table`` rows are ``(label, *values, aic)`` with values for ``columns``;
+    a ``Df`` column prints as integers, the rest as R's ``print.anova``.
+    """
+    header = f"{label}:  AIC={float(f'{round(aic, 2):.7g}'):.7g}"
+    labels = [row[0] for row in table]
+    cols = []
+    for i, name in enumerate([*columns, "AIC"]):
+        values = [row[1 + i] for row in table]
+        if name == "Df":
+            cols.append((name, ["" if v is None else str(int(round(v))) for v in values]))
+        else:
+            cols.append((name, _r_format_column(values)))
+    lw = max(len(x) for x in labels)
+    widths = [max(len(h), *(len(v) for v in vals)) for h, vals in cols]
+    out = [" " * lw + "".join(" " + h.rjust(w) for (h, _), w in zip(cols, widths))]
+    for i, lab in enumerate(labels):
+        out.append(
+            lab.ljust(lw)
+            + "".join(" " + vals[i].rjust(w) for (_, vals), w in zip(cols, widths))
+        )
+    return f"{header}\n{_r_formula_lines(formula)}\n\n" + "\n".join(out)
+
+
+def step_select(
+    *,
+    full_fit,
+    formula: str,
+    rvar: str,
+    direction: str,
+    pdf,
+    fit_formula,
+    aic,
+    stats,
+    columns: list[str],
+) -> dict:
+    """
+    Stepwise selection by AIC as R's ``step()``, with its printed trace
+
+    Parameters
+    ----------
+    full_fit : statsmodels results
+        The model with every candidate term (the upper scope)
+    formula : str
+        Its formula, in the order the student listed the terms
+    direction : str
+        "backward" (start from the full model), "forward" or "both" (start
+        from the intercept-only model)
+    pdf : pandas DataFrame
+        Estimation data; every model is fit on the rows complete for the full model
+    fit_formula : callable
+        ``fit_formula(formula, pdf)`` -> fitted results
+    aic : callable
+        ``aic(fit)`` -> R's ``extractAIC`` for the model type
+    stats : callable
+        ``stats(fit, base)`` -> values for ``columns``; ``base`` is None for
+        the ``<none>`` row, else the current model the change starts from
+    columns : list[str]
+        Table columns before AIC, e.g. ["Df", "Sum of Sq", "RSS"] (lm) or
+        ["Df", "Deviance"] (glm)
+
+    Returns
+    -------
+    dict with formula, fit, current terms, removed, added and the trace
+    """
+    design = full_fit.model.data.design_info
+    has_intercept = any(len(t.factors) == 0 for t in design.terms)
+
+    # Terms in R's order: by degree, then as the student listed them.
+    rhs = [t.strip() for t in formula.split("~", 1)[1].split("+")]
+    terms = [t for t in design.terms if len(t.factors) > 0]
+
+    def position(name: str) -> int:
+        return rhs.index(name) if name in rhs else len(rhs)
+
+    terms.sort(key=lambda t: (len(t.factors), position(t.name())))
+    upper = [t.name() for t in terms]
+    factors = {t.name(): {f.name() for f in t.factors} for t in terms}
+
+    rows = full_fit.model.data.row_labels
+    if rows is not None and len(rows) < len(pdf):
+        pdf = pdf.loc[rows]
+
+    degree = {t.name(): len(t.factors) for t in terms}
+
+    def formula_for(keep: list[str]) -> str:
+        # R's update() appends an added term; terms() then orders by degree
+        keep = sorted(keep, key=lambda t: degree[t])
+        rhs_ = " + ".join(keep) if keep else "1"
+        if not has_intercept:
+            rhs_ += " - 1"
+        return f"{rvar} ~ {rhs_}"
+
+    def droppable(t: str, current: list[str]) -> bool:
+        return not any(factors[t] < factors[o] for o in current if o != t)
+
+    def addable(t: str, current: list[str]) -> bool:
+        return all(o in current for o in upper if factors[o] < factors[t])
+
+    current = list(upper) if direction == "backward" else []
+    fit = fit_formula(formula_for(current), pdf)
+    fit_aic = aic(fit)
+    removed: list[str] = []
+    added: list[str] = []
+    trace: list[str] = []
+    label = "Start"
+    while True:
+        table = [("<none>", *stats(fit, None), fit_aic, current)]
+        if direction in ("backward", "both"):
+            for t in current:
+                if droppable(t, current):
+                    keep = [x for x in current if x != t]
+                    f = fit_formula(formula_for(keep), pdf)
+                    table.append((f"- {t}", *stats(f, fit), aic(f), keep))
+        if direction in ("forward", "both"):
+            for t in upper:
+                if t not in current and addable(t, current):
+                    keep = current + [t]
+                    f = fit_formula(formula_for(keep), pdf)
+                    table.append((f"+ {t}", *stats(f, fit), aic(f), keep))
+        table.sort(key=lambda row: row[-2])
+        trace.append(
+            _step_block(
+                label,
+                fit_aic,
+                r_label(formula_for(current)),
+                columns,
+                [(r_label(r[0]), *r[1:-1]) for r in table],
+            )
+        )
+        label = "Step"
+        best = table[0]
+        if best[0] == "<none>" or best[-2] >= fit_aic - 1e-7:
+            break
+        changed = best[0][2:]
+        (removed if best[0].startswith("-") else added).append(changed)
+        current = best[-1]
+        fit = fit_formula(formula_for(current), pdf)
+        fit_aic = aic(fit)
+
+    return {
+        "formula": formula_for(current),
+        "fit": fit,
+        "current": current,
+        "removed": removed,
+        "added": added,
+        "trace": "\n\n".join(trace),
+    }

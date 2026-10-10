@@ -1,10 +1,11 @@
 import numpy as np
 from scipy import stats
 
-from .utils import ceil, check, floor, iround, plot_continuous
+from .utils import ceil, check, check_positive, floor, iround, plot_continuous
 
 
 def prob_chisq(df, lb=None, ub=None, plb=None, pub=None):
+    check_positive(**{"Degrees of freedom": df})
     if lb is not None:
         p_lb = stats.chi2.cdf(lb, df)
     else:
@@ -60,7 +61,7 @@ def summary_prob_chisq(dct, type="values", dec=3, ret=False):
 
     dct = {k: iround(v, dec) for k, v in dct.items()}
     summary_dict = {}
-    add(summary_dict, "Distribution", "Chi-square")
+    add(summary_dict, "Distribution", "Chi-squared")
     df = dct["df"]
     add(summary_dict, "Df", df)
     add(summary_dict, "Mean", df)

@@ -18,7 +18,7 @@ import polars as pl
 
 from pyrsm.utils import format_nr
 
-from ._labels import label_positions, text_repel_kwargs
+from ._label_layout import layout_labels
 from ._plotting import as_plot_result, symmetric_limit
 from ._utils import apply_filter, get_data
 from pyrsm.data_scope import apply_scope, print_scope
@@ -270,7 +270,7 @@ class mds:
             for d in rev_dim:
                 pts[:, d - 1] *= -1
 
-        lim = symmetric_limit(pts, pad=1.45)
+        lim = symmetric_limit(pts, pad=1.05)
         out = []
         pairs = [(dim[0] - 1, dim[1] - 1)] if dim else [
             (i, j)
@@ -289,36 +289,31 @@ class mds:
             geom_text,
             ggplot,
             labs,
-            theme_classic,
         )
+
+        from pyrsm.plot_style import LINE, MUTED, theme_pyrsm
 
         from ._plotting import add_square_axes
 
-        lab_xy = label_positions(pts[:, [i, j]], lim=lim, seed=seed)
-        dat = pl.DataFrame(
-            {
-                "label": self.labels,
-                "x": pts[:, i],
-                "y": pts[:, j],
-                "lx": lab_xy[:, 0],
-                "ly": lab_xy[:, 1],
-            }
-        ).to_pandas()
-        repel = text_repel_kwargs(dat[["x", "y"]].to_numpy())
-        g = ggplot(dat) + geom_point(aes(x="x", y="y"), color="blue")
-        g = add_square_axes(g, lim)
-        if repel:
-            label_aes = aes(x="x", y="y", label="label")
-        else:
-            label_aes = aes(x="lx", y="ly", label="label")
-            g = g + geom_segment(
-                aes(x="x", y="y", xend="lx", yend="ly"),
-                color="grey", size=0.2,
-            )
-        g = (
-            g
-            + geom_text(label_aes, size=fontsz * 2, **repel)
-            + labs(title="Brand map", x=f"Dimension {i + 1}", y=f"Dimension {j + 1}")
-            + theme_classic()
-        )
-        return g
+        x, y = pts[:, i], pts[:, j]
+        dat = pl.DataFrame({"x": x, "y": y}).to_pandas()
+
+        def base(lim_):
+            g = ggplot(dat) + geom_point(aes(x="x", y="y"), color=LINE)
+            g = add_square_axes(g, lim_)
+            return g + labs(
+                title="Brand map", x=f"Dimension {i + 1}", y=f"Dimension {j + 1}"
+            ) + theme_pyrsm()
+
+        lay = layout_labels(base, x, y, self.labels, size=fontsz * 2, lim=lim, seed=seed)
+        g = base(lay.lim)
+        if lay.leader.any():
+            ex, ey = lay.leader_ends()
+            ldat = pl.DataFrame(
+                {"x": lay.x[lay.leader], "y": lay.y[lay.leader],
+                 "xend": ex[lay.leader], "yend": ey[lay.leader]}
+            ).to_pandas()
+            g = g + geom_segment(ldat, aes(x="x", y="y", xend="xend", yend="yend"),
+                                 color=MUTED, size=0.3)
+        tdat = pl.DataFrame({"x": lay.lx, "y": lay.ly, "label": self.labels}).to_pandas()
+        return g + geom_text(tdat, aes(x="x", y="y", label="label"), size=fontsz * 2)

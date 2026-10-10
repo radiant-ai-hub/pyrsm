@@ -1,0 +1,76 @@
+---
+title: "Daily profit and a year of it"
+jupyter: python3
+---
+
+In Radiant: _Model > Decide > Simulate_, **Load example > Daily profit**.
+
+## Question
+
+> A company sells a product at $6 (30% of days) or $8 (70% of days). Demand is 1000 - 50 x price plus a normally distributed error with mean 0 and standard deviation 100. The variable cost is $5 per unit and the fixed cost $1,000 per day. What is the distribution of daily profit, and how likely is a profit below $100? How likely is a year (365 days) with a total profit below $36,500?
+
+```{python}
+import pyrsm as rsm
+```
+
+Constants (`var_cost`, `fixed_cost`) do not vary; `E` (a normal demand shock) and `price` (discrete: 6 or 8 with probabilities 0.3 and 0.7) are drawn for every simulation. The formulas are evaluated in order, so `profit` can use `demand`, and `profit_small` is a logical (`True`/`False`).
+
+```{python}
+formulas = """
+demand = 1000 - 50 * price + E
+profit = demand * (price - var_cost) - fixed_cost
+profit_small = profit < 100
+"""
+
+spec = {
+    "name": "simdat",
+    "runs": 1000,
+    "seed": 1234,
+    "variables": [
+        {"name": "var_cost", "kind": "constant", "value": 5},
+        {"name": "fixed_cost", "kind": "constant", "value": 1000},
+        {"name": "E", "kind": "normal", "mean": 0, "sd": 100},
+        {"name": "price", "kind": "discrete", "values": [6, 8], "probs": [0.3, 0.7]},
+    ],
+    "form": formulas,
+}
+```
+
+```{python}
+sim = rsm.decide.simulate(spec)
+sim.summary()
+```
+
+The summary lists the constants, the variables that vary and, for each logical, how often it is `True`: here the probability that daily profit is below $100.
+
+```{python}
+sim.plot()
+```
+
+```{python}
+sim.data.head()
+```
+
+## A year of profit: repeated simulation
+
+Re-simulate `E` and `price` 365 times (days) and sum `profit` for each of the 1,000 simulations (**group by Simulation**): 1,000 simulated years. `profit_sum` is the sum of `profit`; a formula on the repeated data gives the probability that a year's profit is below $36,500.
+
+```{python}
+rep = rsm.decide.repeat_simulate(
+    spec,
+    reps=365,
+    vars=['E', 'price'],
+    sum_vars=['profit'],
+    by='sim',
+    fun=['sum'],
+    form='profit_365 = profit_sum < 36500',
+    seed=1234,
+)
+rep.summary()
+```
+
+```{python}
+rep.plot()
+```
+
+Daily profit is below $100 on more than a quarter of the days, but a whole year with less than $36,500 does not happen: good and bad days average out. A simulation should match the horizon of the decision.

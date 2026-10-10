@@ -23,6 +23,7 @@ _LAZY_MODULES = {
     "design": "pyrsm.design",
     "utils": "pyrsm.utils",
     "data_scope": "pyrsm.data_scope",
+    "data": "pyrsm.data",
 }
 
 
@@ -50,7 +51,7 @@ model_functions = [
 
 # basics classes that need wrappers (enforce use of .basics)
 basics_functions = [
-    "central_limit_theorem",
+    "clt",
     "compare_means",
     "compare_props",
     "correlation",

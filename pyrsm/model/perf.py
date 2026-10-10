@@ -11,13 +11,13 @@ from plotnine import (
     labs,
     scale_x_continuous,
     scale_y_continuous,
-    theme_bw,
 )
 from sklearn import metrics
 
 # from pyrsm import xtile, bincode
 from ..bins import bincode, xtile
 from ..utils import check_dataframe, ifelse, table2data
+from pyrsm.plot_style import FILL, LINE, REF, theme_pyrsm
 
 
 def calc_qnt_pd(df, rvar, lev, pred, qnt=10):
@@ -414,8 +414,8 @@ def inc_uplift_plot(df, rvar, lev, pred, tvar, tlev, scale=1, qnt=10):
     else:
         p = (
             ggplot(plot_df, aes(x="cum_prop", y="inc_uplift"))
-            + geom_line()
-            + geom_point()
+            + geom_line(color=LINE)
+            + geom_point(color=LINE)
         )
 
     p = (
@@ -424,7 +424,7 @@ def inc_uplift_plot(df, rvar, lev, pred, tvar, tlev, scale=1, qnt=10):
             data=baseline,
             mapping=aes(x="cum_prop", y="inc_uplift"),
             linetype="dashed",
-            color="steelblue",
+            color=REF,
             inherit_aes=False,
         )
         + scale_x_continuous(labels=lambda x: [f"{v:.0%}" for v in x])
@@ -432,7 +432,7 @@ def inc_uplift_plot(df, rvar, lev, pred, tvar, tlev, scale=1, qnt=10):
             labels=lambda y: [f"{v:.0%}" for v in [yi / 100 for yi in y]]
         )
         + labs(x="Percentage of population targeted", y="Incremental Uplift", color="")
-        + theme_bw()
+        + theme_pyrsm()
     )
 
     return p
@@ -586,17 +586,17 @@ def inc_profit_plot(
     else:
         p = (
             ggplot(plot_df, aes(x="cum_prop", y="inc_profit"))
-            + geom_line()
-            + geom_point()
+            + geom_line(color=LINE)
+            + geom_point(color=LINE)
         )
 
     p = (
         p
-        + geom_hline(yintercept=0, linetype="dashed")
+        + geom_hline(yintercept=0, linetype="dashed", color=REF)
         + scale_x_continuous(labels=lambda x: [f"{v:.0%}" for v in x])
         + scale_y_continuous(labels=lambda y: [f"{int(v):,}" for v in y])
         + labs(x="Percentage of population targeted", y="Incremental Profit", color="")
-        + theme_bw()
+        + theme_pyrsm()
     )
 
     if contact:
@@ -616,7 +616,7 @@ def inc_profit_plot(
             print(plot_df)
         # Add vertical lines for contact levels < 1
         for cnf_val in filter(lambda x: x < 1, cnf):
-            p = p + geom_vline(xintercept=cnf_val, linetype="dashed")
+            p = p + geom_vline(xintercept=cnf_val, linetype="dashed", color=REF)
 
     return p
 
@@ -670,14 +670,14 @@ def uplift_plot(df, rvar, lev, pred, tvar, tlev, qnt=10):
         )
     else:
         p = ggplot(rd, aes(x="cum_prop_str", y="uplift")) + geom_bar(
-            stat="identity", fill="steelblue"
+            stat="identity", fill=FILL
         )
 
     p = (
         p
         + scale_y_continuous(labels=lambda y: [f"{v:.0%}" for v in y])
         + labs(x="Percentage of population targeted", y="Uplift", fill="")
-        + theme_bw()
+        + theme_pyrsm()
     )
 
     return p
@@ -963,17 +963,17 @@ def profit_plot(
     else:
         p = (
             ggplot(plot_df, aes(x="cum_prop", y="cum_profit"))
-            + geom_line()
-            + geom_point()
+            + geom_line(color=LINE)
+            + geom_point(color=LINE)
         )
 
     p = (
         p
-        + geom_hline(yintercept=0, linetype="dashed")
+        + geom_hline(yintercept=0, linetype="dashed", color=REF)
         + scale_x_continuous(labels=lambda x: [f"{v:.0%}" for v in x])
         + scale_y_continuous(labels=lambda y: [f"{int(v):,}" for v in y])
         + labs(x="Percentage of population targeted", y="Profit", color="")
-        + theme_bw()
+        + theme_pyrsm()
     )
 
     if contact:
@@ -991,8 +991,8 @@ def profit_plot(
             print(prof)
         # Add vertical and horizontal lines for contact levels < 1
         for i, cnf_val in enumerate(filter(lambda x: x < 1, cnf)):
-            p = p + geom_vline(xintercept=cnf_val, linetype="dashed")
-            p = p + geom_hline(yintercept=prof[i], linetype="dashed")
+            p = p + geom_vline(xintercept=cnf_val, linetype="dashed", color=REF)
+            p = p + geom_hline(yintercept=prof[i], linetype="dashed", color=REF)
 
     return p
 
@@ -1069,17 +1069,17 @@ def expected_profit_plot(
     else:
         p = (
             ggplot(plot_df, aes(x="cum_prop", y="cum_profit"))
-            + geom_line()
-            + geom_point()
+            + geom_line(color=LINE)
+            + geom_point(color=LINE)
         )
 
     p = (
         p
-        + geom_hline(yintercept=0, linetype="dashed")
+        + geom_hline(yintercept=0, linetype="dashed", color=REF)
         + scale_x_continuous(labels=lambda x: [f"{v:.0%}" for v in x])
         + scale_y_continuous(labels=lambda y: [f"{int(v):,}" for v in y])
         + labs(x="Percentage of population targeted", y="Expected Profit", color="")
-        + theme_bw()
+        + theme_pyrsm()
     )
 
     if contact:
@@ -1097,8 +1097,8 @@ def expected_profit_plot(
             print(eprof)
         # Add vertical and horizontal lines for contact levels < 1
         for i, cnf_val in enumerate(filter(lambda x: x < 1, cnf)):
-            p = p + geom_vline(xintercept=cnf_val, linetype="dashed")
-            p = p + geom_hline(yintercept=eprof[i], linetype="dashed")
+            p = p + geom_vline(xintercept=cnf_val, linetype="dashed", color=REF)
+            p = p + geom_hline(yintercept=eprof[i], linetype="dashed", color=REF)
 
     return p
 
@@ -1155,18 +1155,22 @@ def ROME_plot(df, rvar, lev, pred, qnt=10, cost=1, margin=2):
             + geom_point()
         )
     else:
-        p = ggplot(plot_df, aes(x="cum_prop", y="ROME")) + geom_line() + geom_point()
+        p = (
+            ggplot(plot_df, aes(x="cum_prop", y="ROME"))
+            + geom_line(color=LINE)
+            + geom_point(color=LINE)
+        )
 
     p = (
         p
-        + geom_hline(yintercept=0, linetype="dashed")
+        + geom_hline(yintercept=0, linetype="dashed", color=REF)
         + scale_x_continuous(labels=lambda x: [f"{v:.0%}" for v in x])
         + labs(
             x="Percentage of population targeted",
             y="Return on Marketing Expenditures (ROME)",
             color="",
         )
-        + theme_bw()
+        + theme_pyrsm()
     )
 
     return p
@@ -1225,8 +1229,8 @@ def gains_plot(df, rvar, lev, pred, qnt=10):
     else:
         p = (
             ggplot(plot_df, aes(x="cum_prop", y="cum_gains"))
-            + geom_line()
-            + geom_point()
+            + geom_line(color=LINE)
+            + geom_point(color=LINE)
         )
 
     p = (
@@ -1235,13 +1239,13 @@ def gains_plot(df, rvar, lev, pred, qnt=10):
             data=baseline,
             mapping=aes(x="cum_prop", y="cum_gains"),
             linetype="dashed",
-            color="steelblue",
+            color=REF,
             inherit_aes=False,
         )
         + scale_x_continuous(labels=lambda x: [f"{v:.0%}" for v in x])
         + scale_y_continuous(labels=lambda y: [f"{v:.0%}" for v in y])
         + labs(x="Percentage of population targeted", y="Percentage Buyers", color="")
-        + theme_bw()
+        + theme_pyrsm()
     )
 
     return p
@@ -1297,16 +1301,16 @@ def lift_plot(df, rvar, lev, pred, qnt=10):
     else:
         p = (
             ggplot(plot_df, aes(x="cum_prop", y="cum_lift"))
-            + geom_line()
-            + geom_point()
+            + geom_line(color=LINE)
+            + geom_point(color=LINE)
         )
 
     p = (
         p
-        + geom_hline(yintercept=1, linetype="dashed")
+        + geom_hline(yintercept=1, linetype="dashed", color=REF)
         + scale_x_continuous(labels=lambda x: [f"{v:.0%}" for v in x])
         + labs(x="Percentage of population targeted", y="Cumulative lift", color="")
-        + theme_bw()
+        + theme_pyrsm()
     )
 
     return p

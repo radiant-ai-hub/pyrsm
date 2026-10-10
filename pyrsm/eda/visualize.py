@@ -2,29 +2,30 @@
 
 import polars as pl
 
+from pyrsm.plot_style import ALPHA, FILL, LINE, REF, theme_pyrsm
 from pyrsm.plot_utils import compose_plots
 
 # Geom configurations: required aesthetics and defaults
 GEOM_CONFIG = {
     "dist": {
         "required": ["x"],
-        "defaults": {"bins": 30, "fill": "slateblue", "alpha": 0.7},
+        "defaults": {"bins": 30, "fill": FILL, "alpha": ALPHA},
     },
     "hist": {  # Alias for dist (numeric)
         "required": ["x"],
-        "defaults": {"bins": 30, "fill": "slateblue", "alpha": 0.7},
+        "defaults": {"bins": 30, "fill": FILL, "alpha": ALPHA},
     },
     "density": {
         "required": ["x"],
-        "defaults": {"fill": "slateblue", "alpha": 0.5},
+        "defaults": {"fill": FILL, "alpha": ALPHA},
     },
     "scatter": {
         "required": ["x", "y"],
-        "defaults": {"alpha": 0.7, "size": 2, "nobs": 1000},
+        "defaults": {"alpha": ALPHA, "size": 2, "nobs": 1000},
     },
     "bar": {
         "required": ["x"],
-        "defaults": {"fill": "slateblue", "alpha": 0.8},
+        "defaults": {"fill": FILL, "alpha": ALPHA},
     },
     "line": {
         "required": ["x", "y"],
@@ -32,11 +33,11 @@ GEOM_CONFIG = {
     },
     "box": {
         "required": ["x", "y"],
-        "defaults": {"fill": "slateblue", "alpha": 0.7},
+        "defaults": {"fill": FILL, "alpha": ALPHA},
     },
     "violin": {
         "required": ["x", "y"],
-        "defaults": {"fill": "slateblue", "alpha": 0.7},
+        "defaults": {"fill": FILL, "alpha": ALPHA},
     },
 }
 
@@ -157,7 +158,7 @@ def _apply_combine(
         )
 
     # combine claims colour/fill for the variable name. A literal (the
-    # "slateblue" default) is simply superseded; an explicit *column* is a real
+    # LINE default) is simply superseded; an explicit *column* is a real
     # conflict and silently dropping it would be worse than saying so.
     for name, value in (("color", color), ("fill", fill)):
         if value and value in df.columns:
@@ -196,11 +197,11 @@ def _apply_combine(
 
 
 def visualize(
-    df: pl.DataFrame | pl.LazyFrame,
+    df: pl.DataFrame | pl.LazyFrame | dict,
     x: str | list[str] | tuple[str, ...],
     y: str | list[str] | tuple[str, ...] | None = None,
     geom: str | None = None,
-    color: str | None = "slateblue",
+    color: str | None = LINE,
     fill: str | None = None,
     shape: str | None = None,
     group: str | None = None,
@@ -308,6 +309,11 @@ def visualize(
     >>> type(p).__name__
     'ggplot'
     """
+    from pyrsm.utils import named_data
+
+    # ``{name: frame}`` names the dataset, as in the model and basics classes.
+    _, df = named_data(df)
+
     if ret not in ("compose", "list"):
         raise ValueError("ret must be 'compose' or 'list'")
     if ncol < 1:
@@ -375,7 +381,7 @@ def _visualize_one(
     x: str,
     y: str | None = None,
     geom: str | None = None,
-    color: str | None = "slateblue",
+    color: str | None = LINE,
     fill: str | None = None,
     shape: str | None = None,
     group: str | None = None,
@@ -410,7 +416,6 @@ def _visualize_one(
         ggplot,
         labs,
         stat_summary,
-        theme_bw,
     )
 
     # Aggregation function mapping using lambdas with Polars
@@ -473,8 +478,14 @@ def _visualize_one(
     # Build geom kwargs (non-aesthetic params)
     geom_kwargs = {}
 
-    # Apply defaults then overrides
+    # Apply defaults then overrides. A default colour or fill is a fixed
+    # parameter, and plotnine lets a fixed parameter beat a mapping -- so the
+    # slateblue default silently erased every mapped fill (``fill="sex"``, and
+    # every combined plot, which maps the variable name to fill). Skip the
+    # default for an aesthetic that is mapped to a column.
     for key, default in config["defaults"].items():
+        if key in ("fill", "color") and key in aes_kwargs:
+            continue
         geom_kwargs[key] = default
 
     if bins is not None:
@@ -508,7 +519,10 @@ def _visualize_one(
         else:
             # Numeric: use histogram
             hist_bins = geom_kwargs.pop("bins", 30)
-            p = p + geom_histogram(bins=hist_bins, **geom_kwargs)
+            # Groups (a mapped fill, e.g. combined variables) overlap rather
+            # than stack: stacked histograms hide each group's own shape.
+            hist_pos = position or ("identity" if "fill" in aes_kwargs else "stack")
+            p = p + geom_histogram(bins=hist_bins, position=hist_pos, **geom_kwargs)
 
     elif geom == "density":
         p = p + geom_density(**geom_kwargs)
@@ -522,12 +536,15 @@ def _visualize_one(
 
         # Add smooth line if requested
         if smooth:
+            # one fitted line in the reference colour; mapped colours keep a
+            # fitted line per group
+            smooth_kw = {} if "color" in aes_kwargs else {"color": REF}
             if smooth == "lm":
-                p = p + geom_smooth(method="lm", se=True, alpha=0.2)
+                p = p + geom_smooth(method="lm", se=True, alpha=0.2, **smooth_kw)
             elif smooth == "loess":
-                p = p + geom_smooth(method="loess", se=True, alpha=0.2)
+                p = p + geom_smooth(method="loess", se=True, alpha=0.2, **smooth_kw)
             elif smooth in ("true", "True", True):
-                p = p + geom_smooth(se=True, alpha=0.2)
+                p = p + geom_smooth(se=True, alpha=0.2, **smooth_kw)
 
         # Add aggregation line for categorical x
         if agg and _is_categorical(df, x):
@@ -537,7 +554,7 @@ def _visualize_one(
                 fun_ymin=agg_func,
                 fun_ymax=agg_func,
                 geom="crossbar",
-                color="blue",
+                color=REF,
                 linetype="solid",
                 size=0.8,
                 fatten=0,
@@ -595,6 +612,6 @@ def _visualize_one(
     if y and geom == "bar":
         y_lab = f"{(agg or 'mean').capitalize()} of {y}"
 
-    p = p + labs(x=x_lab, y=y_lab, title=title or "", caption=nobs_caption) + theme_bw()
+    p = p + labs(x=x_lab, y=y_lab, title=title or "", caption=nobs_caption) + theme_pyrsm()
 
     return p

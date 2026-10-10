@@ -229,7 +229,8 @@ class conjoint:
         R-squared and the coefficients (PW) or importance weights (IW)."""
 
         def clean(x):
-            return re.sub(r"[^A-Za-z0-9_.]", "", x.replace("|", "_"))
+            # R: gsub("[^A-z0-9_\\.]", "", ...); note A-z also keeps [ \ ] ^ `
+            return re.sub(r"[^A-z0-9_.]", "", x.replace("|", "_"))
 
         first = self.model_list[self.bylevs[0]]
         labels = first["coeff"]["label"].to_list()
@@ -267,12 +268,12 @@ class conjoint:
         # 0 and are left out of the coefficient table, as in Radiant.
         import pandas as pd
 
-        from pyrsm.model.model import fit_like_r
+        from ._lm import fit_like_r
 
         pdf = pdf.copy()
         for c in self._levels:
             pdf[c] = pdf[c].cat.remove_unused_categories()
-        model = fit_like_r(smf.ols(formula, data=pdf), kind="lm")
+        model = fit_like_r(smf.ols(formula, data=pdf))
 
         est = ~model.params.index.isin(model.aliased)
 
@@ -375,7 +376,9 @@ class conjoint:
             Number of decimals.
         """
         from pyrsm.basics import display_utils as du
-        from pyrsm.model.model import collinearity_note, model_fit, sig_stars
+        from pyrsm.model.model import model_fit, sig_stars
+
+        from ._lm import collinearity_note
 
         show, m = self._active(show)
         print("Conjoint analysis")
@@ -408,7 +411,11 @@ class conjoint:
             du.print_plain_tables(fixed(coeff.select(["label", "coefficient"]), ["coefficient"]))
         else:
             tab = fixed(coeff, ["coefficient", "std.error", "t.value"]).with_columns(
-                du.format_pval_expr("p.value", dec),
+                # fixed decimals as Radiant prints them (0.100, 1.000)
+                pl.col("p.value").map_elements(
+                    lambda p: "< .001" if p < 0.001 else f"{p:.{dec}f}",
+                    return_dtype=pl.Utf8,
+                ),
                 sig_stars(coeff["p.value"].to_list()).alias("  "),
             )
             du.print_plain_tables(tab)
@@ -432,7 +439,7 @@ class conjoint:
     def vif(self, show=None, dec: int = 3) -> pl.DataFrame:
         """Generalized variance inflation factor per attribute (``car::vif``),
         sorted from high to low."""
-        from pyrsm.model.model import vif as gvif
+        from pyrsm.model.model import gvif
 
         _, m = self._active(show)
         v = gvif(m["model"], dec=dec)
@@ -626,18 +633,20 @@ class conjoint:
         (Radiant's ``plot_ylim`` logic). Returns a single plot when exactly one
         is produced, otherwise a list (part-worths first, then importance).
         """
+        import pandas as pd
         from plotnine import (
             aes,
             coord_cartesian,
             element_text,
-            geom_bar,
+            geom_col,
             geom_line,
             geom_point,
             ggplot,
             labs,
             theme,
-            theme_classic,
         )
+
+        from pyrsm.plot_style import ALPHA, LINE, POINT_FILL, theme_pyrsm
 
         if isinstance(plots, str):
             plots = [plots]
@@ -659,17 +668,15 @@ class conjoint:
                 )
                 # keep the attribute's level order on the x axis (plotnine
                 # would sort a text column alphabetically)
-                import pandas as pd
-
                 dat["Levels"] = pd.Categorical(
                     dat["Levels"], categories=list(dict.fromkeys(dat["Levels"])), ordered=True
                 )
                 g = (
                     ggplot(dat, aes(x="Levels", y="PW", group=1))
-                    + geom_line(color="blue", linetype="dashdot", size=0.7)
-                    + geom_point(color="blue", size=4, fill="white")
+                    + geom_line(color=LINE, linetype="dashdot", size=0.7)
+                    + geom_point(color=LINE, size=4, fill=POINT_FILL)
                     + labs(title=f"Part-worths for {v}{grp}", x="", y="PW")
-                    + theme_classic()
+                    + theme_pyrsm()
                     + theme(axis_text_x=element_text(angle=45, hjust=1))
                 )
                 if scale_plot:
@@ -680,9 +687,9 @@ class conjoint:
             dat = m["IW"].to_pandas()
             out.append(
                 ggplot(dat, aes(x="Attributes", y="IW", fill="Attributes"))
-                + geom_bar(stat="identity", alpha=0.5)
+                + geom_col(alpha=ALPHA)
                 + labs(title=f"Importance weights{grp}", x="", y="IW")
-                + theme_classic()
+                + theme_pyrsm()
                 + theme(legend_position="none")
             )
 

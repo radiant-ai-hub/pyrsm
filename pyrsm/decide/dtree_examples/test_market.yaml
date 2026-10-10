@@ -1,0 +1,21 @@
+name: Test market
+variables: product launch
+type: chance
+Positive result:
+    p: P(pos)
+    type: decision
+    Launch:
+        tree: launch
+        with:
+            P(high): P(high|pos)
+    Do not launch:
+        payoff: 0
+Negative result:
+    p: 1 - P(pos)
+    type: decision
+    Launch:
+        tree: launch
+        with:
+            P(high): P(high|neg)
+    Do not launch:
+        payoff: 0

@@ -12,6 +12,7 @@ _LAZY_SUBMODULES = {
     "visualize",
     "dtree",
     "simulate",
+    "evaluate",
 }
 _CORE_MODULE = "pyrsm.model.model"
 
@@ -35,6 +36,7 @@ _LAZY_FUNCTIONS = {
     "auc": "perf",
     "profit_max": "perf",
     "cv_crtree": "crtree",
+    "plot_predictions": "visualize",
 }
 
 
