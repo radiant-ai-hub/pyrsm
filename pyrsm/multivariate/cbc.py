@@ -85,12 +85,29 @@ def _mnl_fit(X: np.ndarray, y: np.ndarray, codes: np.ndarray, ngroups: int):
         res = minimize(nll_grad, np.zeros(p), jac=True, method="BFGS")
     beta = res.x
 
-    # analytic Hessian: sum_n p_n x_n x_n' - sum_g xbar_g xbar_g'
-    xb = X @ beta
-    prob, _, _ = _segment_probs(xb, codes, ngroups)
-    XB = np.zeros((ngroups, p))
-    np.add.at(XB, codes, X * prob[:, None])
-    H = (X * prob[:, None]).T @ X - XB.T @ XB
+    def hessian(beta):
+        # analytic Hessian: sum_n p_n x_n x_n' - sum_g xbar_g xbar_g'
+        prob, _, _ = _segment_probs(X @ beta, codes, ngroups)
+        XB = np.zeros((ngroups, p))
+        np.add.at(XB, codes, X * prob[:, None])
+        return (X * prob[:, None]).T @ X - XB.T @ XB
+
+    # Newton-Raphson from the BFGS solution (as R's clogit and mlogit): the
+    # log-likelihood is concave, so a few steps reach the optimum even when
+    # BFGS stops early on badly scaled data (e.g., price in $1,000s).
+    for _ in range(25):
+        _, grad = nll_grad(beta)
+        try:
+            step = np.linalg.solve(hessian(beta), grad)
+        except np.linalg.LinAlgError:
+            break
+        beta = beta - step
+        if np.max(np.abs(step)) < 1e-10 * (1 + np.max(np.abs(beta))):
+            break
+    fval, grad = nll_grad(beta)
+    converged = bool(np.max(np.abs(grad)) < 1e-6 * max(1.0, abs(fval)))
+
+    H = hessian(beta)
     try:
         bse = np.sqrt(np.clip(np.diag(np.linalg.inv(H)), 0, None))
     except np.linalg.LinAlgError:
@@ -98,7 +115,7 @@ def _mnl_fit(X: np.ndarray, y: np.ndarray, codes: np.ndarray, ngroups: int):
 
     zvalues = beta / bse
     pvalues = 2 * (1 - norm.cdf(np.abs(zvalues)))
-    llf = -res.fun
+    llf = -fval
     # null model: equal probability within each task
     llnull = -float(np.log(np.bincount(codes, minlength=ngroups)).sum())
     prsquared = 1 - llf / llnull if llnull != 0 else np.nan
@@ -110,7 +127,7 @@ def _mnl_fit(X: np.ndarray, y: np.ndarray, codes: np.ndarray, ngroups: int):
         "llf": float(llf),
         "llnull": float(llnull),
         "prsquared": float(prsquared),
-        "converged": bool(res.success),
+        "converged": converged,
     }
 
 
