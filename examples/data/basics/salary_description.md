@@ -6,11 +6,11 @@ The 2008-09 nine-month academic salary for Assistant Professors, Associate Profe
 
 ### Variables
 
-- rank = a factor with levels AsstProf, AssocProf, and Prof
-- discipline = a factor with levels A ('theoretical' departments) or B ('applied' departments)
+- rank = a categorical variable with levels AsstProf, AssocProf, and Prof
+- discipline = a categorical variable with levels A ('theoretical' departments) or B ('applied' departments)
 - yrs_since_phd = years since PhD
 - yrs_service = years of service
-- sex = a factor with levels Female and Male
+- sex = a categorical variable with levels Female and Male
 - salary = nine-month salary, in dollars
 
 ### Source

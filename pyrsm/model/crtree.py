@@ -382,7 +382,7 @@ class crtree:
             if mod_type == "regression":
                 raise ValueError(
                     "Cannot estimate a regression when the response variable is "
-                    "of type factor."
+                    "categorical (Enum, Categorical or String)."
                 )
             levels = _levels(rv)
             if lev is None or lev == "":
