@@ -95,3 +95,11 @@ def test_summary_dec_param():
     """All five summaries accept a decimals (dec) control."""
     for cls in (regress, logistic, rforest, mlp, xgboost):
         assert "dec" in params(cls.summary), f"{cls.__name__}.summary missing dec"
+
+
+@pytest.mark.parametrize("model", [regress, logistic, rforest, mlp, xgboost])
+def test_partial_dependence_defaults(model):
+    """Every model: the average response line on, ICE lines off."""
+    params = inspect.signature(model.plot).parameters
+    assert params["hline"].default is True
+    assert params["ice"].default is False
