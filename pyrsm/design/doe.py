@@ -1,9 +1,16 @@
+import itertools
 import math
 
 import numpy as np
 import polars as pl
 
+from pyrsm.multivariate._lm import r_qr_rank
 from pyrsm.utils import expand_grid, polychoric_matrix
+
+
+def _term_type(term: str) -> str:
+    n = term.count(":") + 1
+    return "main effect" if n == 1 else f"{n}-way interaction"
 
 
 def _build_model_matrix(ff_coded, levels_list, interaction_pairs=None):
@@ -175,7 +182,7 @@ def _find_optimal_design(Xf, ff_coded, levels_list, n_trials, n_repeats=50, seed
     best_selected = None
 
     for rep in range(n_repeats):
-        rep_seed = (seed if seed is not None else 172110) + rep
+        rep_seed = seed + rep
         rng = np.random.default_rng(rep_seed)
 
         # Random starting design
@@ -251,7 +258,8 @@ class doe:
     trials : int or None
         Number of trials. If None, search from minimum to full factorial.
     seed : int or None
-        Random seed for reproducibility
+        Random seed for reproducibility. None draws a fresh starting point,
+        so repeated calls can return different, equally good designs.
 
     Attributes
     ----------
@@ -296,6 +304,11 @@ class doe:
         self.df = df_dict
         self.df_names = df_names
         self.seed = seed
+        # Without a seed every search starts somewhere new (as R's set.seed is
+        # skipped), so running again can show an alternative design.
+        search_seed = (
+            seed if seed is not None else int(np.random.default_rng().integers(0, 2**31))
+        )
 
         # Parse interactions
         int_pairs = _parse_interactions(interactions, df_names)
@@ -332,6 +345,10 @@ class doe:
         n_repeats = max(10, min(50, 500 // max(1, max_trials - min_trials + 1)))
 
         for n_trials in range(min_trials, max_trials + 1):
+            if n_trials < Xf.shape[1] and n_trials < n_full:
+                # Fewer trials than model coefficients cannot estimate the
+                # model (R's optFederov refuses, so the row never shows).
+                continue
             if n_trials == n_full:
                 # Full factorial — use all rows
                 design_rows = list(range(n_full))
@@ -339,7 +356,7 @@ class doe:
                 balanced = True
             else:
                 design_rows, Dea, balanced = _find_optimal_design(
-                    Xf, ff_coded, levels_list, n_trials, n_repeats=n_repeats, seed=seed
+                    Xf, ff_coded, levels_list, n_trials, n_repeats=n_repeats, seed=search_seed
                 )
 
                 if design_rows is None:
@@ -407,67 +424,127 @@ class doe:
         self._levels_list = levels_list
         self._int_pairs = int_pairs
 
+    def _effect_columns(self):
+        """Columns of the saturated model R's ``estimable`` fits.
+
+        ``trial ~ f1 * f2 * ... * fk`` with treatment (dummy) coding, in R's
+        ``model.matrix`` order: the intercept, then terms by order (main
+        effects, two-way, three-way, ...), terms of one order in the order R
+        creates them (by the bit pattern of the factors they contain), and
+        within an interaction the first factor's levels varying fastest.
+
+        Returns ``(X, effects, terms)``: the model matrix of the full factorial
+        and, for every column after the intercept, the effect name
+        (``price|13:food|gourmet``) and the term it belongs to (``price:food``).
+        """
+        k = len(self.df_names)
+        dummies = []
+        for i, name in enumerate(self.df_names):
+            levels = self.df[name]
+            dummies.append(
+                [
+                    ((self._ff_coded[:, i] == j).astype(float), f"{name}|{levels[j]}")
+                    for j in range(1, len(levels))
+                ]
+            )
+        cols = [np.ones(self._ff_coded.shape[0])]
+        effects, terms = [], []
+        masks = sorted(range(1, 2**k), key=lambda m: (bin(m).count("1"), m))
+        for mask in masks:
+            members = [i for i in range(k) if mask >> i & 1]
+            # itertools.product varies the LAST factor fastest; R varies the
+            # first, so build the product over the reversed factor list.
+            for combo in itertools.product(*[dummies[i] for i in reversed(members)]):
+                combo = combo[::-1]
+                col = np.prod([c for c, _ in combo], axis=0)
+                cols.append(col)
+                effects.append(":".join(label for _, label in combo))
+                terms.append(":".join(self.df_names[i] for i in members))
+        return np.column_stack(cols), effects, terms
+
+    def _estimable_mask(self):
+        """Which effects of the saturated model the partial design identifies.
+
+        Fits the saturated model to the partial factorial the way R's ``lm()``
+        does (LINPACK ``dqrdc2``, tolerance 1e-7): columns are taken left to
+        right and one that is a linear combination of the columns kept so far
+        is aliased (``NA`` in R) and dropped. Main effects come first, so a
+        main effect is only dropped when it cannot be estimated at all.
+        """
+        X, effects, terms = self._effect_columns()
+        part_rows = [t - 1 for t in self.part["trial"].to_list()]
+        rank, pivot = r_qr_rank(X[part_rows])
+        kept = set(int(i) for i in pivot[:rank])
+        return [i + 1 in kept for i in range(len(effects))], effects, terms
+
     def estimable(self) -> list[str]:
-        """Determine which effects are estimable from the partial factorial design.
+        """Effects that can be estimated from the partial factorial design.
+
+        Matches R's ``radiant.design::estimable``: the coefficients of the
+        saturated model (all main effects and interactions of every order)
+        that ``lm()`` does not drop as aliased when it is fit to the partial
+        design.
 
         Returns
         -------
         list[str]
-            Names of estimable effects (excluding intercept)
+            Names of estimable effects (excluding the intercept), e.g.
+            ``price|13`` or ``price|13:food|gourmet``
         """
         if self.error:
             return []
+        mask, effects, _ = self._estimable_mask()
+        return [e for e, ok in zip(effects, mask) if ok]
 
-        # Build full interaction model matrix (all possible interactions)
-        all_pairs = []
-        for i in range(len(self.df_names)):
-            for j in range(i + 1, len(self.df_names)):
-                all_pairs.append((i, j))
+    def estimable_table(self, by: str = "term") -> pl.DataFrame:
+        """Estimable effects of the partial factorial design as a table.
 
-        Xf_full = _build_model_matrix(self._ff_coded, self._levels_list, all_pairs)
+        Parameters
+        ----------
+        by : str
+            ``"term"`` (default): one row per main effect or interaction with
+            the number of coefficients (dummy columns) it has and how many of
+            them the partial design can estimate. ``"effect"``: one row per
+            coefficient with its term and whether it is estimable.
 
-        # Build full coefficient names
-        full_coef_names = ["intercept"]
-        for i, name in enumerate(self.df_names):
-            levels = self.df[name]
-            for j in range(1, len(levels)):
-                full_coef_names.append(f"{name}|{levels[j]}")
-
-        for f1, f2 in all_pairs:
-            name1 = self.df_names[f1]
-            name2 = self.df_names[f2]
-            levels1 = self.df[name1]
-            levels2 = self.df[name2]
-            for j1 in range(1, len(levels1)):
-                for j2 in range(1, len(levels2)):
-                    full_coef_names.append(
-                        f"{name1}|{levels1[j1]}:{name2}|{levels2[j2]}"
-                    )
-
-        # Get partial factorial rows
-        part_rows = [t - 1 for t in self.part["trial"].to_list()]
-
-        # Fit on partial design using pivoted QR decomposition
-        # Columns that are NOT aliased (i.e., in the first 'rank' pivot positions)
-        # correspond to estimable effects. This matches R's lm() behavior.
-        Xp = Xf_full[part_rows]
-
-        try:
-            from scipy.linalg import qr
-
-            _, R, P = qr(Xp, pivoting=True)
-            tol = 1e-10
-            rank = np.sum(np.abs(np.diag(R)) > tol)
-            estimable_indices = set(int(P[i]) for i in range(rank))
-
-            estimable_names = []
-            for idx in range(1, len(full_coef_names)):
-                if idx in estimable_indices:
-                    estimable_names.append(full_coef_names[idx])
-        except Exception:
-            estimable_names = []
-
-        return estimable_names
+        Returns
+        -------
+        pl.DataFrame
+        """
+        if by not in ("term", "effect"):
+            raise ValueError("by must be 'term' or 'effect'")
+        if self.error:
+            return pl.DataFrame()
+        mask, effects, terms = self._estimable_mask()
+        detail = pl.DataFrame(
+            {"Effect": effects, "Term": terms, "Estimable": mask},
+            schema={"Effect": pl.String, "Term": pl.String, "Estimable": pl.Boolean},
+        )
+        if by == "effect":
+            return detail
+        order = list(dict.fromkeys(terms))
+        out = (
+            detail.group_by("Term", maintain_order=True)
+            .agg(
+                pl.len().alias("Coefficients"),
+                pl.col("Estimable").sum().alias("Estimable"),
+            )
+            .with_columns(
+                pl.col("Term")
+                .map_elements(_term_type, return_dtype=pl.String)
+                .alias("Type"),
+                pl.when(pl.col("Estimable") == pl.col("Coefficients"))
+                .then(pl.lit("all"))
+                .when(pl.col("Estimable") == 0)
+                .then(pl.lit("none"))
+                .otherwise(pl.lit("some"))
+                .alias("Status"),
+            )
+            .with_columns(pl.col("Estimable").cast(pl.Int64), pl.col("Coefficients").cast(pl.Int64))
+            .select("Term", "Type", "Coefficients", "Estimable", "Status")
+        )
+        assert out["Term"].to_list() == order
+        return out
 
     def summary(
         self,
@@ -531,10 +608,10 @@ class doe:
                 print(self.part)
 
             if est:
-                estimable_effects = self.estimable()
-                print("\nEstimable effects from partial factorial design:\n")
-                for e in estimable_effects:
-                    print(f"  {e}")
+                print("\nEstimable effects from partial factorial design:")
+                print(self.estimable_table())
+                print("\nEstimable coefficients (saturated model, aliased columns dropped as in a regression):")
+                print(self.estimable_table(by="effect"))
 
             if full:
                 print("\nFull factorial design:")
