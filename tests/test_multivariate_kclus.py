@@ -1,6 +1,7 @@
 """Tests for pyrsm.multivariate.kclus against radiant.multivariate."""
 
 import numpy as np
+import polars as pl
 import pytest
 from conftest import mv_mat
 
@@ -116,6 +117,7 @@ def test_kclus_store_default_name(mv_data):
     out = km.store(df)
     assert "kclus2" in out.columns
     assert out["kclus2"].n_unique() == 2
+    assert out["kclus2"].dtype == pl.Enum(["1", "2"])
 
 
 def test_kclus_summary_smoke(mv_data, capsys):

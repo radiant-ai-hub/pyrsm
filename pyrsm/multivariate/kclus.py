@@ -416,7 +416,10 @@ class kclus:
         if target.height != len(self.cluster):
             raise ValueError("Target row count does not match number of cases.")
         return target.with_columns(
-            pl.Series(name, [str(x) for x in self.cluster]).cast(pl.Categorical)
+            # An Enum, levels in cluster order ("1", "2", ..., "10").
+            pl.Series(name, [str(x) for x in self.cluster]).cast(
+                pl.Enum([str(x) for x in sorted(set(self.cluster))])
+            )
         )
 
     def summary(self, dec: int = 2) -> None:

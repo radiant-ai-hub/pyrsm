@@ -1,6 +1,7 @@
 """Tests for pyrsm.multivariate.hclus against radiant.multivariate."""
 
 import numpy as np
+import polars as pl
 import pytest
 
 from pyrsm.multivariate import hclus
@@ -61,6 +62,7 @@ def test_hclus_store_default_name(mv_data):
     out = hc.store(df, nr_clus=3)
     assert "hclus3" in out.columns
     assert out["hclus3"].n_unique() == 3
+    assert out["hclus3"].dtype == pl.Enum(["1", "2", "3"])
 
 
 def test_hclus_label_uniqueness_fallback(mv_data, capsys):
