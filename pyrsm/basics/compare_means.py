@@ -10,7 +10,7 @@ import pyrsm.basics.utils as bu
 from pyrsm.utils import cat_levels, check_dataframe, ifelse
 from pyrsm.data_scope import apply_scope, print_scope
 from pyrsm.plot_utils import plot_each
-from pyrsm.plot_style import LINE, ALPHA, FILL, REF, theme_pyrsm
+from pyrsm.plot_style import SE, ALPHA, FILL, REF, theme_pyrsm
 
 
 @lru_cache(maxsize=1)
@@ -418,6 +418,44 @@ class compare_means:
                 pl.Series("", _sig_stars()(list(adjusted))),
             )
 
+    def summary_data(self, extra: bool = False, dec: int = 3) -> dict:
+        """Return a JSON-safe summary using the shared pyrsm document contract."""
+        from pyrsm.summary import column, document, table_rows, table_section
+
+        comparisons = self.comp_stats
+        if not extra:
+            comparisons = comparisons.select(["Null hyp.", "Alt. hyp.", "diff", "p.value", ""])
+        descriptive_columns = [
+            column(self.var1),
+            column("mean", semantic_type="number", decimals=dec),
+            column("n", semantic_type="number", decimals=0),
+            column("n_missing", semantic_type="number", decimals=0),
+            column("sd", semantic_type="number", decimals=dec),
+            column("se", semantic_type="number", decimals=dec),
+            column("me", semantic_type="number", decimals=dec),
+        ]
+        comparison_columns = [
+            column(name, semantic_type="p_value" if name == "p.value" else "number" if name in {"diff", "se", "t.value", "df"} or "%" in name else "text", decimals=dec)
+            for name in comparisons.columns
+        ]
+        return document(
+            producer="pyrsm.basics.compare_means.summary_data",
+            title=f"Pairwise mean comparisons ({self.test_type})",
+            analysis_kind="compare_means",
+            options={"extra": extra, "dec": dec},
+            metadata={
+                "Data": self.name,
+                "Variables": f"{self.var1}, {self.var2}",
+                "Samples": self.sample_type,
+                "Confidence": self.conf,
+                "Adjustment": self.adjust or "None",
+            },
+            sections=[
+                table_section("descriptive_statistics", "Descriptive statistics", table_rows(self.descriptive_stats), descriptive_columns),
+                table_section("pairwise_comparisons", "Pairwise comparisons", table_rows(comparisons), comparison_columns),
+            ],
+        )
+
     def summary(self, extra=False, dec=3, plain: bool = True) -> None:
         """
         Prints a summary of the hypothesis test.
@@ -646,7 +684,7 @@ class compare_means:
                 ggplot(means, aes(x=self.var1, y="mean"))
                 + geom_col(fill=FILL, alpha=ALPHA)
                 + geom_errorbar(aes(ymin="mean - me", ymax="mean + me"), width=0.1)
-                + geom_errorbar(aes(ymin="mean - se", ymax="mean + se"), width=0.05, color=LINE)
+                + geom_errorbar(aes(ymin="mean - se", ymax="mean + se"), width=0.05, color=SE)
                 + labs(x=self.var1, y=f"Mean {self.var2}")
                 + theme_pyrsm()
             )

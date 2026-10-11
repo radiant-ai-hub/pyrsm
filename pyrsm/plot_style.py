@@ -23,6 +23,7 @@ __all__ = [
     "MUTED",
     "FILL_ALT",
     "HIGHLIGHT",
+    "SE",
     "ALPHA",
     "theme_pyrsm",
 ]
@@ -47,6 +48,9 @@ FILL_ALT = "salmon"
 #: At ALPHA on a white panel it renders as ~"#84f37f", the bound green of
 #: radiant.basics ("green" at alpha 0.5 on the gray ggplot panel).
 HIGHLIGHT = "#09E700"
+#: Standard-error bars drawn next to confidence bars (compare means/props),
+#: blue as in radiant.basics.
+SE = "blue"
 #: Transparency for filled areas that may overlap.
 ALPHA = 0.5
 

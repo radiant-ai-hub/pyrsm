@@ -400,6 +400,120 @@ class regress:
         used = " ".join(t.name() for t in design.terms)
         return [v for v in self.evar if re.search(rf"\b{re.escape(v)}\b", used)]
 
+    def summary_data(
+        self,
+        vif: bool = False,
+        ssq: bool = False,
+        rmse: bool = False,
+        test: list[str] | None = None,
+        ci: bool = False,
+        dec: int = 3,
+    ) -> dict:
+        """Return the complete, JSON-safe linear-regression summary document.
+
+        This is additive: :meth:`summary` retains its established printed output.
+        Values and section selection live here so a browser never has to rebuild a
+        partial regression summary from incidental result attributes.
+        """
+        from pyrsm.summary import column, document, key_value_section, table_rows, table_section
+
+        model_utils = _model_utils()
+        coefficient_columns = [
+            column("index", semantic_type="text"),
+            column("coefficient", semantic_type="number", decimals=dec),
+            column("std.error", semantic_type="number", decimals=dec),
+            column("t.value", semantic_type="number", decimals=dec),
+            column("p.value", semantic_type="p_value", decimals=dec),
+            column("  ", semantic_type="significance"),
+        ]
+        sections = [
+            table_section(
+                "coefficients",
+                "Coefficients",
+                table_rows(self.coef),
+                coefficient_columns,
+                footnotes=["Significance codes: *** < .001, ** < .01, * < .05, . < .1."],
+            ),
+            table_section(
+                "model_fit",
+                "Model fit",
+                table_rows(model_utils.model_fit(self.fitted, dec=dec, prn=False)),
+                [column(name, semantic_type="p_value" if "pval" in name else "number", decimals=dec)
+                 for name in model_utils.model_fit(self.fitted, dec=dec, prn=False).columns],
+            ),
+        ]
+        if vif:
+            if self.evar is None or len(self.evar) < 2:
+                sections.append(key_value_section("vif", "Variance inflation factors", {"available": False}))
+            else:
+                vif_table = model_utils.vif(self.fitted, dec=dec)
+                sections.append(
+                    table_section(
+                        "vif",
+                        "Variance inflation factors",
+                        table_rows(vif_table, include_index=True),
+                        [column(name, semantic_type="number", decimals=dec) for name in ["index", *vif_table.columns]],
+                    )
+                )
+        if ssq:
+            sections.append(
+                table_section(
+                    "sum_of_squares",
+                    "Sum of squares",
+                    [
+                        {"index": "Regression", "df": self.fitted.df_model, "SS": self.fitted.ess},
+                        {"index": "Error", "df": self.fitted.df_resid, "SS": self.fitted.ssr},
+                        {"index": "Total", "df": self.fitted.df_model + self.fitted.df_resid, "SS": self.fitted.centered_tss},
+                    ],
+                    [column("index"), column("df", semantic_type="number", decimals=0), column("SS", semantic_type="number", decimals=0)],
+                )
+            )
+        if rmse:
+            sections.append(
+                key_value_section(
+                    "rmse",
+                    "Root Mean Square Error (RMSE)",
+                    {"RMSE": (self.fitted.ssr / self.fitted.nobs) ** 0.5},
+                )
+            )
+        if ci:
+            confidence_intervals = model_utils.coef_ci(self.fitted, dec=dec)
+            sections.append(
+                table_section(
+                    "confidence_intervals",
+                    "Confidence intervals",
+                    table_rows(confidence_intervals, include_index=True),
+                    [
+                        column(name, semantic_type="p_value" if name == "p.values" else "number" if name != "index" and name != "  " else "text", decimals=dec)
+                        for name in ["index", *confidence_intervals.columns]
+                    ],
+                )
+            )
+        if test:
+            sections.append(
+                key_value_section(
+                    "requested_test",
+                    "Requested nested-model test",
+                    {"variables": ", ".join(test), "status": "Run with f_test() for the established printed comparison."},
+                )
+            )
+        return document(
+            producer="pyrsm.model.regress.summary_data",
+            title="Linear regression (OLS)",
+            analysis_kind="linear_regression",
+            options={"vif": vif, "ssq": ssq, "rmse": rmse, "test": test or [], "ci": ci, "dec": dec},
+            metadata={
+                "Data": self.name,
+                "Response variable": self.rvar,
+                "Explanatory variables": ", ".join(self.evar),
+                "Formula": self.formula,
+                "Null hypothesis": f"the effect of x on {self.rvar} is zero",
+                "Alternative hypothesis": f"the effect of x on {self.rvar} is not zero",
+            },
+            sections=sections,
+        )
+
+
     def summary(
         self,
         vif=False,

@@ -79,6 +79,10 @@ _WRAPPER_MAP = {
 _LAZY_FUNCTIONS = {
     "md": "pyrsm.utils",
     "register": "pyrsm.data",
+
+    "render_summary_html": "pyrsm.summary",
+    "render_summary_text": "pyrsm.summary",
+
 }
 
 
