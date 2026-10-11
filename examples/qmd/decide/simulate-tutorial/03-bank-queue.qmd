@@ -13,17 +13,9 @@ In Radiant: **Load example > Bank queue (waiting times)**.
 import pyrsm as rsm
 ```
 
-Each row is a customer. `gap` is the time since the previous customer arrived and `service` the time a teller needs; both are **exponential** with a rate (the mean is 1 / rate). `queue_wait(gap, service, tellers)` works out, customer by customer, when a teller is free (first come, first served) and returns each customer's wait; `queue_length` returns how many customers are already waiting when a customer arrives. `n()` is the number of rows, so `in_bank[n() - 1]` is the last customer.
+Each row is a customer. `gap` is the time since the previous customer arrived and `service` the time a teller needs; both are **exponential** with a rate (the mean is 1 / rate). `queue_wait(gap, service, tellers)` works out, customer by customer, when a teller is free (first come, first served) and returns each customer's wait; `queue_length` returns how many customers are already waiting when a customer arrives. `in_bank[-1]` is the last customer (counting from the end, as in Python).
 
 ```{python}
-formulas = """
-wait = queue_wait(gap, service, tellers)
-line = queue_length(gap, service, tellers)
-in_bank = wait + service
-wait_5 = wait > 5
-utilization = sum(service) / (tellers * (sum(gap) + in_bank[n() - 1]))
-"""
-
 spec = {
     "name": "queue",
     "runs": 2000,
@@ -33,7 +25,15 @@ spec = {
         {"name": "gap", "kind": "exponential", "rate": 0.5},
         {"name": "service", "kind": "exponential", "rate": "1 / 3.5"},
     ],
-    "form": formulas,
+    "formulas": [
+        "# minutes each customer waits before a teller is free",
+        "wait = queue_wait(gap, service, tellers)",
+        "# customers already waiting when a customer arrives",
+        "line = queue_length(gap, service, tellers)",
+        "in_bank = wait + service",
+        "wait_5 = wait > 5",
+        "utilization = sum(service) / (tellers * (sum(gap) + in_bank[-1]))",
+    ],
 }
 ```
 
@@ -54,11 +54,13 @@ With **group by Repeat**, a grid search replaces a constant of the simulation in
 rep = rsm.decide.repeat_simulate(
     spec,
     reps=4,
-    vars=['gap', 'service'],
-    sum_vars=['wait', 'wait_5'],
-    by='rep',
-    fun=['mean', 'p95'],
-    grid=[{'name': 'tellers', 'min': 1, 'max': 4, 'step': 1}],
+    vars=["gap", "service"],
+    sum_vars=["wait", "wait_5"],
+    by="rep",
+    fun=["mean", "p95"],
+    grid=[
+        {"name": "tellers", "min": 1, "max": 4, "step": 1},
+    ],
     seed=1234,
 )
 rep.summary()
@@ -73,13 +75,16 @@ With one teller service is slower than arrivals and the line keeps growing. Two 
 The same wait can be written as a custom function (Lindley's recursion for one server) -- `queue_wait` does this for any number of servers:
 
 ```{python}
-lindley = """
+from pyrsm.decide.simfuns import zeros
+
+
 def wait_one(gap, service):
     w = zeros(len(gap))
     for i in range(1, len(gap)):
         w[i] = max(0, w[i - 1] + service[i - 1] - gap[i])
     return w
-"""
-one = dict(spec, functions=lindley, form="w1 = queue_wait(gap, service, 1)\nw2 = wait_one(gap, service)\nsame = abs(w1 - w2) < 1e-9")
+
+
+one = dict(spec, functions=[wait_one], formulas=["w1 = queue_wait(gap, service, 1)", "w2 = wait_one(gap, service)", "same = abs(w1 - w2) < 1e-9"])
 rsm.decide.simulate(one).data["same"].all()
 ```

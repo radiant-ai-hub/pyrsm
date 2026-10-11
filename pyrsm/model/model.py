@@ -238,138 +238,42 @@ def formula_vars(model, data_columns) -> list[str]:
 
 
 def r_qr_rank(x: np.ndarray, tol: float = 1e-7) -> tuple[int, np.ndarray]:
-    """Rank and column pivot of ``x`` from R's LINPACK ``dqrdc2``.
+    """R's LINPACK ``dqrdc2`` rank and pivot (see ``pyrsm.multivariate._lm``)."""
+    from pyrsm.multivariate._lm import r_qr_rank as _r_qr_rank
 
-    Columns are processed left to right; one whose norm, after removing the
-    part explained by the columns kept so far, is below ``tol`` times its
-    original norm is moved to the end. Returns ``(rank, pivot)``;
-    ``pivot[rank:]`` are the aliased columns, exactly as ``lm()$qr$pivot``.
-    """
-    x = np.array(x, dtype=float, copy=True)
-    n, p = x.shape
-    qraux = np.linalg.norm(x, axis=0)
-    work1 = qraux.copy()
-    work2 = qraux.copy()
-    work2[work2 == 0.0] = 1.0
-    jpvt = np.arange(p)
-    k = p + 1  # one past the last non-negligible column (1-based, as in Fortran)
-    for l in range(min(n, p)):
-        while (l + 1) < k and qraux[l] < work2[l] * tol:
-            # cycle column l to the end
-            x[:, l:] = np.concatenate([x[:, l + 1 :], x[:, l : l + 1]], axis=1)
-            for arr in (jpvt, qraux, work1, work2):
-                arr[l:] = np.concatenate([arr[l + 1 :], arr[l : l + 1]])
-            k -= 1
-        if l == n - 1:
-            break
-        nrmxl = np.linalg.norm(x[l:, l])
-        if nrmxl == 0.0:
-            continue
-        if x[l, l] != 0.0:
-            nrmxl = np.copysign(nrmxl, x[l, l])
-        x[l:, l] /= nrmxl
-        x[l, l] += 1.0
-        for j in range(l + 1, p):
-            t = -np.dot(x[l:, l], x[l:, j]) / x[l, l]
-            x[l:, j] += t * x[l:, l]
-            if qraux[j] != 0.0:
-                tt = max(1.0 - (abs(x[l, j]) / qraux[j]) ** 2, 0.0)
-                if abs(tt) < 1e-6:
-                    qraux[j] = np.linalg.norm(x[l + 1 :, j])
-                    work1[j] = qraux[j]
-                else:
-                    qraux[j] = qraux[j] * np.sqrt(tt)
-        qraux[l] = x[l, l]
-        x[l, l] = -nrmxl
-    return min(k - 1, n), jpvt
+    return _r_qr_rank(x, tol)
 
 
 def fit_like_r(model, kind: str = "lm", weights=None, **fit_kwargs):
     """Fit a statsmodels formula model, dropping aliased columns as R does.
 
-    The columns R would keep are estimated on their own; the result is then
-    expressed on the full design with a coefficient of 0 (and zero variance)
-    for every aliased column. Predictions, confidence intervals and tests
-    from statsmodels therefore work as usual and equal R's (R predicts with
-    the NA coefficients treated as 0), while the coefficient table should
-    leave out the names in ``results.aliased``.
+    One implementation for all of pyrsm lives in ``pyrsm.multivariate._lm``
+    (``fit_like_r`` for OLS, ``glm_like_r`` for GLMs): R's ``model.matrix``
+    column order, LINPACK ``dqrdc2`` pivoting, the kept columns estimated on
+    their own and expressed on the full design (0 for aliased columns, so
+    statsmodels predictions keep working), robust covariances on the kept
+    columns. ``results.aliased`` names the dropped columns.
 
     Parameters
     ----------
     model : statsmodels model created with the formula API (smf.ols / smf.glm)
     kind : {"lm", "glm"}
-        Tolerance as in R: 1e-7 for ``lm``, 1e-11 for ``glm`` (``glm.fit``
-        uses ``min(1e-7, epsilon / 1000)``).
+        Kept for compatibility; the model type decides.
     weights : array-like, optional
-        Case weights; the rank is determined on ``sqrt(w) * X`` as in R.
+        Kept for compatibility; GLM frequency weights come from the model.
     **fit_kwargs
-        Passed on to ``model.fit``.
-
-    Returns
-    -------
-    statsmodels results with an extra attribute ``aliased``: the names of the
-    dropped columns (empty when the design has full rank).
+        ``cov_type`` ("nonrobust" or e.g. "HC1") is honoured; other options
+        are ignored.
     """
-    import statsmodels.api as sma
-    from statsmodels.genmod.generalized_linear_model import (
-        GLM,
-        GLMResults,
-        GLMResultsWrapper,
-    )
-    from statsmodels.regression.linear_model import (
-        OLSResults,
-        RegressionResultsWrapper,
-    )
+    from statsmodels.genmod.generalized_linear_model import GLM
 
-    X = np.asarray(model.exog, dtype=float)
-    Xw = X if weights is None else X * np.sqrt(np.asarray(weights, dtype=float))[:, None]
-    rank, piv = r_qr_rank(Xw, 1e-7 if kind == "lm" else 1e-11)
-    names = list(model.exog_names)
-    if rank == X.shape[1]:
-        full = model.fit(**fit_kwargs)
-        full.aliased = []
-        return full
-    import warnings
+    from pyrsm.multivariate._lm import fit_like_r as _ols_like_r
+    from pyrsm.multivariate._lm import glm_like_r
 
-    with warnings.catch_warnings():
-        # the full (singular) fit only sets up the model's internal state;
-        # its coefficients are replaced below
-        warnings.simplefilter("ignore")
-        model.fit(**fit_kwargs)
-
-    drop = sorted(int(i) for i in piv[rank:])
-    keep = [i for i in range(X.shape[1]) if i not in drop]
-    k = X.shape[1]
-
-    def embed(params_k, ncov_k):
-        params = np.zeros(k)
-        params[keep] = params_k
-        ncov = np.zeros((k, k))
-        ncov[np.ix_(keep, keep)] = ncov_k
-        return params, ncov
-
+    cov_type = fit_kwargs.get("cov_type", "nonrobust")
     if isinstance(model, GLM):
-        sub = sma.GLM(
-            model.endog,
-            X[:, keep],
-            family=model.family,
-            freq_weights=getattr(model, "freq_weights", None),
-            var_weights=getattr(model, "var_weights", None),
-            offset=getattr(model, "offset", None),
-        ).fit(**fit_kwargs)
-        params, ncov = embed(sub.params, sub.normalized_cov_params)
-        model.df_model = len(keep) - 1
-        model.df_resid = model.wnobs - len(keep)
-        res = GLMResultsWrapper(GLMResults(model, params, ncov, sub.scale))
-    else:
-        sub = sma.WLS(model.endog, X[:, keep], weights=getattr(model, "weights", 1.0)).fit()
-        params, ncov = embed(sub.params, sub.normalized_cov_params)
-        model.rank = len(keep)
-        model.df_model = len(keep) - model.k_constant
-        model.df_resid = model.nobs - len(keep)
-        res = RegressionResultsWrapper(OLSResults(model, params, normalized_cov_params=ncov))
-    res.aliased = [names[i] for i in drop]
-    return res
+        return glm_like_r(model, robust=cov_type != "nonrobust")
+    return _ols_like_r(model, cov_type=cov_type)
 
 
 def apply_enum_types(df: pl.DataFrame, enum_types: dict) -> pl.DataFrame:
@@ -1136,6 +1040,44 @@ def profile_ci(fitted, alpha: float = 0.05) -> pd.DataFrame:
     return pd.DataFrame(out, index=fitted.params.index)
 
 
+def ols_interval(fitted, df, conf=0.95, interval="confidence"):
+    """
+    Predictions of a linear regression with a confidence or prediction interval
+
+    As R's ``predict.lm(..., interval=)``: the t distribution with the
+    model's residual degrees of freedom.
+
+    Parameters
+    ----------
+    fitted : OLS model fitted using the statsmodels formula interface
+    df : Pandas dataframe with input data for prediction
+    conf : float
+        Confidence level (0-1). Default is 0.95
+    interval : str
+        "confidence": an interval around the mean of the response at these
+        values of the explanatory variables. "prediction": an interval around a
+        single new value of the response, which adds the residual variance
+
+    Returns
+    -------
+    Pandas DataFrame with the prediction and the lower and upper bounds
+    """
+    if conf < 0 or conf > 1:
+        raise ValueError(
+            "Confidence level (conf) must be a numeric value between 0 and 1"
+        )
+    low, high = (1.0 - conf) / 2.0, 1.0 - (1.0 - conf) / 2.0
+    frame = fitted.get_prediction(df).summary_frame(alpha=1 - conf)
+    side = "obs" if interval == "prediction" else "mean"
+    return pd.DataFrame(
+        {
+            "prediction": frame["mean"].to_numpy(),
+            f"{low * 100:.2f}%": frame[f"{side}_ci_lower"].to_numpy(),
+            f"{high * 100:.2f}%": frame[f"{side}_ci_upper"].to_numpy(),
+        }
+    )
+
+
 def predict_ci(fitted, df, conf=0.95, alpha=None):
     """
     Compute predicted probabilities with confidence intervals based on a
@@ -1205,8 +1147,10 @@ def predict_ci(fitted, df, conf=0.95, alpha=None):
     low, high = [(1.0 - conf) / 2.0, (1.0 - (1.0 - conf) / 2.0)]
     Xb = np.dot(exog, fitted.params)
     se = np.sqrt((exog.dot(fitted.cov_params()) * exog).sum(-1))
-    if isinstance(fitted, sm.regression.linear_model.RegressionResultsWrapper):
-        # OLS: a t quantile with the residual degrees of freedom (R's predict.lm)
+    is_glm = isinstance(fitted, sm.genmod.generalized_linear_model.GLMResultsWrapper)
+    if not is_glm and isinstance(fitted, sm.regression.linear_model.RegressionResultsWrapper):
+        # R's predict.lm: t distribution with the residual df (a GLM's
+        # wrapper subclasses the OLS one, so check it first)
         me = stats.t.ppf(high, fitted.df_resid) * se
     else:
         # GLM: normal quantile on the link scale (R's predict.glm)
@@ -1315,6 +1259,8 @@ def coef_plot(
     """
     df = fitted.conf_int(alpha=alpha).reset_index().iloc[::-1]
     df["coefficient"] = fitted.params[df["index"]].dropna().values
+    # columns dropped for perfect multicollinearity have no estimate (R: NA)
+    df = df[~df["index"].isin(getattr(fitted, "aliased", []))]
 
     if not intercept:
         df = df.query('index != "Intercept"')
@@ -1378,6 +1324,7 @@ def coef_ci(fitted, alpha: float = 0.05, intercept: bool = True, dec: int = 3):
     """
 
     df = pd.DataFrame({"coefficient": fitted.params})
+    aliased = list(getattr(fitted, "aliased", []))
 
     low, high = [round(100 * alpha / 2, 4), round(100 * (1 - (alpha / 2)), 4)]
     df[[f"{low:g}%", f"{high:g}%"]] = fitted.conf_int(alpha=alpha)
@@ -1392,7 +1339,7 @@ def coef_ci(fitted, alpha: float = 0.05, intercept: bool = True, dec: int = 3):
     if intercept is False:
         df = df[df.index != "Intercept"]
 
-    return df
+    return df[~df.index.isin(aliased)]
 
 
 def evalreg(df, rvar: str, pred: str, dec: int = 3):
@@ -2020,15 +1967,27 @@ def cross_validation(
         cv = load_state(cv_file)["cv"]
     else:
         rvar = mlobj.rvar
+        if hasattr(mlobj, "data_std"):
+            # mlp: the raw data and a network that standardizes inside every fit,
+            # so each fold is scaled by its own training rows and regression
+            # scores are in the response's units
+            from pyrsm.model.mlp import fold_scaled_data
+
+            X, y, estimator = fold_scaled_data(mlobj)
+        else:
+            X = mlobj.data_onehot
+            X = X.to_pandas() if hasattr(X, "to_pandas") else X
+            y = mlobj.data.get_column(rvar).to_pandas() if hasattr(mlobj.data, "get_column") else mlobj.data[rvar]
+            estimator = mlobj.fitted
         cv = GridSearchCV(
-            mlobj.fitted,
+            estimator,
             param_grid=param_grid,
             scoring=scoring,
             cv=kfolds,
             n_jobs=n_jobs,
             refit=refit,
             verbose=verbose,
-        ).fit(mlobj.data_onehot, mlobj.data[rvar])
+        ).fit(X, y)
         if not os.path.exists(directory):
             os.mkdir(directory)
         save_state({"cv": cv}, cv_file)
@@ -2110,13 +2069,17 @@ def _r_formula_lines(formula: str, width: int = 60) -> str:
     return "\n".join(lines)
 
 
-def _step_block(label: str, aic: float, formula: str, columns: list[str], table: list) -> str:
+def _step_block(label: str, aic: float, formula: str, columns: list[str], table: list | None) -> str:
     """One step of R's ``step()`` trace: header, formula and the AIC table.
 
     ``table`` rows are ``(label, *values, aic)`` with values for ``columns``;
     a ``Df`` column prints as integers, the rest as R's ``print.anova``.
+    ``table=None`` is a step R takes without a table (dropping a term with
+    zero df, i.e. an aliased one).
     """
     header = f"{label}:  AIC={float(f'{round(aic, 2):.7g}'):.7g}"
+    if table is None:
+        return f"{header}\n{_r_formula_lines(formula)}\n"
     labels = [row[0] for row in table]
     cols = []
     for i, name in enumerate([*columns, "AIC"]):
@@ -2134,6 +2097,25 @@ def _step_block(label: str, aic: float, formula: str, columns: list[str], table:
             + "".join(" " + vals[i].rjust(w) for (_, vals), w in zip(cols, widths))
         )
     return f"{header}\n{_r_formula_lines(formula)}\n\n" + "\n".join(out)
+
+
+def _step_record(label: str, aic: float, formula: str, columns: list[str], table: list) -> dict:
+    """One step of the stepwise trace as data: what ``_step_block`` prints.
+
+    ``rows`` are ``{"term": "- carat", <column>: value, ..., "AIC": value}``
+    with raw numbers (None where R prints nothing), ordered by AIC.
+    """
+    names = [*columns, "AIC"]
+    return {
+        "label": label,
+        "aic": float(aic),
+        "formula": formula,
+        "columns": names,
+        "rows": [
+            {"term": row[0], **{n: (None if v is None else float(v)) for n, v in zip(names, row[1:])}}
+            for row in table
+        ],
+    }
 
 
 def step_select(
@@ -2175,7 +2157,8 @@ def step_select(
 
     Returns
     -------
-    dict with formula, fit, current terms, removed, added and the trace
+    dict with formula, fit, current terms, removed, added, the trace (text)
+    and the steps (the trace as data, see ``_step_record``)
     """
     design = full_fit.model.data.design_info
     has_intercept = any(len(t.factors) == 0 for t in design.terms)
@@ -2217,6 +2200,7 @@ def step_select(
     removed: list[str] = []
     added: list[str] = []
     trace: list[str] = []
+    steps: list[dict] = []
     label = "Start"
     while True:
         table = [("<none>", *stats(fit, None), fit_aic, current)]
@@ -2226,22 +2210,30 @@ def step_select(
                     keep = [x for x in current if x != t]
                     f = fit_formula(formula_for(keep), pdf)
                     table.append((f"- {t}", *stats(f, fit), aic(f), keep))
+            # R's step(): a term whose removal changes no df (its columns
+            # were dropped as aliased) goes first, the last such term in
+            # model order, without printing a table.
+            zero = [r for r in table[1:] if r[1] is not None and round(r[1]) == 0]
+            if zero:
+                trace.append(_step_block(label, fit_aic, r_label(formula_for(current)), columns, None))
+                label = "Step"
+                removed.append(zero[-1][0][2:])
+                current = zero[-1][-1]
+                fit = fit_formula(formula_for(current), pdf)
+                fit_aic = aic(fit)
+                continue
         if direction in ("forward", "both"):
             for t in upper:
                 if t not in current and addable(t, current):
                     keep = current + [t]
                     f = fit_formula(formula_for(keep), pdf)
                     table.append((f"+ {t}", *stats(f, fit), aic(f), keep))
+        # R drops rows with zero df (adding an aliased term changes nothing)
+        table = [table[0]] + [r for r in table[1:] if r[1] is None or round(r[1]) != 0]
         table.sort(key=lambda row: row[-2])
-        trace.append(
-            _step_block(
-                label,
-                fit_aic,
-                r_label(formula_for(current)),
-                columns,
-                [(r_label(r[0]), *r[1:-1]) for r in table],
-            )
-        )
+        rows = [(r_label(r[0]), *r[1:-1]) for r in table]
+        trace.append(_step_block(label, fit_aic, r_label(formula_for(current)), columns, rows))
+        steps.append(_step_record(label, fit_aic, r_label(formula_for(current)), columns, rows))
         label = "Step"
         best = table[0]
         if best[0] == "<none>" or best[-2] >= fit_aic - 1e-7:
@@ -2259,4 +2251,5 @@ def step_select(
         "removed": removed,
         "added": added,
         "trace": "\n\n".join(trace),
+        "steps": steps,
     }

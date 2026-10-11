@@ -493,6 +493,28 @@ def _create_single_var_plot(
     return p
 
 
+def _interaction_ice_frame(grid_df: pl.DataFrame, ice_preds: list) -> pl.DataFrame:
+    """ICE rows for an interaction: each sampled row's prediction at every grid point.
+
+    ``ice_preds[i]`` holds the predictions of the ICE sample at grid row ``i``.
+    """
+    rows = grid_df.to_dicts()
+    frames = []
+    for row, preds in zip(rows, ice_preds):
+        preds = np.asarray(preds, dtype=float)
+        frames.append(
+            pl.DataFrame(
+                {
+                    **{k: [v] * len(preds) for k, v in row.items()},
+                    "prediction": preds,
+                    "obs": np.arange(len(preds)),
+                },
+                schema_overrides=grid_df.schema,
+            )
+        )
+    return pl.concat(frames) if frames else None
+
+
 def _create_interaction_plot(
     data: pl.DataFrame,
     var: str,
@@ -501,6 +523,7 @@ def _create_interaction_plot(
     min_max: tuple,
     hline_val: float | None,
     is_pdp: bool = False,
+    ice_data: pl.DataFrame | None = None,
 ) -> ggplot:
     """Create an interaction plot for two variables.
 
@@ -521,6 +544,10 @@ def _create_interaction_plot(
     is_pdp : bool
         If True, use PDP style (num+num shows colored lines with rounded labels)
         If False, use pred_plot style (num+num shows heatmap)
+    ice_data : pl.DataFrame or None
+        ICE lines (PDP only): var1, var2, 'prediction' and 'obs' columns, one
+        row per sampled observation and grid point, drawn faintly behind the
+        averages in the color of their var2 value
 
     Returns
     -------
@@ -528,13 +555,36 @@ def _create_interaction_plot(
     """
     vl = var_list.copy()
 
+    def ice_layer(color_var: str, as_label=None):
+        # One line per sampled row and value of the color variable.
+        ice = ice_data
+        if as_label is not None:
+            ice = ice.with_columns(as_label(pl.col(color_var)).alias(color_var))
+        ice = ice.with_columns(
+            (pl.col("obs").cast(pl.Utf8) + "|" + pl.col(color_var).cast(pl.Utf8)).alias("ice_group")
+        ).drop_nulls("prediction")
+        return geom_line(
+            data=ice,
+            mapping=aes(x=vl[0], y="prediction", color=color_var, group="ice_group"),
+            alpha=0.15,
+            size=0.3,
+        )
+
+    with_ice = is_pdp and ice_data is not None and ice_data.height > 0
+
     if sum(is_num) == 2:
         if is_pdp:
             # PDP: Two numeric - line plot with color (sliced)
-            data = data.with_columns(pl.col(vl[1]).round(2).cast(pl.Utf8).alias(vl[1]))
+            def as_label(c):
+                return c.round(2).cast(pl.Utf8)
+
+            data = data.with_columns(as_label(pl.col(vl[1])).alias(vl[1]))
+            p = ggplot(data, aes(x=vl[0], y="prediction", color=vl[1]))
+            if with_ice:
+                p = p + ice_layer(vl[1], as_label)
             p = (
-                ggplot(data, aes(x=vl[0], y="prediction", color=vl[1]))
-                + geom_line()
+                p
+                + geom_line(size=1 if with_ice else 0.5)
                 + labs(x=vl[0], y="Prediction", color=vl[1])
                 + ggtitle(var)
                 + theme_pyrsm()
@@ -557,9 +607,12 @@ def _create_interaction_plot(
         if is_num[1]:
             vl = [vl[1], vl[0]]
         data = data.with_columns(pl.col(vl[1]).cast(pl.Utf8))
+        p = ggplot(data, aes(x=vl[0], y="prediction", color=vl[1]))
+        if with_ice:
+            p = p + ice_layer(vl[1], lambda c: c.cast(pl.Utf8))
         p = (
-            ggplot(data, aes(x=vl[0], y="prediction", color=vl[1]))
-            + geom_line()
+            p
+            + geom_line(size=1 if with_ice else 0.5)
             + labs(x=vl[0], y="Prediction", color=vl[1])
             + ggtitle(var)
             + theme_pyrsm()
@@ -567,9 +620,12 @@ def _create_interaction_plot(
     else:
         # Both categorical
         data = data.with_columns(pl.col(vl[1]).cast(pl.Utf8))
+        p = ggplot(data, aes(x=vl[0], y="prediction", color=vl[1]))
+        if with_ice:
+            p = p + ice_layer(vl[1], lambda c: c.cast(pl.Utf8))
         p = (
-            ggplot(data, aes(x=vl[0], y="prediction", color=vl[1]))
-            + geom_line(aes(group=vl[1]))
+            p
+            + geom_line(aes(group=vl[1]), size=1 if with_ice else 0.5)
             + geom_point(size=3)
             + labs(x=vl[0], y="Prediction", color=vl[1])
             + ggtitle(var)
@@ -870,7 +926,8 @@ def pdp_sk(
     ice : bool, default False
         If True, show Individual Conditional Expectation (ICE) lines behind the PDP.
         ICE lines show the prediction for each observation as the feature varies.
-        Only works with mode="pdp".
+        Interaction plots (``incl_int``) get one line per observation and value of
+        the second variable, in that value's color. Only works with mode="pdp".
     ice_nobs : int, default 100
         Number of observations to sample for ICE lines. Only used when ice=True.
         Limits the number of ICE lines to improve performance and readability.
@@ -1062,6 +1119,7 @@ def pdp_sk(
         schema = {var1: data[var1].dtype, var2: data[var2].dtype}
         grid_df = expand_grid({var1: grid1, var2: grid2}, schema)
         predictions = []
+        ice_predictions = [] if ice_sample_data is not None else None
 
         if mode == "pdp":
             for row in grid_df.iter_rows(named=True):
@@ -1072,6 +1130,17 @@ def pdp_sk(
                 modified_dum = _dummify_for_sk(modified, transformed, fn).select(fn)
                 preds = pred_fun(fitted, modified_dum)
                 predictions.append(np.mean(preds))
+
+                # ICE: the same grid point for each row of the ICE sample
+                if ice_predictions is not None:
+                    ice_modified = ice_sample_data.with_columns(
+                        pl.lit(row[var1]).cast(ice_sample_data[var1].dtype).alias(var1),
+                        pl.lit(row[var2]).cast(ice_sample_data[var2].dtype).alias(var2),
+                    )
+                    ice_modified_dum = _dummify_for_sk(
+                        ice_modified, transformed, fn
+                    ).select(fn)
+                    ice_predictions.append(pred_fun(fitted, ice_modified_dum).tolist())
         else:
             for row in grid_df.iter_rows(named=True):
                 iplot = sim_prediction(
@@ -1081,7 +1150,10 @@ def pdp_sk(
                 preds = pred_fun(fitted, iplot_dum)
                 predictions.append(preds[0])
 
-        return grid_df.with_columns(prediction=pl.Series(predictions))
+        ice_df = (
+            _interaction_ice_frame(grid_df, ice_predictions) if ice_predictions else None
+        )
+        return grid_df.with_columns(prediction=pl.Series(predictions)), ice_df
 
     # Initialize hline and y-limits
     hline_val, min_max = _init_hline_and_minmax(data, rvar, hline)
@@ -1094,14 +1166,22 @@ def pdp_sk(
         pred_dict[v] = result
         ice_dict[v] = ice_data
         min_max = _calc_ylim(result["prediction"].to_list(), min_max, fix)
+        if ice_data:
+            # ICE lines spread wider than their average: keep them on the plot.
+            ice_values = [float(p) for preds in ice_data for p in preds if p is not None]
+            min_max = _calc_ylim(ice_values, min_max, fix)
 
     for v in incl_int:
         vl = v.split(":")
         is_num = [_is_numeric_with_many_unique(data, c, 5) for c in vl]
-        result = compute_pdp_interaction(vl[0], vl[1])
+        result, ice_data = compute_pdp_interaction(vl[0], vl[1])
         pred_dict[v] = result
+        ice_dict[v] = ice_data
         if sum(is_num) < 2:
             min_max = _calc_ylim(result["prediction"].to_list(), min_max, fix)
+            if ice_data is not None:
+                # ICE lines spread wider than their average: keep them on the plot.
+                min_max = _calc_ylim(ice_data["prediction"].drop_nulls().to_list(), min_max, fix)
 
     # Create plots using helper functions
     plot_list = []
@@ -1117,7 +1197,8 @@ def pdp_sk(
         vl = v.split(":")
         is_num = [_is_numeric_with_many_unique(data, c, 5) for c in vl]
         p = _create_interaction_plot(
-            pred_dict[v], v, vl, is_num, min_max, hline_val, is_pdp=True
+            pred_dict[v], v, vl, is_num, min_max, hline_val, is_pdp=True,
+            ice_data=ice_dict.get(v),
         )
         plot_list.append(p)
 
@@ -1165,7 +1246,8 @@ def pdp_sm(
     ice : bool, default False
         If True, show Individual Conditional Expectation (ICE) lines behind the PDP.
         ICE lines show the prediction for each observation as the feature varies.
-        Only works with mode="pdp".
+        Interaction plots (``incl_int``) get one line per observation and value of
+        the second variable, in that value's color. Only works with mode="pdp".
     ice_nobs : int, default 100
         Number of observations to sample for ICE lines. Only used when ice=True.
         Limits the number of ICE lines to improve performance and readability.
@@ -1316,6 +1398,7 @@ def pdp_sm(
 
         evars = extract_evars(model, data.columns)
 
+        ice_predictions = [] if ice_sample_data is not None else None
         if mode == "pdp":
             for row in grid_df.iter_rows(named=True):
                 modified = sample_data.select(evars).with_columns(
@@ -1325,6 +1408,15 @@ def pdp_sm(
                 modified_pd = _to_pandas_for_predict(modified)
                 preds = fitted.predict(modified_pd)
                 predictions.append(np.mean(preds))
+
+                # ICE: the same grid point for each row of the ICE sample
+                if ice_predictions is not None:
+                    ice_modified = ice_sample_data.select(evars).with_columns(
+                        pl.lit(row[var1]).cast(ice_sample_data[var1].dtype).alias(var1),
+                        pl.lit(row[var2]).cast(ice_sample_data[var2].dtype).alias(var2),
+                    )
+                    ice_preds = fitted.predict(_to_pandas_for_predict(ice_modified))
+                    ice_predictions.append(list(ice_preds))
         else:
             for row in grid_df.iter_rows(named=True):
                 iplot = sim_prediction(
@@ -1333,7 +1425,10 @@ def pdp_sm(
                 preds = fitted.predict(iplot.to_pandas())
                 predictions.append(preds[0])
 
-        return grid_df.with_columns(prediction=pl.Series(predictions))
+        ice_df = (
+            _interaction_ice_frame(grid_df, ice_predictions) if ice_predictions else None
+        )
+        return grid_df.with_columns(prediction=pl.Series(predictions)), ice_df
 
     # Initialize hline and y-limits
     hline_val, min_max = _init_hline_and_minmax(data, rvar, hline)
@@ -1346,14 +1441,22 @@ def pdp_sm(
         pred_dict[v] = result
         ice_dict[v] = ice_data
         min_max = _calc_ylim(result["prediction"].to_list(), min_max, fix)
+        if ice_data:
+            # ICE lines spread wider than their average: keep them on the plot.
+            ice_values = [float(p) for preds in ice_data for p in preds if p is not None]
+            min_max = _calc_ylim(ice_values, min_max, fix)
 
     for v in incl_int:
         vl = v.split(":")
         is_num = [_is_numeric_with_many_unique(data, c, 5) for c in vl]
-        result = compute_pdp_interaction(vl[0], vl[1])
+        result, ice_data = compute_pdp_interaction(vl[0], vl[1])
         pred_dict[v] = result
+        ice_dict[v] = ice_data
         if sum(is_num) < 2:
             min_max = _calc_ylim(result["prediction"].to_list(), min_max, fix)
+            if ice_data is not None:
+                # ICE lines spread wider than their average: keep them on the plot.
+                min_max = _calc_ylim(ice_data["prediction"].drop_nulls().to_list(), min_max, fix)
 
     # Create plots using helper functions
     plot_list = []
@@ -1369,7 +1472,8 @@ def pdp_sm(
         vl = v.split(":")
         is_num = [_is_numeric_with_many_unique(data, c, 5) for c in vl]
         p = _create_interaction_plot(
-            pred_dict[v], v, vl, is_num, min_max, hline_val, is_pdp=True
+            pred_dict[v], v, vl, is_num, min_max, hline_val, is_pdp=True,
+            ice_data=ice_dict.get(v),
         )
         plot_list.append(p)
 

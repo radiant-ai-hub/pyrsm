@@ -10,7 +10,7 @@ import pyrsm.basics.utils as bu
 from pyrsm.utils import cat_levels, check_dataframe, ifelse
 from pyrsm.data_scope import apply_scope, print_scope
 from pyrsm.plot_utils import plot_each
-from pyrsm.plot_style import ALPHA, FILL, REF, theme_pyrsm
+from pyrsm.plot_style import LINE, ALPHA, FILL, REF, theme_pyrsm
 
 
 @lru_cache(maxsize=1)
@@ -646,7 +646,7 @@ class compare_means:
                 ggplot(means, aes(x=self.var1, y="mean"))
                 + geom_col(fill=FILL, alpha=ALPHA)
                 + geom_errorbar(aes(ymin="mean - me", ymax="mean + me"), width=0.1)
-                + geom_errorbar(aes(ymin="mean - se", ymax="mean + se"), width=0.05, color="blue")
+                + geom_errorbar(aes(ymin="mean - se", ymax="mean + se"), width=0.05, color=LINE)
                 + labs(x=self.var1, y=f"Mean {self.var2}")
                 + theme_pyrsm()
             )

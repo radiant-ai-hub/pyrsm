@@ -10,6 +10,12 @@ from pyrsm.data_scope import apply_scope, print_scope
 
 
 @lru_cache(maxsize=1)
+def _fit_like_r(model, cov_type: str = "nonrobust"):
+    from pyrsm.multivariate._lm import fit_like_r
+
+    return fit_like_r(model, cov_type=cov_type)
+
+
 def _model_utils():
     from pyrsm.model import model as model_mod
 
@@ -79,6 +85,9 @@ class regress:
         Terms dropped by stepwise selection.
     step_trace : str
         The stepwise selection trace, laid out as R's ``step()`` prints it.
+    step_steps : list[dict]
+        The same trace as data: per step its label, AIC, formula and a table of
+        the candidate changes (``term``, the statistics, ``AIC``).
     fitted_inference : statsmodels results
         The results used for coefficient inference: ``fitted`` itself, or its
         HC1 robust version when ``robust=True``.
@@ -91,7 +100,7 @@ class regress:
         Summarize the model output.
     plot(plot_type, nobs=1000, incl=None, excl=None, incl_int=None, fix=True, hline=False, nnv=20, minq=0.025, maxq=0.975)
         Plots for the model.
-    predict(data=None, cmd=None, data_cmd=None, ci=False, conf=0.95)
+    predict(data=None, cmd=None, data_cmd=None, ci=False, conf=0.95, interval="confidence")
         Generate predictions using the fitted model.
     """
 
@@ -222,6 +231,8 @@ class regress:
         self.removed: list[str] = []
         self.added: list[str] = []
         self.step_trace = ""
+        self.aliased: list[str] = []
+        self.step_steps: list[dict] = []
 
         import statsmodels.formula.api as smf
 
@@ -269,16 +280,18 @@ class regress:
         # Coefficient inference: robust (HC1) when asked, classical otherwise.
         if self.robust:
             # Same model, HC1 covariance; t distribution with n - k df as R.
-            self.fitted_inference = model_utils.fit_like_r(
-                self.fitted.model, kind="lm", cov_type="HC1", use_t=True
-            )
+            # Columns R drops as aliased stay dropped (sandwich::vcovHC).
+            self.fitted_inference = _fit_like_r(self.fitted.model, cov_type="HC1")
         else:
             self.fitted_inference = self.fitted
         inf = self.fitted_inference
-        # without aliased terms, which R reports as NA and Radiant leaves out
-        est = ~inf.params.index.isin(self.aliased)
-        params, bse = inf.params[est], inf.bse[est]
-        tvalues, pvalues = inf.tvalues[est], inf.pvalues[est]
+        #: Columns dropped because of perfect multicollinearity, as R's lm()
+        #: drops them (NA coefficients). They are left out of the table.
+        self.aliased = list(getattr(self.fitted, "aliased", []))
+        keep = [n not in self.aliased for n in inf.params.index]
+        params, bse, tvalues, pvalues = (
+            inf.params[keep], inf.bse[keep], inf.tvalues[keep], inf.pvalues[keep]
+        )
 
         # Build coefficient table as polars DataFrame
         self.coef = pl.DataFrame(
@@ -296,11 +309,16 @@ class regress:
         ).drop_nulls(subset=["coefficient"])
 
     def _ols(self, formula: str, pdf: pd.DataFrame):
-        """Fit OLS (classical covariance; see ``fitted_inference`` for robust)."""
+        """Fit OLS (classical covariance; see ``fitted_inference`` for robust).
+
+        Perfectly collinear columns are dropped as R's ``lm()`` drops them
+        (``fitted.aliased``) instead of spreading the effect over them with a
+        pseudo-inverse, so the coefficients, standard errors and stepwise
+        steps are R's.
+        """
         import statsmodels.formula.api as smf
 
-        # aliased (perfectly collinear) columns are dropped as R's lm() does
-        return _model_utils().fit_like_r(smf.ols(formula=formula, data=pdf), kind="lm")
+        return _fit_like_r(smf.ols(formula=formula, data=pdf))
 
     def _calc_scaling(self) -> None:
         """Means and standard deviations of the numeric columns (R's ``sd``)."""
@@ -368,6 +386,7 @@ class regress:
             columns=["Df", "Sum of Sq", "RSS"],
         )
         self.step_trace = out["trace"]
+        self.step_steps = out["steps"]
         self.removed, self.added = out["removed"], out["added"]
         self.formula = out["formula"]
         self.fitted = out["fit"]
@@ -436,10 +455,13 @@ class regress:
 
         print(f"\n{model_utils.model_fit(self.fitted, dec=dec)}")
         if self.aliased:
-            print(f"\n{model_utils.collinearity_note(self.fitted)}")
+            print(f"\n{self.collinearity_note()}")
 
         if vif:
-            if self.evar is None or len(self.evar) < 2:
+            if self.aliased:
+                # R: car::vif() needs a full-rank model
+                print("\nMulticollinearity diagnostics were not calculated.")
+            elif self.evar is None or len(self.evar) < 2:
                 print("\nVariance Inflation Factors cannot be calculated")
             else:
                 print("\nVariance inflation factors:")
@@ -475,9 +497,24 @@ class regress:
             self.f_test(test=test, dec=dec)
 
         if ci:
-            print("\nConfidence intervals:")
-            df = model_utils.coef_ci(self.fitted_inference, alpha=1 - conf, dec=dec)
-            print(f"\n{df.to_string()}")
+            if self.aliased:
+                print("\nConfidence intervals were not calculated.")
+            else:
+                print("\nConfidence intervals:")
+                df = model_utils.coef_ci(self.fitted_inference, alpha=1 - conf, dec=dec)
+                print(f"\n{df.to_string()}")
+
+    def collinearity_note(self) -> str:
+        """R's perfect-multicollinearity message, naming the dropped columns
+        (empty when nothing was dropped)."""
+        if not self.aliased:
+            return ""
+        r_label = _model_utils().r_label
+        names = ", ".join(r_label(a.replace("[T.", "[")) for a in self.aliased)
+        return (
+            "The set of explanatory variables exhibit perfect multicollinearity.\n"
+            f"One or more variables were dropped from the estimation: {names}"
+        )
 
     def rmse(self) -> tuple[float, float]:
         """Root mean squared error and residual standard deviation."""
@@ -548,7 +585,8 @@ class regress:
         display(gt)
 
     def predict(
-        self, data=None, cmd=None, data_cmd=None, ci=False, conf=0.95, dec=None
+        self, data=None, cmd=None, data_cmd=None, ci=False, conf=0.95, dec=None,
+        interval="confidence",
     ) -> pl.DataFrame:
         """
         Generate predictions using the fitted model.
@@ -562,19 +600,29 @@ class regress:
         data_cmd : dict[str, Union[int, list[int]]], optional
             Dictionary with the names of the columns to be used in the prediction and the values to be used.
         ci : bool, default False
-            Calculate confidence intervals for the predictions.
+            Add an interval to each prediction (see ``interval``).
         conf : float, default 0.95
             Confidence level for the intervals.
         dec : int, optional
             Number of decimal places to round float columns in the output.
             If None (default), no rounding is applied.
+        interval : str, default "confidence"
+            With ``ci=True``: "confidence" for an interval around the mean of
+            the response at these values of the explanatory variables, or
+            "prediction" for an interval around a single new value of the
+            response. A prediction interval also carries the residual variance,
+            so it is always wider. Both use the t distribution, as R's
+            ``predict.lm``.
 
         Returns
         -------
         pl.DataFrame
             DataFrame containing the predictions and the data used to make those predictions.
         """
-        from pyrsm.model.model import check_pred_vars
+        from pyrsm.model.model import check_pred_vars, ols_interval
+
+        if interval not in ("confidence", "prediction"):
+            raise ValueError("interval must be 'confidence' or 'prediction'")
 
         check_pred_vars(
             self.evar,
@@ -612,22 +660,19 @@ class regress:
         model_data = self._scale(pred_data) if self.scale_means else pred_data
 
         if ci:
-            if data_cmd is not None:
-                raise ValueError(
-                    "Confidence intervals not available when using the Data & Command option"
+            ci_result = pl.from_pandas(
+                ols_interval(
+                    self.fitted, model_utils.to_model_pandas(model_data), conf=conf,
+                    interval=interval,
                 )
-            else:
-                # predict_ci returns pandas, convert result to polars
-                ci_result = pl.from_pandas(
-                    model_utils.predict_ci(
-                        self.fitted, model_utils.to_model_pandas(model_data), conf=conf
-                    )
+            )
+            # Standardizing is linear, so the interval converts back to the
+            # response's units exactly.
+            if self.scale_means:
+                ci_result = ci_result.with_columns(
+                    [self._unscale_response(pl.col(c)) for c in ci_result.columns]
                 )
-                if self.scale_means:
-                    ci_result = ci_result.with_columns(
-                        [self._unscale_response(pl.col(c)) for c in ci_result.columns]
-                    )
-                pred = pl.concat([pred_data, ci_result], how="horizontal")
+            pred = pl.concat([pred_data, ci_result], how="horizontal")
         else:
             # Get predictions from statsmodels (needs pandas), add to polars DataFrame
             predictions = self.fitted.predict(model_utils.to_model_pandas(model_data)).values
@@ -807,6 +852,48 @@ class regress:
                 figsize=figsize,
             )
 
+    def _f_test_aliased(self, formula: str, hypothesis: list[str], dec: int) -> None:
+        """The model comparison when columns were dropped as aliased.
+
+        A Wald test on the full model would test the dropped columns too, or
+        count columns that only become estimable once others are removed. R
+        compares the two fits instead (``anova(sub, full)``): the df are the
+        difference in rank. With robust standard errors R tests the kept
+        coefficients of the tested terms (car::linearHypothesis drops aliased
+        ones).
+        """
+        sub = self._ols(formula, self.fitted.model.data.frame)
+        full = self.fitted
+        df_num = int(round(sub.df_resid - full.df_resid))
+        r2_sub = 1 - sub.ssr / full.centered_tss
+        if df_num <= 0:
+            # Dropping the tested terms does not change the fit (their columns
+            # were aliased, or others take their place): R's anova() gives no
+            # p-value and nothing is printed.
+            return
+        if self.robust:
+            # R stops here (linearHypothesis: "there are aliased coefficients
+            # in the model"); test the kept coefficients of the tested terms.
+            kept = [h for h in hypothesis if h[1:].split(" = ")[0] not in self.aliased]
+            if not kept:
+                return
+            out = self.fitted_inference.f_test(kept)
+            fvalue, pval = float(out.fvalue), float(out.pvalue)
+            df_num = int(out.df_num)
+        else:
+            from scipy import stats
+
+            fvalue = ((sub.ssr - full.ssr) / df_num) / (full.ssr / full.df_resid)
+            pval = float(stats.f.sf(fvalue, df_num, full.df_resid))
+        pvalue = ifelse(pval < 0.001, "< .001", round(pval, dec))
+        r_label = _model_utils().r_label
+        print(f"\nModel 1: {r_label(formula)}")
+        print(f"Model 2: {r_label(self.formula)}")
+        print(f"R-squared, Model 1 vs 2: {r2_sub:.3f} vs {full.rsquared:.3f}")
+        print(
+            f"F-statistic: {round(fvalue, dec)} df ({df_num:.0f}, {full.df_resid:.0f}), p.value {pvalue}"
+        )
+
     def f_test(self, test: str | None = None, dec: int = 3) -> None:
         """
         F-test for competing models
@@ -856,40 +943,23 @@ class regress:
         )
 
         r_label = _model_utils().r_label
+        if self.aliased:
+            self._f_test_aliased(formula, hypothesis, dec)
+            return
         print(f"\nModel 1: {r_label(formula)}")
         print(f"Model 2: {r_label(self.formula)}")
-        if self.aliased:
-            # with collinear terms dropped, compare the two fits directly (as
-            # R's anova does): removing a variable can make a dropped one
-            # estimable again, which a test on the coefficients cannot see
-            import statsmodels.formula.api as smf
-
-            from pyrsm.model.model import fit_like_r, to_model_pandas
-
-            sub = fit_like_r(smf.ols(formula, data=to_model_pandas(self.data)), kind="lm")
-            df_num = sub.df_resid - self.fitted.df_resid
-            df_denom = self.fitted.df_resid
-            if df_num > 0:
-                fvalue = ((sub.ssr - self.fitted.ssr) / df_num) / (self.fitted.ssr / df_denom)
-                from scipy.stats import f as f_dist
-
-                fpval = f_dist.sf(fvalue, df_num, df_denom)
-            else:
-                fvalue, fpval = 0.0, 1.0
-            r2_sub = sub.rsquared
-        else:
-            # The F-test uses the robust covariance when ``robust`` is set (R's
-            # car::linearHypothesis with a vcov); the R-squared of the restricted
-            # model comes from the classical F, which is exact for OLS.
-            out = self.fitted_inference.f_test(hypothesis)
-            classical = self.fitted.f_test(hypothesis)
-            fvalue, fpval = float(pd.Series(out.fvalue).squeeze()), float(out.pvalue)
-            df_num, df_denom = out.df_num, out.df_denom
-            r2_sub = self.fitted.rsquared - (
-                len(hypothesis)
-                * float(pd.Series(classical.fvalue).squeeze())
-                * (1 - self.fitted.rsquared)
-            ) / (self.fitted.nobs - self.fitted.df_model - 1)
+        # The F-test uses the robust covariance when ``robust`` is set (R's
+        # car::linearHypothesis with a vcov); the R-squared of the restricted
+        # model comes from the classical F, which is exact for OLS.
+        out = self.fitted_inference.f_test(hypothesis)
+        classical = self.fitted.f_test(hypothesis)
+        fvalue, fpval = float(pd.Series(out.fvalue).squeeze()), float(out.pvalue)
+        df_num, df_denom = out.df_num, out.df_denom
+        r2_sub = self.fitted.rsquared - (
+            len(hypothesis)
+            * float(pd.Series(classical.fvalue).squeeze())
+            * (1 - self.fitted.rsquared)
+        ) / (self.fitted.nobs - self.fitted.df_model - 1)
 
         pvalue = du.format_pval(fpval, dec)
         print(f"R-squared, Model 1 vs 2: {r2_sub:.3f} vs {self.fitted.rsquared:.3f}")

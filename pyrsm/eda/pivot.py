@@ -36,6 +36,9 @@ def pivot(
     fill: float | None = None,
     perc: bool = False,
     dec: int = 2,
+    data_filter: str = "",
+    sort: str = "",
+    slice: str = "",  # noqa: A002 - the argument name every class publishes
 ) -> pl.DataFrame:
     """
     Create pivot tables and crosstabs.
@@ -69,6 +72,15 @@ def pivot(
         a proportion scale (or any other non-count aggregate) are formatted.
     dec : int
         Number of decimals used when ``perc=True``. Default: 2.
+    data_filter : str
+        Rows to keep, as a Python expression (e.g., ``"price > 1000"``),
+        applied before anything is computed. Then ``sort`` (e.g., ``"-price"``)
+        and ``slice`` (e.g., ``"1:100"``), in that order, as in the model and
+        basics classes.
+    sort : str
+        Columns to sort by, comma separated; a leading ``-`` sorts descending.
+    slice : str
+        Rows to keep after filtering and sorting (e.g., ``"1:100"``).
 
     Returns
     -------
@@ -144,6 +156,12 @@ def pivot(
 
     # ``{name: frame}`` names the dataset, as in the model and basics classes.
     _, df = named_data(df)
+    if data_filter or sort or slice:
+        from pyrsm.data_scope import apply_scope
+
+        if isinstance(df, pl.LazyFrame):
+            df = df.collect()
+        df = apply_scope(df, data_filter, sort, slice)
 
     # Convert to LazyFrame for consistency
     if isinstance(df, pl.DataFrame):
@@ -179,7 +197,9 @@ def pivot(
 
     # Frequency table (no cols variable)
     if not cols:
-        result = lf.group_by(rows_list).agg(agg_expr)
+        # In the order of the row variables' levels (radiant.data), not the
+        # order the groups happen to come out of group_by.
+        result = lf.group_by(rows_list).agg(agg_expr).sort(rows_list, nulls_last=True)
 
         # Rename 'value' to more descriptive name (col_agg format, consistent with explore)
         value_col = f"{values}_{agg}" if values else "count"
@@ -238,8 +258,9 @@ def pivot(
     group_cols = rows_list + [cols]
     grouped = lf.group_by(group_cols).agg(agg_expr)
 
-    # Polars LazyFrame.pivot requires collect first
-    df_grouped = grouped.collect()
+    # Polars LazyFrame.pivot requires collect first; rows and columns in the
+    # order of the variables' levels (radiant.data).
+    df_grouped = grouped.collect().sort(group_cols, nulls_last=True)
 
     # Pivot the data
     pivoted = df_grouped.pivot(
@@ -248,6 +269,9 @@ def pivot(
         values="value",
         aggregate_function=None,  # Already aggregated
     )
+    col_levels = [str(v) for v in df_grouped[cols].unique().sort(nulls_last=True).to_list()]
+    pivoted = pivoted.select(rows_list + [c for c in col_levels if c in pivoted.columns]
+                             + [c for c in pivoted.columns if c not in rows_list and c not in col_levels])
 
     # Get the column names (excluding index columns)
     data_cols = [c for c in pivoted.columns if c not in rows_list]

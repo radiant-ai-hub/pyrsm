@@ -3,7 +3,7 @@ title: "Portfolio risk: correlated returns and input data"
 jupyter: python3
 ---
 
-In Radiant: **Load example > Correlated stock returns**, press _Run simulation_ (saved as `returns`), then **Load example > Portfolio weights (input data and sdw)**.
+In Radiant: **Load example > Correlated stock returns**, press _Run simulation_ (saved as `returns`), then **Load example > Portfolio weights (input data)**.
 
 ## Question
 
@@ -13,7 +13,7 @@ In Radiant: **Load example > Correlated stock returns**, press _Run simulation_ 
 import pyrsm as rsm
 ```
 
-**Correlations** between normal variables are given per pair. With `normal_exact` the simulated returns have exactly the means, standard deviations and correlations given (radiant.model's "Use exact specifications").
+**Correlations** between normal variables are given per pair. With `normal_exact` the simulated returns have exactly the means, standard deviations and correlations given ("Use exact specifications" in Radiant).
 
 ```{python}
 spec = {
@@ -25,6 +25,7 @@ spec = {
         {"name": "B", "kind": "normal", "mean": 0.015, "sd": 0.08},
         {"name": "C", "kind": "normal", "mean": 0.008, "sd": 0.03},
     ],
+    "formulas": [],
     "normal_exact": True,
     "correlations": [
         {"a": "A", "b": "B", "r": 0.3},
@@ -43,18 +44,9 @@ returns.corr()
 
 > Using the simulated 'returns' as input data, which weights for stocks A and B (C gets the rest) give the lowest risk (standard deviation of the portfolio return)? Search weights from 0 to 1 in steps of 0.05.
 
-The simulated returns are the **input data**: their columns (`A`, `B`, `C`) can be used in the formulas but are not part of the result. A grid search over the weights of A and B gives 441 rows; `sdw(wA, wB, wC, A, B, C)` is, for each row of weights, the standard deviation of the weighted sum of the returns.
+The simulated returns are the **input data**: their columns (`A`, `B`, `C`) can be used in the formulas but are not part of the result. A grid search over the weights of A and B gives 441 rows; `weighted_sum_std(wA, wB, wC, A, B, C)` is, for each row of weights, the standard deviation of the weighted sum of the returns.
 
 ```{python}
-formulas = """
-wC = 1 - wA - wB
-valid = wC >= 0
-risk = ifelse(valid, sdw(wA, wB, wC, A, B, C), 99)
-expected = wA * mean(A) + wB * mean(B) + wC * mean(C)
-min_risk_A = find_min(risk, wA)
-min_risk_B = find_min(risk, wB)
-"""
-
 pspec = {
     "name": "portfolio",
     "runs": 1000,
@@ -63,8 +55,16 @@ pspec = {
         {"name": "wA", "kind": "grid", "min": 0, "max": 1, "step": 0.05},
         {"name": "wB", "kind": "grid", "min": 0, "max": 1, "step": 0.05},
     ],
+    "formulas": [
+        "wC = 1 - wA - wB",
+        "valid = wC >= 0",
+        "# 99 for weights that do not add up",
+        "risk = ifelse(valid, weighted_sum_std(wA, wB, wC, A, B, C), 99)",
+        "expected = wA * mean(A) + wB * mean(B) + wC * mean(C)",
+        "min_risk_A = wA[arg_min(risk)]",
+        "min_risk_B = wB[arg_min(risk)]",
+    ],
     "data": "returns",
-    "form": formulas,
 }
 ```
 

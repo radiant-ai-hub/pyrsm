@@ -76,14 +76,15 @@ def test_regress_drops_collinear_terms_like_lm(diamonds):
 
 def test_regress_f_test_matches_anova(diamonds):
     # R: anova(lm(price ~ carat2 + clarity), lm(price ~ carat + carat2 + clarity))
-    # -> Df 0 (carat2 takes carat's place); and dropping clarity: F 197.58 df (7, 2991)
+    # -> Df 0 (carat2 takes carat's place), no test: nothing is printed;
+    # dropping clarity: F 197.58 df (7, 2991)
     r = regress({"d": diamonds}, rvar="price", evar=["carat", "carat2", "clarity"])
     buf = io.StringIO()
     with redirect_stdout(buf):
         r.f_test(test=["carat"])
         r.f_test(test=["clarity"])
     out = buf.getvalue()
-    assert "df (0, 2991)" in out
+    assert "Model 1: price ~ carat2 + clarity" not in out
     assert "F-statistic: 197.585 df (7, 2991), p.value < .001" in out
 
 

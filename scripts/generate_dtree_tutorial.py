@@ -301,10 +301,16 @@ def _run_cell(code: str, ns: dict) -> list:
     tree = ast.parse(code)
     last = tree.body[-1] if tree.body and isinstance(tree.body[-1], ast.Expr) else None
     body = ast.Module(body=tree.body[:-1] if last else tree.body, type_ignores=[])
+    # Register the cell's source as Jupyter does, so inspect.getsource works
+    # for functions defined in it (pyrsm.decide.simulate reads them)
+    import linecache
+
+    filename = f"<notebook-cell-{abs(hash(code))}>"
+    linecache.cache[filename] = (len(code), None, code.splitlines(True), filename)
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        exec(compile(body, "<cell>", "exec"), ns)
-        value = eval(compile(ast.Expression(last.value), "<cell>", "eval"), ns) if last else None
+        exec(compile(body, filename, "exec"), ns)
+        value = eval(compile(ast.Expression(last.value), filename, "eval"), ns) if last else None
     if buf.getvalue():
         outputs.append(nbformat.v4.new_output("stream", name="stdout", text=buf.getvalue()))
     if value is not None:

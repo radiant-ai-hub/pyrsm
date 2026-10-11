@@ -47,8 +47,8 @@ CONSTRUCTOR_PARAMS = {
 }
 
 PREDICT_PARAMS = {
-    regress: {"data", "cmd", "data_cmd", "ci", "conf", "dec"},
-    logistic: {"data", "cmd", "data_cmd", "ci", "conf", "dec"},
+    regress: {"data", "cmd", "data_cmd", "ci", "conf", "dec", "interval"},
+    logistic: {"data", "cmd", "data_cmd", "ci", "conf", "dec", "interval"},
     rforest: {"data", "cmd", "data_cmd", "dec"},
     mlp: {"data", "cmd", "data_cmd", "scale", "means", "stds", "dec"},
     xgboost: {"data", "cmd", "data_cmd", "dec"},

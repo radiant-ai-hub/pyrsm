@@ -1,7 +1,7 @@
 import numpy as np
 import polars as pl
 
-from pyrsm.data_scope import apply_scope
+from pyrsm.data_scope import apply_scope, print_scope
 from pyrsm.utils import check_dataframe
 
 
@@ -97,6 +97,8 @@ class sampling:
         """Print summary of sampling results."""
         print("Sampling (simple random)")
         print(f"Data       : {self.name}")
+        # The rows sampled from, when a filter / sort / slice narrowed them.
+        print_scope(self, width=11)
         print(f"Variables  : {', '.join(self.vars)}")
         print(f"Random seed: {self.seed}")
         print(f"Sample size: {self.sample_size}")

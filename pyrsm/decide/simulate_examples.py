@@ -36,11 +36,11 @@ EXAMPLES: list[dict[str, Any]] = [
                 {"name": "E", "kind": "normal", "mean": 0, "sd": 100},
                 {"name": "price", "kind": "discrete", "values": [6, 8], "probs": [0.3, 0.7]},
             ],
-            "form": (
-                "demand = 1000 - 50 * price + E\n"
-                "profit = demand * (price - var_cost) - fixed_cost\n"
-                "profit_small = profit < 100"
-            ),
+            "formulas": [
+                "demand = 1000 - 50 * price + E",
+                "profit = demand * (price - var_cost) - fixed_cost",
+                "profit_small = profit < 100",
+            ],
         },
         "repeat": {
             "name": "repdat",
@@ -49,7 +49,7 @@ EXAMPLES: list[dict[str, Any]] = [
             "sum_vars": ["profit"],
             "by": "sim",
             "fun": ["sum"],
-            "form": "profit_365 = profit_sum < 36500",
+            "formulas": ["profit_365 = profit_sum < 36500"],
             "seed": 1234,
         },
         "answer": (
@@ -64,7 +64,7 @@ EXAMPLES: list[dict[str, Any]] = [
         "question": (
             "Demand for an ice cream bar is 1000 - 80 x price and each bar costs $2 to make. "
             "Which price between $4 and $10 maximizes profit? Use a grid search over price in "
-            "steps of $0.01 and find_max()."
+            "steps of $0.01."
         ),
         "spec": {
             "name": "pricing",
@@ -74,12 +74,13 @@ EXAMPLES: list[dict[str, Any]] = [
                 {"name": "cost", "kind": "constant", "value": 2},
                 {"name": "price", "kind": "grid", "min": 4, "max": 10, "step": 0.01},
             ],
-            "form": (
-                "demand = 1000 - 80 * price\n"
-                "profit = demand * (price - cost)\n"
-                "optimal_price = find_max(profit, price)\n"
-                "max_profit = max(profit)"
-            ),
+            "formulas": [
+                "demand = 1000 - 80 * price",
+                "profit = demand * (price - cost)",
+                "# the price in the row with the highest profit",
+                "optimal_price = price[arg_max(profit)]",
+                "max_profit = max(profit)",
+            ],
         },
         "answer": (
             "Profit is highest at a price of $7.25 (profit $2,205). The grid has 601 prices, "
@@ -104,15 +105,15 @@ EXAMPLES: list[dict[str, Any]] = [
                 {"name": "gap", "kind": "exponential", "rate": 0.5},
                 {"name": "service", "kind": "exponential", "rate": "1 / 3.5"},
             ],
-            "form": (
-                "# minutes each customer waits before a teller is free\n"
-                "wait = queue_wait(gap, service, tellers)\n"
-                "# customers already waiting when a customer arrives\n"
-                "line = queue_length(gap, service, tellers)\n"
-                "in_bank = wait + service\n"
-                "wait_5 = wait > 5\n"
-                "utilization = sum(service) / (tellers * (sum(gap) + in_bank[n() - 1]))"
-            ),
+            "formulas": [
+                "# minutes each customer waits before a teller is free",
+                "wait = queue_wait(gap, service, tellers)",
+                "# customers already waiting when a customer arrives",
+                "line = queue_length(gap, service, tellers)",
+                "in_bank = wait + service",
+                "wait_5 = wait > 5",
+                "utilization = sum(service) / (tellers * (sum(gap) + in_bank[-1]))",
+            ],
         },
         "repeat": {
             "name": "queue_tellers",
@@ -163,11 +164,11 @@ EXAMPLES: list[dict[str, Any]] = [
                 "        wealth[day] = current\n"
                 "    return wealth\n"
             ),
-            "form": (
-                "wealth = calc_wealth(win, start, perc_invest, win_mult)\n"
-                "final = wealth[n() - 1]\n"
-                "loss = final < start"
-            ),
+            "formulas": [
+                "wealth = calc_wealth(win, start, perc_invest, win_mult)",
+                "final = wealth[-1]",
+                "loss = final < start",
+            ],
         },
         "repeat": {
             "name": "gamble_years",
@@ -176,7 +177,7 @@ EXAMPLES: list[dict[str, Any]] = [
             "sum_vars": ["wealth"],
             "by": "rep",
             "fun": ["last", "min"],
-            "form": "loss = wealth_last < 1000\nruined = wealth_min < 100",
+            "formulas": ["loss = wealth_last < 1000", "ruined = wealth_min < 100"],
             "seed": 1234,
         },
         "answer": (
@@ -217,7 +218,7 @@ EXAMPLES: list[dict[str, Any]] = [
     },
     {
         "id": "portfolio",
-        "title": "Portfolio weights (input data and sdw)",
+        "title": "Portfolio weights (input data)",
         "question": (
             "Using the simulated 'returns' as input data, which weights for stocks A and B (C gets "
             "the rest) give the lowest risk (standard deviation of the portfolio return)? Search "
@@ -232,14 +233,15 @@ EXAMPLES: list[dict[str, Any]] = [
                 {"name": "wA", "kind": "grid", "min": 0, "max": 1, "step": 0.05},
                 {"name": "wB", "kind": "grid", "min": 0, "max": 1, "step": 0.05},
             ],
-            "form": (
-                "wC = 1 - wA - wB\n"
-                "valid = wC >= 0\n"
-                "risk = ifelse(valid, sdw(wA, wB, wC, A, B, C), 99)\n"
-                "expected = wA * mean(A) + wB * mean(B) + wC * mean(C)\n"
-                "min_risk_A = find_min(risk, wA)\n"
-                "min_risk_B = find_min(risk, wB)"
-            ),
+            "formulas": [
+                "wC = 1 - wA - wB",
+                "valid = wC >= 0",
+                "# 99 for weights that do not add up",
+                "risk = ifelse(valid, weighted_sum_std(wA, wB, wC, A, B, C), 99)",
+                "expected = wA * mean(A) + wB * mean(B) + wC * mean(C)",
+                "min_risk_A = wA[arg_min(risk)]",
+                "min_risk_B = wB[arg_min(risk)]",
+            ],
         },
         "requires": ["stock-returns"],
         "answer": (

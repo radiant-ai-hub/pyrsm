@@ -287,3 +287,17 @@ class TestRforestFeatureImportance:
         )
         imp_sum = sum(rf.fitted.feature_importances_)
         assert 0.99 <= imp_sum <= 1.01
+
+
+def test_ice_lines_stay_inside_the_y_axis():
+    """ICE lines spread wider than the PDP; the axis must include them (not clip)."""
+    import polars as pl
+
+    import pyrsm as rsm
+
+    t = pl.read_parquet("examples/data/model/titanic.parquet")
+    rf = rsm.model.rforest({"titanic": t}, rvar="survived", lev="Yes", evar=["pclass", "sex", "age"], n_estimators=20)
+    p = rf.plot("pdp", incl=["age"], ice=True, ice_nobs=50)
+    ice = p.layers[0].geom.data
+    low, high = [s for s in p.scales if "y" in s.aesthetics][0].limits
+    assert low <= ice["prediction"].min() and high >= ice["prediction"].max()

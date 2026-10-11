@@ -428,6 +428,84 @@ class TestDoe:
         effects = d.estimable()
         assert len(effects) > 0
 
+    # R-validated (radiant.design::estimable on the same partial designs): lm()
+    # drops aliased columns left to right, so the earliest columns survive.
+    _theater = {
+        "price": ["10", "13", "16"],
+        "sight": ["staggered", "not_staggered"],
+        "food": ["popcorn", "gourmet", "none"],
+    }
+    _four = {
+        "a": ["a1", "a2"], "b": ["b1", "b2", "b3"],
+        "c": ["c1", "c2"], "e": ["e1", "e2", "e3"],
+    }
+
+    @staticmethod
+    def _with_part(factors, rows):
+        d = doe(factors, trials=len(rows), seed=1234)
+        d.part = d.full.filter(pl.col("trial").is_in(rows))
+        return d
+
+    def test_estimable_matches_r_lm(self):
+        d = self._with_part(self._theater, [2, 6, 9, 10, 13, 15, 17])
+        assert d.estimable() == [
+            "price|13", "price|16", "sight|not_staggered", "food|gourmet",
+            "food|none", "price|13:sight|not_staggered",
+        ]
+
+    def test_estimable_matches_r_lm_four_factors(self):
+        rows = [2, 3, 4, 7, 11, 15, 17, 20, 24, 27, 28, 31, 36]
+        d = self._with_part(self._four, rows)
+        assert d.estimable() == [
+            "a|a2", "b|b2", "b|b3", "c|c2", "e|e2", "e|e3", "a|a2:b|b2",
+            "a|a2:b|b3", "a|a2:c|c2", "b|b2:c|c2", "b|b3:c|c2", "a|a2:e|e2",
+        ]
+
+    def test_estimable_full_design_is_saturated(self):
+        d = doe(self._theater, trials=18)
+        tbl = d.estimable_table(by="effect")
+        assert tbl.height == 17 and tbl["Estimable"].all()
+        assert tbl["Term"][-1] == "price:sight:food"
+
+    def test_estimable_table_by_term(self):
+        d = self._with_part(self._theater, [2, 6, 9, 10, 13, 15, 17])
+        tbl = d.estimable_table()
+        assert tbl.columns == ["Term", "Type", "Coefficients", "Estimable", "Status"]
+        assert tbl["Term"].to_list() == [
+            "price", "sight", "food", "price:sight", "price:food", "sight:food",
+            "price:sight:food",
+        ]
+        assert tbl["Coefficients"].to_list() == [2, 1, 2, 2, 4, 2, 4]
+        assert tbl["Estimable"].to_list() == [2, 1, 2, 1, 0, 0, 0]
+        assert tbl["Status"].to_list() == ["all", "all", "all", "some", "none", "none", "none"]
+        assert tbl["Type"][3] == "2-way interaction"
+
+    def test_summary_est_prints_tables(self, capsys):
+        d = doe(self._theater, trials=12, seed=1234)
+        d.summary(eff=False, part=False, full=False, est=True)
+        out = capsys.readouterr().out
+        assert "Coefficients" in out and "price:sight:food" in out
+
+    def test_no_seed_explores_alternative_designs(self):
+        # 12 of 18 trials: many equally good designs; without a seed repeated
+        # runs should not all pick the same trials (a fixed fallback seed did).
+        picks = {
+            tuple(doe(self._theater, trials=12).part["trial"].to_list())
+            for _ in range(8)
+        }
+        assert len(picks) > 1
+        same = {
+            tuple(doe(self._theater, trials=12, seed=1234).part["trial"].to_list())
+            for _ in range(3)
+        }
+        assert len(same) == 1
+
+    def test_interaction_needs_as_many_trials_as_coefficients(self):
+        # main effects (6) + price:sight (2) = 8 coefficients: no 7-trial row
+        d = doe(self._theater, interactions=["price:sight"], seed=1234)
+        assert d.eff["Trials"].min() == 8
+        assert d.eff["Trials"].max() == 18
+
     def test_too_few_factors(self):
         d = doe({"price": ["$10", "$13"]})
         assert d.error is not None

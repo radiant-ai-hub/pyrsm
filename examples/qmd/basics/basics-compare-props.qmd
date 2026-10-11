@@ -43,7 +43,7 @@ rsm.md("https://raw.githubusercontent.com/radiant-ai-hub/pyrsm/refs/heads/main/e
 ```
 
 Lets focus on two variables in the database:
-- survived = a factor with levels `Yes` and `No`
+- survived = a categorical variable with levels `Yes` and `No`
 - pclass = Passenger Class (1st, 2nd, 3rd). This is a proxy for socio-economic status (SES) 1st ~ Upper; 2nd ~ Middle; 3rd ~ Lower
 
 Suppose we want to test if the proportion of people that survived the sinking of the Titanic differs across passenger classes. To test this hypothesis we specify `pclass` as the grouping variable (`var2`) and calculate proportions of `yes` (`lev`) for the `survived` variable (`var2`).

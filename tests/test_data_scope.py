@@ -276,3 +276,25 @@ def test_a_method_call_on_a_dotted_name_is_still_refused():
     df = pl.DataFrame({"price.heinz28": [3.5, None]})
     with pytest.raises(ScopeError, match="functions, not methods"):
         apply_scope(df, "price.heinz28.is_null()")
+
+
+# --- the eda functions take it too ---------------------------------------
+
+
+def test_explore_summarizes_the_scoped_rows(df):
+    out = rsm.eda.explore({"d": df}, cols=["carat"], agg=["n", "max"], data_filter="price > 1500")
+    assert out["n"][0] == 3 and out["max"][0] == 3.0
+    out = rsm.eda.explore({"d": df}, cols=["carat"], agg=["n"], sort="-carat", slice="1:2")
+    assert out["n"][0] == 2
+
+
+def test_pivot_counts_the_scoped_rows(df):
+    out = rsm.eda.pivot({"d": df}, rows="cut", data_filter="price > 1500", totals=True)
+    assert out.filter(pl.col("cut") == "Total")["count"][0] == 3
+    lazy = rsm.eda.pivot(df.lazy(), rows="cut", data_filter="cut == 'Ideal'")
+    assert lazy["count"].to_list() == [2]
+
+
+def test_visualize_plots_the_scoped_rows(df):
+    p = rsm.eda.visualize({"d": df}, x="carat", y="price", data_filter="price > 1500", slice="1:2")
+    assert p.data.height == 2

@@ -10,7 +10,7 @@ import pyrsm.basics.utils as bu
 from pyrsm.utils import check_dataframe, ifelse, sig_stars
 from pyrsm.data_scope import apply_scope, print_scope
 from pyrsm.plot_utils import plot_each
-from pyrsm.plot_style import ALPHA, FILL, theme_pyrsm
+from pyrsm.plot_style import LINE, ALPHA, FILL, theme_pyrsm
 
 
 @lru_cache(maxsize=1)
@@ -430,7 +430,7 @@ class compare_props:
                 ggplot(means, aes(x=self.var1, y="mean_prop"))
                 + geom_col(fill=FILL, alpha=ALPHA)
                 + geom_errorbar(aes(ymin="mean_prop - me", ymax="mean_prop + me"), width=0.1)
-                + geom_errorbar(aes(ymin="mean_prop - se", ymax="mean_prop + se"), width=0.05, color="blue")
+                + geom_errorbar(aes(ymin="mean_prop - se", ymax="mean_prop + se"), width=0.05, color=LINE)
                 + labs(x=self.var1, y=f"Proportion ({self.lev})")
                 + ggtitle(f'Proportion comparison: "{self.lev}" in {self.var2}')
                 + theme_pyrsm()

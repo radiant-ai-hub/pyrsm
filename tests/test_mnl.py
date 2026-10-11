@@ -213,6 +213,9 @@ def test_stepwise_selects_r_terms():
     m = fit_case("ketchup_stepwise")
     r_terms = {re.sub(r"\|.*", "", lab) for lab in ref["coeff"]["label"]} - {"(Intercept)"}
     assert set(m.terms) == r_terms
+    # the trace as data, for Radiant's tables
+    assert len(m.step_steps) == m.step_trace.count("AIC=")
+    assert m.step_steps[0]["columns"] == ["Df", "AIC"]
     assert set(m.removed) == set(ref["args"]["evar"]) - r_terms
     out = printed(m.summary)
     assert out.startswith("Start:  AIC=")
@@ -308,3 +311,94 @@ def test_errors_are_clear():
         rsm.model.mnl(k, rvar="choice", evar=["choice"])
     with pytest.raises(ValueError, match="not in evar"):
         rsm.model.mnl(k, rvar="choice", evar=PRICES, ivar=["price.heinz28:disp.heinz28"])
+
+
+def test_predict_dec_rounds_every_numeric_column():
+    m = rsm.model.mnl({"k": load("ketchup")}, rvar="choice", lev="heinz28", evar=PRICES)
+    pred = m.predict(cmd={"price.heinz28": [3.4, 5.2]}, dec=3)
+    assert pred["price.heinz32"].to_list() == [3.143, 3.143]
+    assert pred["heinz32"].to_list() == [0.393, 0.728]
+
+
+def _ketchup_mnl():
+    return rsm.model.mnl(
+        {"ketchup": load("ketchup")}, rvar="choice", lev="heinz28",
+        evar=["price.heinz28", "price.heinz32", "disp.heinz28"],
+    )
+
+
+def test_pdp_is_the_average_prediction_with_the_column_set():
+    m = _ketchup_mnl()
+    frame = m._effect_frame("pdp", {"disp.heinz28": ["no", "yes"]}, n_sample=0)
+    for i, value in enumerate(["no", "yes"]):
+        avg = m.predict(m.data, data_cmd={"disp.heinz28": value}).select(m.levels).mean()
+        np.testing.assert_allclose(frame.select(m.levels).row(i), avg.row(0), atol=1e-12)
+
+
+def test_prediction_plot_holds_the_others_at_mean_or_mode():
+    m = _ketchup_mnl()
+    frame = m._effect_frame("pred", {"price.heinz28": [3.4, 5.2]}, n_sample=0)
+    direct = m.predict(cmd={"price.heinz28": [3.4, 5.2]})
+    np.testing.assert_allclose(frame["heinz32"], direct["heinz32"])
+
+
+def test_permutation_importance_ranks_the_variables():
+    m = _ketchup_mnl()
+    plot, imp = m.plot("pip", ret=True)
+    assert plot is not None
+    assert imp["variable"].to_list()[0] == "price.heinz32"
+    assert (imp["importance"] > 0).all()
+    # shuffling is seeded: the same table every time
+    assert imp.equals(m.plot("pip", ret=True)[1])
+
+
+def test_effect_plots_take_variables_and_interactions():
+    import matplotlib
+
+    matplotlib.use("Agg")
+    m = _ketchup_mnl()
+    for mode in ("pred", "pdp"):
+        assert m.plot(mode, incl=["disp.heinz28"]) is not None
+        assert m.plot(mode, incl=[], incl_int=["price.heinz28:disp.heinz28"]) is not None
+        assert m.plot(mode, incl=[], incl_int=[]) is None
+
+
+def test_ice_lines_average_to_the_partial_dependence():
+    m = _ketchup_mnl()
+    grid = [3.4, 4.3, 5.2]
+    ice = m._ice_frame({"price.heinz28": grid}, n_sample=0, ice_nobs=-1)
+    pdp = m._effect_frame("pdp", {"price.heinz28": grid}, n_sample=0)
+    assert ice.height == len(grid) * m.data.height
+    means = ice.group_by("price.heinz28").agg([pl.col(lv).mean() for lv in m.levels]).sort("price.heinz28")
+    np.testing.assert_allclose(means.select(m.levels).to_numpy(), pdp.select(m.levels).to_numpy(), atol=1e-12)
+    # ice_nobs rows of the sample, the same rows at every grid value
+    few = m._ice_frame({"price.heinz28": grid}, n_sample=0, ice_nobs=25)
+    assert few.height == 3 * 25 and few["__obs"].n_unique() == 25
+
+
+def test_pdp_plot_draws_ice_lines_behind_the_averages():
+    import matplotlib
+
+    matplotlib.use("Agg")
+    m = _ketchup_mnl()
+    plain = m.plot("pdp", incl=["price.heinz28", "disp.heinz28"])
+    with_ice = m.plot("pdp", incl=["price.heinz28", "disp.heinz28"], ice=True, ice_nobs=20, incl_int=["price.heinz28:disp.heinz28"])
+    assert len(with_ice.layers) == len(plain.layers) + 1
+    ice_layer = with_ice.layers[0]
+    assert ice_layer.geom.data["ice_group"].nunique() == 20 * len(m.levels) and ice_layer.geom.aes_params.get("alpha") == 0.15
+    with_ice.draw()  # renders, interaction panels without ICE
+    # pred plots never get ICE lines
+    assert len(m.plot("pred", incl=["price.heinz28"], ice=True).layers) == len(m.plot("pred", incl=["price.heinz28"]).layers)
+
+
+def test_ice_lines_in_interaction_panels():
+    """ICE in an interaction plot: lines in every slice panel, one per row and level."""
+    m = rsm.model.mnl({"ketchup": load("ketchup")}, rvar="choice", lev="heinz28", evar=PRICES)
+    p = m.plot("pdp", incl=[], incl_int=["price.heinz28:price.hunts32"], ice=True, ice_nobs=6, nnv=5)
+    ice = [layer for layer in p.layers if "ice_group" in str(layer.mapping)]
+    assert len(ice) == 1
+    data = ice[0]._data
+    # every slice panel of the interaction has ICE lines
+    assert set(data["facet"]) == set(p.data["facet"])
+    # within each panel, one line per sampled row and level
+    assert len(data.groupby(["facet", "ice_group"], observed=True)) == 6 * len(m.levels) * data["facet"].nunique()

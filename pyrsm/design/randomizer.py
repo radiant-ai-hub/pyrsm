@@ -1,7 +1,7 @@
 import numpy as np
 import polars as pl
 
-from pyrsm.data_scope import apply_scope
+from pyrsm.data_scope import apply_scope, print_scope
 from pyrsm.utils import check_dataframe
 
 
@@ -141,6 +141,8 @@ class randomizer:
             print("Random assignment (blocking)")
 
         print(f"Data         : {self.name}")
+        # The rows assigned, when a filter / sort / slice narrowed them.
+        print_scope(self, width=13)
 
         if self.blocks is not None:
             print(f"Variables    : {', '.join(self.vars)}")
@@ -161,42 +163,36 @@ class randomizer:
             dup_msg = "Based on selected variables, no duplicate rows exist"
         print(f"Duplicates   : {dup_msg}")
 
-        # Assignment frequencies
-        print("\nAssignment frequencies:")
-        if self.blocks is None:
-            counts = self.data[self.label].value_counts().sort(self.label)
-            total = counts["count"].sum()
-            # Print counts
-            for row in counts.iter_rows(named=True):
-                print(f"  {row[self.label]}: {row['count']}")
-            print(f"  Total: {total}")
-
-            # Print proportions
+        # Assignment frequencies and proportions, as tables (one row per
+        # condition and a Total; with blocks, one row per block).
+        counts = self.data[self.label].value_counts().sort(self.label)
+        total = int(counts["count"].sum())
+        conds = [str(v) for v in counts[self.label].to_list()]
+        with pl.Config(tbl_hide_dataframe_shape=True, tbl_rows=-1, tbl_hide_column_data_types=True):
+            print("\nAssignment frequencies:")
+            if self.blocks is None:
+                print(pl.DataFrame({
+                    self.label: conds + ["Total"],
+                    "n": [int(v) for v in counts["count"].to_list()] + [total],
+                }))
+            else:
+                cross = (
+                    self.data.group_by([self.blocks, self.label])
+                    .len()
+                    .sort([self.blocks, self.label])
+                    .pivot(on=self.label, index=self.blocks, values="len")
+                    .fill_null(0)
+                )
+                cond_cols = [c for c in cross.columns if c != self.blocks]
+                cross = cross.with_columns(
+                    pl.sum_horizontal(*[pl.col(c) for c in cond_cols]).alias("Total")
+                )
+                print(cross)
             print("\nAssignment proportions:")
-            for row in counts.iter_rows(named=True):
-                print(f"  {row[self.label]}: {round(row['count'] / total, dec)}")
-        else:
-            # Cross-tabulation with blocks
-            cross = (
-                self.data.group_by([self.blocks, self.label])
-                .len()
-                .sort([self.blocks, self.label])
-                .pivot(on=self.label, index=self.blocks, values="len")
-                .fill_null(0)
-            )
-            # Add row totals
-            cond_cols = [c for c in cross.columns if c != self.blocks]
-            cross = cross.with_columns(
-                pl.sum_horizontal(*[pl.col(c) for c in cond_cols]).alias("Total")
-            )
-            print(cross)
-
-            # Proportions
-            total = self.data.height
-            print("\nAssignment proportions:")
-            prop_counts = self.data[self.label].value_counts().sort(self.label)
-            for row in prop_counts.iter_rows(named=True):
-                print(f"  {row[self.label]}: {round(row['count'] / total, dec)}")
+            print(pl.DataFrame({
+                self.label: conds + ["Total"],
+                "proportion": [round(int(v) / total, dec) for v in counts["count"].to_list()] + [1.0],
+            }))
 
 
 def _complete_ra(n, conditions, probs, rng):

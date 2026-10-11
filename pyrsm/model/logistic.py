@@ -209,6 +209,8 @@ class logistic:
         self.removed: list[str] = []
         self.added: list[str] = []
         self.step_trace = ""
+        self.aliased: list[str] = []
+        self.step_steps: list[dict] = []
 
         # Handle weights
         if weights is not None and weights != "None":
@@ -305,6 +307,7 @@ class logistic:
                 columns=["Df", "Deviance"],
             )
             self.step_trace = out["trace"]
+            self.step_steps = out["steps"]
             self.removed, self.added = out["removed"], out["added"]
             self.formula = out["formula"]
             self.fitted = out["fit"]
@@ -323,25 +326,22 @@ class logistic:
 
         # Coefficient inference: HC1 when robust. sandwich's HC1 is HC0 times
         # n / (n - k); statsmodels' GLM "HC1" uses a different correction.
+        #: Columns dropped because of perfect multicollinearity, as R's glm()
+        #: drops them (NA coefficients). They are left out of the table.
+        self.aliased = list(getattr(self.fitted, "aliased", []))
         if self.robust:
-            inf = self.fitted.model.fit(cov_type="HC0")
-            n, k = self.fitted.model.exog.shape
-            res = getattr(inf, "_results", inf)
-            res.cov_params_default = res.cov_params_default * n / (n - k)
-            # bse, z-values, p-values and intervals are cached from the HC0
-            # covariance during the fit: recompute them from the HC1 one.
-            res._cache = {}
-            self.fitted_inference = inf
+            from pyrsm.multivariate._lm import glm_like_r
+
+            self.fitted_inference = glm_like_r(self.fitted.model, robust=True)
         else:
             self.fitted_inference = self.fitted
         inf = self.fitted_inference
+        keep = np.array([n not in self.aliased for n in self.fitted.params.index])
 
         # Build coefficient table as polars DataFrame
         from pyrsm.model.model import r_label as r_powers_label
 
-        # without aliased terms, which R reports as NA and Radiant leaves out
-        est = ~self.fitted.params.index.isin(self.aliased)
-        params = self.fitted.params[est]
+        params = self.fitted.params[keep]
         or_vals = np.exp(params.values)
         or_pct = 100 * np.where(or_vals < 1, -(1 - or_vals), or_vals - 1)
         # No odds ratio for the intercept, as radiant.model
@@ -357,24 +357,30 @@ class logistic:
                 "OR": pl.Series(or_vals, dtype=pl.Float64).fill_nan(None),
                 "OR%": pl.Series(or_pct, dtype=pl.Float64).fill_nan(None),
                 "coefficient": params.values,
-                "std.error": np.asarray(inf.bse[est]),
-                "z.value": np.asarray(inf.tvalues[est]),
-                "p.value": np.asarray(inf.pvalues[est]),
-                "  ": sig_stars(np.asarray(inf.pvalues[est])),
+                "std.error": np.asarray(inf.bse)[keep],
+                "z.value": np.asarray(inf.tvalues)[keep],
+                "p.value": np.asarray(inf.pvalues)[keep],
+                "  ": sig_stars(np.asarray(inf.pvalues)[keep]),
             }
         ).drop_nulls(subset=["coefficient"])
 
     def _glm(self, formula: str, pdf: pd.DataFrame):
-        """Fit the logistic GLM (classical covariance; see ``fitted_inference``)."""
+        """Fit the logistic GLM (classical covariance; see ``fitted_inference``).
+
+        Perfectly collinear columns are dropped as R's ``glm()`` drops them
+        (``fitted.aliased``) instead of spreading the effect over them.
+        """
+        from pyrsm.multivariate._lm import glm_like_r
+
         weights = pdf[self.weights_name] if self.weights_name else None
-        model = smf.glm(
-            formula=formula,
-            data=pdf,
-            freq_weights=weights,
-            family=Binomial(link=Logit()),
+        return glm_like_r(
+            smf.glm(
+                formula=formula,
+                data=pdf,
+                freq_weights=weights,
+                family=Binomial(link=Logit()),
+            )
         )
-        # aliased (perfectly collinear) columns are dropped as R's glm() does
-        return fit_like_r(model, kind="glm", weights=model.freq_weights)
 
     def _calc_scaling(self) -> None:
         """Means and standard deviations of the numeric explanatory variables.
@@ -483,16 +489,24 @@ class logistic:
 
         print(f"\n{model_fit(self.fitted, dec=dec)}")
         if self.aliased:
-            print(f"\n{collinearity_note(self.fitted)}")
+            print(f"\n{self.collinearity_note()}")
 
         if vif:
-            if self.evar is None or len(self.evar) < 2:
+            if self.aliased:
+                print("\nMulticollinearity diagnostics were not calculated.")
+            elif self.evar is None or len(self.evar) < 2:
                 print("\nVariance Inflation Factors cannot be calculated")
             else:
                 print("\nVariance inflation factors:")
                 print(f"\n{gvif(self.fitted, dec=dec).to_string()}")
 
-        if ci or odds:
+        if (ci or odds) and self.aliased:
+            # R: confint() / exp(confint()) are skipped for an aliased model
+            if ci:
+                print("\nConfidence intervals were not calculated.")
+            if odds:
+                print("\nOdds ratios were not calculated")
+        elif ci or odds:
             low, high = [f"{round(100 * p, 4):g}%" for p in ((1 - conf) / 2, 1 - (1 - conf) / 2)]
             cis = self.conf_int(conf=conf)
             coef = self.fitted.params
@@ -525,6 +539,19 @@ class logistic:
 
         if test is not None and len(test) > 0:
             self.chisq_test(test=test, dec=dec)
+
+    def collinearity_note(self) -> str:
+        """R's perfect-multicollinearity message, naming the dropped columns
+        (empty when nothing was dropped)."""
+        if not self.aliased:
+            return ""
+        from pyrsm.model.model import r_label
+
+        names = ", ".join(r_label(a.replace("[T.", "[")) for a in self.aliased)
+        return (
+            "The set of explanatory variables exhibit perfect multicollinearity.\n"
+            f"One or more variables were dropped from the estimation: {names}"
+        )
 
     def _summary_header(self) -> None:
         """Print the summary header."""
@@ -599,13 +626,24 @@ class logistic:
         display(gt)
 
     def predict(
-        self, data=None, cmd=None, data_cmd=None, ci=False, conf=0.95, dec=None
+        self, data=None, cmd=None, data_cmd=None, ci=False, conf=0.95, dec=None,
+        interval="confidence",
     ) -> pl.DataFrame:
         """
         Generate probability predictions using the fitted model.
 
         Parameters
         ----------
+        ci : bool, default False
+            Add a confidence interval for each predicted probability, calculated
+            on the log-odds scale and converted back to a probability.
+        conf : float, default 0.95
+            Confidence level for the intervals.
+        interval : str, default "confidence"
+            Only "confidence". A prediction interval for a single new 0/1 value
+            of the response is not available: its variance, p * (1 - p), is
+            fixed by the predicted probability, so a 95% interval for one
+            outcome is the whole 0-1 range unless p is very close to 0 or 1.
         dec : int, optional
             Number of decimal places to round float columns in the output.
             If None (default), no rounding is applied.
@@ -616,6 +654,15 @@ class logistic:
             DataFrame containing the predictions and the data used to make those predictions.
         """
         from pyrsm.model.model import check_pred_vars
+
+        if interval == "prediction":
+            raise ValueError(
+                "Prediction intervals are not available for logistic regression: for a "
+                "0/1 response the interval for a single new value is the whole 0-1 range. "
+                "Use interval='confidence' for an interval around the predicted probability."
+            )
+        if interval != "confidence":
+            raise ValueError("interval must be 'confidence'")
 
         check_pred_vars(
             self.evar,
@@ -652,16 +699,9 @@ class logistic:
         model_data = self._scale(pred_data) if self.scale_means else pred_data
 
         if ci:
-            if data_cmd is not None:
-                raise ValueError(
-                    "Confidence intervals not available when using the Data & Command option"
-                )
-            else:
-                # predict_ci returns pandas, convert result to polars
-                ci_result = predict_ci(self.fitted, to_model_pandas(model_data), conf=conf)
-                pred = pl.concat(
-                    [pred_data, pl.from_pandas(ci_result)], how="horizontal"
-                )
+            # predict_ci returns pandas, convert result to polars
+            ci_result = predict_ci(self.fitted, to_model_pandas(model_data), conf=conf)
+            pred = pl.concat([pred_data, pl.from_pandas(ci_result)], how="horizontal")
 
         else:
             # Get predictions from statsmodels (needs pandas), add to polars DataFrame
@@ -863,7 +903,11 @@ class logistic:
             # Wald test with the robust covariance, as car::linearHypothesis
             # with a vcov: every coefficient the restricted model leaves out
             names = list(self.fitted.params.index)
-            idx = [names.index(c) for c in names if c not in kept]
+            # aliased columns have no estimate to test
+            idx = [
+                names.index(c) for c in names
+                if c not in kept and c not in self.aliased
+            ]
             L = np.zeros((len(idx), len(names)))
             for row, col in enumerate(idx):
                 L[row, col] = 1.0

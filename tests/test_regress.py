@@ -236,7 +236,7 @@ class TestRegressSummary:
         sys.stdout = sys.__stdout__
         output = captured.getvalue()
 
-        assert "Root Mean Square Error" in output
+        assert "Prediction error (RMSE)" in output
 
 
 class TestRegressPredict:

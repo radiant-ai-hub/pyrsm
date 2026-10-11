@@ -58,9 +58,18 @@ def _frame(data) -> tuple[str, pl.DataFrame]:
 
 
 def _splits(
-    df: pl.DataFrame, train: str, data_filter: str, sort: str, slice: str  # noqa: A002
+    df: pl.DataFrame,
+    train: str,
+    data_filter: str,
+    sort: str,
+    slice: str,  # noqa: A002
+    test_filter: str = "",
 ) -> dict[str, pl.DataFrame]:
-    """``{"All"|"Training"|"Test": frame}`` following Radiant's train/test rules."""
+    """``{"All"|"Training"|"Test": frame}`` following Radiant's train/test rules.
+
+    Training rows are the scope (``data_filter`` / ``sort`` / ``slice``). Test rows
+    are ``test_filter`` when it is given, else every row that is not a training row.
+    """
     if train in ("", None):
         train = "All"
     if train == "Validation":  # Radiant's evalreg accepts it as Test
@@ -69,7 +78,9 @@ def _splits(
         raise ValueError(f"train must be one of {', '.join(TRAIN_OPTIONS)}, not {train!r}")
     if train == "All":
         return {"All": df}
-    if not str(data_filter or "").strip() and not str(slice or "").strip():
+    has_training = bool(str(data_filter or "").strip() or str(slice or "").strip())
+    has_test = bool(str(test_filter or "").strip())
+    if not has_training and not (train == "Test" and has_test):
         raise ValueError(
             "A filter or a slice is required to tell training rows from test "
             "rows. Set data_filter (e.g. \"training == 1\") or slice, or use "
@@ -79,7 +90,10 @@ def _splits(
     scoped = apply_scope(indexed, data_filter, sort, slice)
     keep = set(scoped["__row__"].to_list())
     training = scoped.drop("__row__")
-    test = indexed.filter(~pl.col("__row__").is_in(list(keep))).drop("__row__")
+    if has_test:
+        test = apply_scope(df, test_filter, "", "")
+    else:
+        test = indexed.filter(~pl.col("__row__").is_in(list(keep))).drop("__row__")
     out = {}
     if train in ("Training", "Both"):
         out["Training"] = training
@@ -166,7 +180,12 @@ def _kappa(tn, fp, fn, tp) -> float:
 def _header(obj, title: str, extra: list[tuple[str, str]]) -> None:
     print(title)
     print(f"Data        : {obj.name}")
-    for label, value in (("Filter", obj.data_filter), ("Sort", obj.sort), ("Slice", obj.slice)):
+    for label, value in (
+        ("Filter", obj.data_filter),
+        ("Sort", obj.sort),
+        ("Slice", obj.slice),
+        ("Test filter", getattr(obj, "test_filter", "")),
+    ):
         if str(value or "").strip():
             print(f"{label.ljust(12)}: {value}")
     print(f"Results for : {obj.train}")
@@ -283,7 +302,8 @@ def _plot_result(plot_list: list):
 class _Evaluation:
     """Shared constructor bits: data, scope, train/test split."""
 
-    def _setup(self, data, pred, rvar, train, data_filter, sort, slice, extra=()):  # noqa: A002
+    def _setup(self, data, pred, rvar, train, data_filter, sort, slice, extra=(),  # noqa: A002
+               test_filter=""):
         self.name, frame = _frame(data)
         self.pred = _as_list(pred)
         self.rvar = rvar
@@ -299,8 +319,11 @@ class _Evaluation:
         self.data_filter = data_filter or ""
         self.sort = sort or ""
         self.slice = slice or ""
+        self.test_filter = test_filter or ""
         self.data = frame
-        self.dat_list = _splits(frame, self.train, self.data_filter, self.sort, self.slice)
+        self.dat_list = _splits(
+            frame, self.train, self.data_filter, self.sort, self.slice, self.test_filter
+        )
 
 
 # -- Evaluate regression ------------------------------------------------------
@@ -326,6 +349,9 @@ class evalreg(_Evaluation):
         Column(s) to sort on before slicing.
     slice : str, default ""
         Rows to keep as training rows, counting from 1, e.g. "1:1000".
+    test_filter : str, default ""
+        Filter that selects the test rows, e.g. "training == 0". Blank: every row
+        that is not a training row, as in Radiant.
 
     Examples
     --------
@@ -334,8 +360,8 @@ class evalreg(_Evaluation):
     """
 
     def __init__(self, data, pred, rvar: str, train: str = "All", data_filter: str = "",
-                 sort: str = "", slice: str = "") -> None:  # noqa: A002
-        self._setup(data, pred, rvar, train, data_filter, sort, slice)
+                 sort: str = "", slice: str = "", test_filter: str = "") -> None:  # noqa: A002
+        self._setup(data, pred, rvar, train, data_filter, sort, slice, test_filter=test_filter)
         if not self.data[rvar].dtype.is_numeric():
             raise ValueError(f"The response variable {rvar} must be numeric")
         rows = []
@@ -398,12 +424,15 @@ class confusion(_Evaluation):
         Column(s) to sort on before slicing.
     slice : str, default ""
         Rows to keep as training rows, counting from 1, e.g. "1:1000".
+    test_filter : str, default ""
+        Filter that selects the test rows, e.g. "training == 0". Blank: every row
+        that is not a training row, as in Radiant.
     """
 
     def __init__(self, data, pred, rvar: str, lev: str = "", cost: float = 1, margin: float = 2,
                  scale: float = 1, train: str = "All", data_filter: str = "", sort: str = "",
-                 slice: str = "") -> None:  # noqa: A002
-        self._setup(data, pred, rvar, train, data_filter, sort, slice)
+                 slice: str = "", test_filter: str = "") -> None:  # noqa: A002
+        self._setup(data, pred, rvar, train, data_filter, sort, slice, test_filter=test_filter)
         self.lev = _check_lev(self.data[rvar], lev, rvar)
         self.cost, self.margin, self.scale = cost, margin, scale
         if cost is None or margin is None or (isinstance(cost, float) and np.isnan(cost)) \
@@ -502,6 +531,9 @@ class evalbin(_Evaluation):
         Column(s) to sort on before slicing.
     slice : str, default ""
         Rows to keep as training rows, counting from 1, e.g. "1:1000".
+    test_filter : str, default ""
+        Filter that selects the test rows, e.g. "training == 0". Blank: every row
+        that is not a training row, as in Radiant.
 
     Attributes
     ----------
@@ -518,8 +550,8 @@ class evalbin(_Evaluation):
 
     def __init__(self, data, pred, rvar: str, lev: str = "", qnt: int = 10, cost: float = 1,
                  margin: float = 2, scale: float = 1, train: str = "All", data_filter: str = "",
-                 sort: str = "", slice: str = "") -> None:  # noqa: A002
-        self._setup(data, pred, rvar, train, data_filter, sort, slice)
+                 sort: str = "", slice: str = "", test_filter: str = "") -> None:  # noqa: A002
+        self._setup(data, pred, rvar, train, data_filter, sort, slice, test_filter=test_filter)
         cost = 0 if cost is None else cost
         margin = 0 if margin is None else margin
         scale = 1 if scale in (None, 0) else scale
@@ -673,13 +705,17 @@ class uplift(_Evaluation):
         Column(s) to sort on before slicing.
     slice : str, default ""
         Rows to keep as training rows, counting from 1, e.g. "1:1000".
+    test_filter : str, default ""
+        Filter that selects the test rows, e.g. "training == 0". Blank: every row
+        that is not a training row, as in Radiant.
     """
 
     def __init__(self, data, pred, rvar: str, tvar: str, lev: str = "", tlev: str = "",
                  qnt: int = 10, cost: float = 1, margin: float = 2, scale: float = 1,
                  train: str = "All", data_filter: str = "", sort: str = "",
-                 slice: str = "") -> None:  # noqa: A002
-        self._setup(data, pred, rvar, train, data_filter, sort, slice, extra=(tvar,))
+                 slice: str = "", test_filter: str = "") -> None:  # noqa: A002
+        self._setup(data, pred, rvar, train, data_filter, sort, slice, extra=(tvar,),
+                    test_filter=test_filter)
         self.tvar = tvar
         qnt = 10 if not qnt else int(qnt)
         self.lev = _check_lev(self.data[rvar], lev, rvar)
