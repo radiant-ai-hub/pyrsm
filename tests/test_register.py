@@ -12,6 +12,13 @@ def test_register_is_a_top_level_function():
     assert "register" in dir(rsm)
 
 
+def test_register_lives_in_data_and_rsm_register_is_the_same_function():
+    # Compared by name: test_import_performance re-imports pyrsm, so the two
+    # can be the same function loaded twice.
+    for func in (rsm.data.register, rsm.register):
+        assert (func.__module__, func.__qualname__) == ("pyrsm.data.register", "register")
+
+
 def test_register_outside_radiant_prints_a_note_and_returns_none(capsys):
     df = pl.DataFrame({"x": [1, 2, 3], "y": ["a", "b", "c"]})
     assert rsm.register(df, "sales_clean", descr="Clean sales") is None

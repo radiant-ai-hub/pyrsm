@@ -1,4 +1,6 @@
-"""``rsm.register``: make a dataset made in report code available in Radiant.
+"""``rsm.data.register``: make a dataset made in report code available in Radiant.
+
+Also available as ``rsm.register``, the form Radiant writes into reports.
 
 In a Radiant report, ``rsm.register(sales_clean, "sales_clean")`` adds the frame
 to the app's data list once the report (or the selected chunks) finish running.
@@ -71,8 +73,8 @@ def register(data: Any, name: str, descr: str | None = None) -> None:
     -----
     Outside Radiant this only checks the arguments and prints a note: there is
     no app to register with. In a Radiant report, the dataset appears in the data
-    list after the run finishes. A name that belongs to data you imported is
-    never overwritten.
+    list after the run finishes. A name already in the data list is replaced,
+    and its data file is rewritten.
 
     Examples
     --------

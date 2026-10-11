@@ -18,36 +18,6 @@ def _get_pandas():
     return pd
 
 
-def add_description(df, md="", path=""):
-    """
-    Add a description to a Pandas DataFrame in markdown format
-
-    Parameters
-    ----------
-    df : Pandas DataFrame
-    md : str
-        Data description in markdown format
-    path : str
-        Path to a text file with the data description in markdown format
-
-    Returns
-    -------
-    Pandas DataFrame with added description
-    """
-
-    if path != "":
-        f = open(path)
-        md = f.read()
-        f.close()
-    elif md == "":
-        print("Provide either text (markdown) or the path to a file")
-        print("with the data description")
-
-    df._metadata.append("description")
-    df.description = md
-    return df
-
-
 def describe(df, prn=True):
     """
     Print out Pandas DataFrame description attribute if available. Else use Pandas'

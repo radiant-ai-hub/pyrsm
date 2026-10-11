@@ -2,7 +2,6 @@ import numpy as np
 import pandas as pd
 
 from pyrsm.utils import (
-    add_description,
     expand_grid,
     ifelse,
     intersect,
@@ -11,20 +10,6 @@ from pyrsm.utils import (
     table2data,
     union,
 )
-
-md = """# Data Description
-
-The variables in the dataset are a and b
-
-* a: The first variable
-* b: The second variable"""
-
-
-def test_add_description():
-    df = pd.DataFrame({"col1": [1, 2], "col2": [3, 4]})
-    df = add_description(df, md)
-    assert df.description == md, "Description not attached"
-
 
 def test_ifelse_true():
     assert (
@@ -88,7 +73,6 @@ def test_intersect():
 
 
 if __name__ == "__main__":
-    test_add_description()
     test_ifelse_true()
     test_ifelse_false()
     test_ifelse_array()
