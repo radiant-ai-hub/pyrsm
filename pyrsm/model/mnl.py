@@ -777,26 +777,53 @@ class mnl:
 
     def plot(
         self,
-        plots: Literal["coef", "rrr", "pred", "dist", "corr"] = "coef",
+        plots: Literal["coef", "rrr", "pred", "pdp", "pip", "dist", "corr"] = "coef",
         alpha: float = 0.05,
         intercept: bool = False,
         incl: list[str] | str | None = None,
         excl: list[str] | str | None = None,
+        incl_int: list[str] | str | None = None,
         nobs: int = 1000,
         nnv: int = 20,
         minq: float = 0.025,
         maxq: float = 0.975,
+        fix: bool = True,
+        hline: bool = True,
+        n_sample: int = 2000,
+        rep: int = 10,
+        ret: bool = False,
         figsize=None,
     ):
         """
         Plots for a multinomial logistic regression
 
-        ``"coef"`` (``"rrr"``) shows the relative risk ratios with 1 - ``alpha``
-        confidence intervals, colored by response level, as radiant.model.
-        ``"pred"`` shows the predicted probability of each response level as one
-        explanatory variable changes (the others at their mean or most common
-        level). ``"dist"`` the distribution of the response and explanatory
-        variables, ``"corr"`` their correlations (``nobs`` rows sampled).
+        Parameters
+        ----------
+        plots : str
+            ``"coef"`` (``"rrr"``): relative risk ratios with 1 - ``alpha``
+            confidence intervals, colored by response level.
+            ``"pred"``: prediction plots, the probability of every response level
+            as one explanatory variable changes with the others at their mean
+            or most common level. ``"pdp"``: partial dependence plots, the same
+            averaged over (a sample of ``n_sample``) rows of the data.
+            ``"pip"``: permutation importance, the decrease in McFadden's pseudo
+            R-squared when a variable is shuffled (``rep`` times).
+            ``"dist"``: distributions; ``"corr"``: correlations (``nobs`` rows).
+        incl, excl : list[str], optional
+            Explanatory variables to plot (default all) or leave out.
+        incl_int : list[str], optional
+            Two-way interactions to plot (``"a:b"``): ``a`` on the x-axis, a
+            panel for each level of ``b`` (numeric: its 10th, 50th and 90th
+            percentile).
+        nnv : int
+            Number of values of a numeric variable, between the ``minq`` and
+            ``maxq`` quantiles of the data.
+        fix : bool
+            The same y-axis for every prediction or partial dependence plot.
+        hline : bool
+            Dashed lines at each level's share of the data.
+        ret : bool
+            ``"pip"`` only: return ``(plot, importance table)``.
         """
         plots = _as_list(plots)
         if "dist" in plots:
@@ -809,8 +836,14 @@ class mnl:
             return correlation(self.data.select([self.rvar] + self.evar)).plot(
                 nobs=nobs, figsize=figsize
             )
-        if "pred" in plots:
-            return self._pred_plot(incl, excl, nnv, minq, maxq)
+        if "pip" in plots or "vimp" in plots:
+            imp, p = self._pip_plot(rep)
+            return (p, imp) if ret else p
+        if "pred" in plots or "pdp" in plots:
+            return self._effect_plots(
+                "pdp" if "pdp" in plots else "pred",
+                incl, excl, incl_int, nnv, minq, maxq, fix, hline, n_sample,
+            )
         return self._coef_plot(1 - alpha, intercept, incl, excl)
 
     def _coef_plot(self, conf, intercept, incl, excl):
@@ -867,46 +900,201 @@ class mnl:
             + theme(panel_grid_minor_y=element_blank())
         )
 
-    def _pred_plot(self, incl, excl, nnv, minq, maxq):
-        from plotnine import aes, facet_wrap, geom_line, geom_point, ggplot, labs
+    # -- prediction, partial dependence and permutation importance plots -------
+    def _grid(self, v: str, nnv: int, minq: float, maxq: float) -> list:
+        """Values of ``v`` to plot: its levels, its few values, or a range."""
+        if v in self.xlevels:
+            return list(self.xlevels[v])
+        x = self.data[v].cast(pl.Float64)
+        uniq = sorted(x.unique().to_list())
+        if len(uniq) <= 5:
+            return uniq
+        lo, hi = float(x.quantile(minq)), float(x.quantile(maxq))
+        return list(np.unique(np.linspace(lo, hi, nnv))) if hi > lo else [lo]
+
+    def _slices(self, v: str) -> list:
+        """Values of the second variable in an interaction plot."""
+        if v in self.xlevels:
+            return list(self.xlevels[v])
+        x = self.data[v].cast(pl.Float64)
+        uniq = sorted(x.unique().to_list())
+        if len(uniq) <= 5:
+            return uniq
+        return [float(x.quantile(q)) for q in (0.1, 0.5, 0.9)]
+
+    def _effect_frame(self, mode: str, vary: dict, n_sample: int) -> pl.DataFrame:
+        """Probabilities of every level over the combinations in ``vary``.
+
+        ``pred``: the other variables at their mean or most common level.
+        ``pdp``: the average over a sample of rows with the varied columns set.
+        """
+        names = list(vary)
+        if mode == "pred":
+            pred = self.predict(cmd=vary)
+            return pred.select(names + self.levels)
+        base = self.data.select(self.evar)
+        if 0 < n_sample < base.height:
+            base = base.sample(n=n_sample, seed=1234)
+        combos = [{}]
+        for k in names:
+            combos = [{**c, k: v} for c in combos for v in vary[k]]
+        frames = []
+        for i, combo in enumerate(combos):
+            frames.append(
+                base.with_columns(
+                    [pl.lit(v).cast(self.data[k].dtype if k in self.xlevels else pl.Float64).alias(k)
+                     for k, v in combo.items()]
+                ).with_columns(pl.lit(i).alias("__combo"))
+            )
+        stacked = pl.concat(frames)
+        P = self._probs(stacked.select(self.evar))
+        probs = pl.DataFrame({lv: P[:, j] for j, lv in enumerate(self.levels)}).with_columns(
+            stacked["__combo"]
+        )
+        means = probs.group_by("__combo").mean().sort("__combo")
+        keys = pl.DataFrame([{k: c[k] for k in names} for c in combos])
+        if any(k in self.xlevels for k in names):
+            keys = keys.with_columns(
+                [pl.col(k).cast(pl.Utf8) for k in names if k in self.xlevels]
+            )
+        return pl.concat([keys, means.drop("__combo")], how="horizontal")
+
+    def _shares(self) -> pd.DataFrame:
+        w = np.ones(len(self._y)) if self._w is None else self._w
+        wk = np.bincount(self._y, weights=w, minlength=len(self.levels))
+        return pd.DataFrame(
+            {
+                "level": pd.Categorical(self.levels, categories=self.levels),
+                "share": wk / wk.sum(),
+            }
+        )
+
+    def _long(self, frame: pl.DataFrame, x: str, panel: str | None) -> pd.DataFrame:
+        long = frame.unpivot(
+            on=self.levels,
+            index=[c for c in frame.columns if c not in self.levels],
+            variable_name="level",
+            value_name="prediction",
+        ).to_pandas()
+        long["level"] = pd.Categorical(long["level"], categories=self.levels)
+        if x in self.xlevels:
+            long[x] = pd.Categorical(long[x].astype(str), categories=self.xlevels[x])
+        if panel is not None:
+            if panel in self.xlevels:
+                long["panel"] = pd.Categorical(
+                    long[panel].astype(str), categories=self.xlevels[panel]
+                )
+            else:
+                vals = sorted(long[panel].unique())
+                labels = [f"{v:.4g}" for v in vals]
+                long["panel"] = pd.Categorical(
+                    [f"{v:.4g}" for v in long[panel]], categories=labels
+                )
+        return long
+
+    def _effect_plots(self, mode, incl, excl, incl_int, nnv, minq, maxq, fix, hline, n_sample):
+        from mizani.breaks import breaks_extended
+        from plotnine import (
+            aes, element_blank, element_text, facet_wrap, geom_hline, geom_line,
+            geom_point, ggplot, ggtitle, labs, scale_x_continuous, scale_y_continuous,
+            theme,
+        )
 
         from pyrsm.plot_style import theme_pyrsm
+        from pyrsm.plot_utils import compose_plots
 
-        vars_ = _as_list(incl) or list(self.evar)
-        vars_ = [v for v in vars_ if v not in _as_list(excl)]
+        variables = list(self.evar) if incl is None else _as_list(incl)
+        variables = [v for v in variables if v in self.evar and v not in _as_list(excl)]
+        pairs = [t for t in _as_list(incl_int) if len(t.split(":")) == 2]
+        if not variables and not pairs:
+            return None
+
         frames = []
-        for v in vars_:
-            if v in self.xlevels:
-                vals = self.xlevels[v]
-            else:
-                x = self.data[v].cast(pl.Float64)
-                lo, hi = float(x.quantile(minq)), float(x.quantile(maxq))
-                vals = list(np.unique(np.linspace(lo, hi, nnv))) if hi > lo else [lo]
-            pred = self.predict(cmd={v: vals})
-            frames.append(
-                pd.DataFrame(
-                    {
-                        "variable": v,
-                        "value": pred[v].cast(pl.Utf8).to_list() if v in self.xlevels
-                        else pred[v].to_list(),
-                        **{lv: pred[lv].to_list() for lv in self.levels},
-                    }
-                ).melt(id_vars=["variable", "value"], var_name="level", value_name="prediction")
+        for v in variables:
+            frames.append((v, v, None, self._effect_frame(mode, {v: self._grid(v, nnv, minq, maxq)}, n_sample)))
+        for term in pairs:
+            a, b = [t.strip() for t in term.split(":")]
+            vary = {a: self._grid(a, nnv, minq, maxq), b: self._slices(b)}
+            frames.append((f"{a} by {b}", a, b, self._effect_frame(mode, vary, n_sample)))
+
+        lo = min(float(f.select(self.levels).min_horizontal().min()) for *_, f in frames)
+        hi = max(float(f.select(self.levels).max_horizontal().max()) for *_, f in frames)
+        shares = self._shares() if hline else None
+        if shares is not None:
+            lo, hi = min(lo, shares["share"].min()), max(hi, shares["share"].max())
+        ylab = "Partial dependence" if mode == "pdp" else "Predicted probability"
+
+        plot_list = []
+        for title, x, panel, frame in frames:
+            long = self._long(frame, x, panel)
+            p = ggplot(long, aes(x=x, y="prediction", color="level", group="level")) + geom_line(size=1)
+            if x in self.xlevels:
+                p = p + geom_point(size=2.5)
+            if shares is not None:
+                p = p + geom_hline(
+                    shares, aes(yintercept="share", color="level"), linetype="dashed", alpha=0.6
+                )
+            if panel is not None:
+                p = p + facet_wrap("~panel", nrow=1)
+                if x not in self.xlevels:
+                    # three panels share the cell's width: fewer x-axis labels
+                    p = p + scale_x_continuous(breaks=breaks_extended(n=3))
+            if fix:
+                p = p + scale_y_continuous(limits=(max(0.0, lo - 0.02), min(1.0, hi + 0.02)))
+            p = (
+                p
+                + labs(x="", y=ylab, color=self.rvar)
+                + ggtitle(title)
+                + theme_pyrsm()
+                + theme(
+                    legend_position="bottom",
+                    legend_title=element_blank(),
+                    legend_text=element_text(size=8),
+                    legend_box_margin=0,
+                )
             )
-        long = pd.concat(frames)
-        long["level"] = pd.Categorical(long["level"], categories=self.levels)
-        numeric = all(v not in self.xlevels for v in vars_)
-        if not numeric:
-            long["value"] = long["value"].astype(str)
-        p = (
-            ggplot(long, aes(x="value", y="prediction", color="level", group="level"))
-            + geom_line()
-            + geom_point(size=1)
-            + labs(x="", y="Predicted probability", color=self.rvar)
-            + theme_pyrsm()
+            plot_list.append(p)
+        return compose_plots(plot_list, ncol=2)
+
+    def _pip_plot(self, rep: int = 10):
+        """Permutation importance: the drop in McFadden's pseudo R-squared when
+        one explanatory variable is shuffled (its interactions move with it)."""
+        from plotnine import (
+            aes, coord_flip, geom_bar, ggplot, ggtitle, labs, scale_x_discrete, theme,
         )
-        if len(vars_) > 1:
-            p = p + facet_wrap("~variable", scales="free_x")
-        else:
-            p = p + labs(x=vars_[0])
-        return p
+
+        from pyrsm.plot_style import FILL, theme_pyrsm
+
+        w = np.ones(len(self._y)) if self._w is None else self._w
+        llnull = self.fit_stats["loglik_null"]
+        rows = np.arange(len(self._y))
+
+        def pseudo_rsq(frame: pl.DataFrame) -> float:
+            P = self._probs(frame)
+            ll = float(np.sum(w * np.log(np.clip(P[rows, self._y], 1e-300, None))))
+            return 1 - ll / llnull
+
+        base = self.data.select(self.evar)
+        baseline = pseudo_rsq(base)
+        importance = {}
+        for v in self.evar:
+            total = 0.0
+            for i in range(rep):
+                total += baseline - pseudo_rsq(
+                    base.with_columns(pl.col(v).shuffle(seed=i).alias(v))
+                )
+            importance[v] = total / rep
+        imp = pl.DataFrame(
+            {"variable": list(importance), "importance": list(importance.values())}
+        ).sort("importance")
+        p = (
+            ggplot(imp, aes(x="variable", y="importance"))
+            + geom_bar(stat="identity", fill=FILL)
+            + coord_flip()
+            + scale_x_discrete(limits=imp["variable"].to_list())
+            + labs(x="", y="Importance (pseudo R-squared decrease)")
+            + ggtitle("Permutation Importance")
+            + theme_pyrsm()
+            + theme(figure_size=(6, max(5, imp.height * 0.4)))
+        )
+        return imp.sort("importance", descending=True), p

@@ -315,3 +315,46 @@ def test_predict_dec_rounds_every_numeric_column():
     pred = m.predict(cmd={"price.heinz28": [3.4, 5.2]}, dec=3)
     assert pred["price.heinz32"].to_list() == [3.143, 3.143]
     assert pred["heinz32"].to_list() == [0.393, 0.728]
+
+
+def _ketchup_mnl():
+    return rsm.model.mnl(
+        {"ketchup": load("ketchup")}, rvar="choice", lev="heinz28",
+        evar=["price.heinz28", "price.heinz32", "disp.heinz28"],
+    )
+
+
+def test_pdp_is_the_average_prediction_with_the_column_set():
+    m = _ketchup_mnl()
+    frame = m._effect_frame("pdp", {"disp.heinz28": ["no", "yes"]}, n_sample=0)
+    for i, value in enumerate(["no", "yes"]):
+        avg = m.predict(m.data, data_cmd={"disp.heinz28": value}).select(m.levels).mean()
+        np.testing.assert_allclose(frame.select(m.levels).row(i), avg.row(0), atol=1e-12)
+
+
+def test_prediction_plot_holds_the_others_at_mean_or_mode():
+    m = _ketchup_mnl()
+    frame = m._effect_frame("pred", {"price.heinz28": [3.4, 5.2]}, n_sample=0)
+    direct = m.predict(cmd={"price.heinz28": [3.4, 5.2]})
+    np.testing.assert_allclose(frame["heinz32"], direct["heinz32"])
+
+
+def test_permutation_importance_ranks_the_variables():
+    m = _ketchup_mnl()
+    plot, imp = m.plot("pip", ret=True)
+    assert plot is not None
+    assert imp["variable"].to_list()[0] == "price.heinz32"
+    assert (imp["importance"] > 0).all()
+    # shuffling is seeded: the same table every time
+    assert imp.equals(m.plot("pip", ret=True)[1])
+
+
+def test_effect_plots_take_variables_and_interactions():
+    import matplotlib
+
+    matplotlib.use("Agg")
+    m = _ketchup_mnl()
+    for mode in ("pred", "pdp"):
+        assert m.plot(mode, incl=["disp.heinz28"]) is not None
+        assert m.plot(mode, incl=[], incl_int=["price.heinz28:disp.heinz28"]) is not None
+        assert m.plot(mode, incl=[], incl_int=[]) is None
