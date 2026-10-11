@@ -1016,8 +1016,10 @@ def predict_ci(fitted, df, conf=0.95, alpha=None):
     low, high = [(1.0 - conf) / 2.0, (1.0 - (1.0 - conf) / 2.0)]
     Xb = np.dot(exog, fitted.params)
     se = np.sqrt((exog.dot(fitted.cov_params()) * exog).sum(-1))
-    if isinstance(fitted, sm.regression.linear_model.RegressionResultsWrapper):
-        # R's predict.lm: t distribution with the residual df
+    is_glm = isinstance(fitted, sm.genmod.generalized_linear_model.GLMResultsWrapper)
+    if not is_glm and isinstance(fitted, sm.regression.linear_model.RegressionResultsWrapper):
+        # R's predict.lm: t distribution with the residual df (a GLM's
+        # wrapper subclasses the OLS one, so check it first)
         me = stats.t.ppf(high, fitted.df_resid) * se
     else:
         me = stats.norm.ppf(high) * se
