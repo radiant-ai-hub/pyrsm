@@ -878,7 +878,8 @@ class regress:
         r_label = _model_utils().r_label
         print(f"\nModel 1: {r_label(formula)}")
         print(f"Model 2: {r_label(self.formula)}")
-        print(f"R-squared, Model 1 vs 2: {r2_sub:.3f} vs {full.rsquared:.3f}")
+        # + 0.0: an intercept-only model's R-squared rounds to 0.000, not -0.000
+        print(f"R-squared, Model 1 vs 2: {round(r2_sub, 3) + 0.0:.3f} vs {full.rsquared:.3f}")
         print(
             f"F-statistic: {round(fvalue, dec)} df ({df_num:.0f}, {full.df_resid:.0f}), p.value {pvalue}"
         )
@@ -948,7 +949,7 @@ class regress:
         ) / (self.fitted.nobs - self.fitted.df_model - 1)
 
         pvalue = ifelse(out.pvalue < 0.001, "< .001", round(out.pvalue, dec))
-        print(f"R-squared, Model 1 vs 2: {r2_sub:.3f} vs {self.fitted.rsquared:.3f}")
+        print(f"R-squared, Model 1 vs 2: {round(r2_sub, 3) + 0.0:.3f} vs {self.fitted.rsquared:.3f}")
         print(
             f"F-statistic: {round(out.fvalue, dec)} df ({out.df_num:.0f}, {out.df_denom:.0f}), p.value {pvalue}"
         )

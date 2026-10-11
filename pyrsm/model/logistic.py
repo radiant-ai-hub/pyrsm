@@ -905,7 +905,7 @@ class logistic:
         pr2_full = 1 - self.fitted.llf / self.fitted.llnull
         pr2_sub = 1 - sub_fitted.llf / sub_fitted.llnull
 
-        print(f"Pseudo R-squared, Model 1 vs 2: {pr2_sub:.3f} vs {pr2_full:.3f}")
+        print(f"Pseudo R-squared, Model 1 vs 2: {round(pr2_sub, 3) + 0.0:.3f} vs {pr2_full:.3f}")
         pvalue = ifelse(pvalue < 0.001, "< .001", round(pvalue, dec))
         print(f"Chi-squared: {round(lrtest, dec)} df ({df:.0f}), p.value {pvalue}")
 
