@@ -337,3 +337,23 @@ def test_logistic_squared_term_and_chisq_test(capsys):
     assert "I(x^2)" in clf.coef["index"].to_list()
     clf.chisq_test(test=["I(x^2)"])
     assert "Model 2: y ~ x + I(x^2)" in capsys.readouterr().out
+
+
+def test_step_steps_are_the_trace_as_data(diamonds):
+    """``step_steps`` holds what ``step_trace`` prints, as numbers (Radiant's tables)."""
+    reg = regress({"diamonds": diamonds}, rvar="price", evar=["carat", "clarity", "cut", "x"], stepwise="backward")
+    steps = reg.step_steps
+    assert len(steps) == reg.step_trace.count("AIC=")
+    assert [s["label"] for s in steps] == ["Start"] + ["Step"] * (len(steps) - 1)
+    first = steps[0]
+    assert first["columns"] == ["Df", "Sum of Sq", "RSS", "AIC"]
+    assert first["rows"][0].keys() == {"term", "Df", "Sum of Sq", "RSS", "AIC"}
+    # rows by AIC, the <none> row carries no Df / Sum of Sq
+    aics = [r["AIC"] for r in first["rows"]]
+    assert aics == sorted(aics)
+    none = next(r for r in first["rows"] if r["term"] == "<none>")
+    assert none["Df"] is None and none["AIC"] == pytest.approx(first["aic"])
+    assert f"AIC={first['aic']:.2f}" in reg.step_trace.splitlines()[0]
+    # every step after the first starts from the change chosen before it
+    for prev, step in zip(steps, steps[1:]):
+        assert step["aic"] == pytest.approx(prev["rows"][0]["AIC"])

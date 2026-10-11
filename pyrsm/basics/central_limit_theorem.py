@@ -28,6 +28,12 @@ DISTRIBUTIONS = {
 }
 
 
+def _fmt(x) -> str:
+    """3 decimals at most, no trailing zeros: 0.200 -> 0.2, 100.0 -> 100."""
+    v = float(x)
+    return str(int(v)) if v == int(v) else f"{v:.3f}".rstrip("0").rstrip(".")
+
+
 class clt:
     """
     Simulate the Central Limit Theorem (radiant.basics ``clt``).
@@ -264,13 +270,17 @@ class clt:
         bins = max(1, min(int(bins), 50))
         values = self.stat(stat)
         label = "sums" if stat == "sum" else "means"
+        # Subtitles carry the settings: the population's parameters above the
+        # two samples, the sample size and number of samples above the sums.
+        params = ", ".join(f"{k.lower()} = {_fmt(v)}" for k, v in self.params().items())
+        setup = f"sample size n = {self.n:,}, # of samples m = {self.m:,}"
         plots = [
-            self._hist(self.sim[:, 0], bins, "Histogram of sample #1", f"CLT: {self.dist}"),
+            self._hist(self.sim[:, 0], bins, "Histogram of sample #1", f"CLT: {self.dist}") + labs(subtitle=params),
             self._hist(
                 self.sim[:, -1], bins, f"Histogram of sample #{self.m}", f"CLT: {self.dist}"
-            ),
-            self._hist(values, bins, f"Histogram of sample {label}", f"Sample {label}"),
-            self._density(values, f"Density of sample {label}", f"Sample {label}"),
+            ) + labs(subtitle=params),
+            self._hist(values, bins, f"Histogram of sample {label}", f"Sample {label}") + labs(subtitle=setup),
+            self._density(values, f"Density of sample {label}", f"Sample {label}") + labs(subtitle=setup),
         ]
         return compose_plots(plots, ncol=2, width_per_col=4.5, height_per_row=3.5)
 

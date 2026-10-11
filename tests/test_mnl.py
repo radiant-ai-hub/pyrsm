@@ -213,6 +213,9 @@ def test_stepwise_selects_r_terms():
     m = fit_case("ketchup_stepwise")
     r_terms = {re.sub(r"\|.*", "", lab) for lab in ref["coeff"]["label"]} - {"(Intercept)"}
     assert set(m.terms) == r_terms
+    # the trace as data, for Radiant's tables
+    assert len(m.step_steps) == m.step_trace.count("AIC=")
+    assert m.step_steps[0]["columns"] == ["Df", "AIC"]
     assert set(m.removed) == set(ref["args"]["evar"]) - r_terms
     out = printed(m.summary)
     assert out.startswith("Start:  AIC=")
@@ -363,13 +366,13 @@ def test_effect_plots_take_variables_and_interactions():
 def test_ice_lines_average_to_the_partial_dependence():
     m = _ketchup_mnl()
     grid = [3.4, 4.3, 5.2]
-    ice = m._ice_frame("price.heinz28", grid, n_sample=0, ice_nobs=-1)
+    ice = m._ice_frame({"price.heinz28": grid}, n_sample=0, ice_nobs=-1)
     pdp = m._effect_frame("pdp", {"price.heinz28": grid}, n_sample=0)
     assert ice.height == len(grid) * m.data.height
     means = ice.group_by("price.heinz28").agg([pl.col(lv).mean() for lv in m.levels]).sort("price.heinz28")
     np.testing.assert_allclose(means.select(m.levels).to_numpy(), pdp.select(m.levels).to_numpy(), atol=1e-12)
     # ice_nobs rows of the sample, the same rows at every grid value
-    few = m._ice_frame("price.heinz28", grid, n_sample=0, ice_nobs=25)
+    few = m._ice_frame({"price.heinz28": grid}, n_sample=0, ice_nobs=25)
     assert few.height == 3 * 25 and few["__obs"].n_unique() == 25
 
 
@@ -386,3 +389,16 @@ def test_pdp_plot_draws_ice_lines_behind_the_averages():
     with_ice.draw()  # renders, interaction panels without ICE
     # pred plots never get ICE lines
     assert len(m.plot("pred", incl=["price.heinz28"], ice=True).layers) == len(m.plot("pred", incl=["price.heinz28"]).layers)
+
+
+def test_ice_lines_in_interaction_panels():
+    """ICE in an interaction plot: lines in every slice panel, one per row and level."""
+    m = rsm.model.mnl({"ketchup": load("ketchup")}, rvar="choice", lev="heinz28", evar=PRICES)
+    p = m.plot("pdp", incl=[], incl_int=["price.heinz28:price.hunts32"], ice=True, ice_nobs=6, nnv=5)
+    ice = [layer for layer in p.layers if "ice_group" in str(layer.mapping)]
+    assert len(ice) == 1
+    data = ice[0]._data
+    # every slice panel of the interaction has ICE lines
+    assert set(data["facet"]) == set(p.data["facet"])
+    # within each panel, one line per sampled row and level
+    assert len(data.groupby(["facet", "ice_group"], observed=True)) == 6 * len(m.levels) * data["facet"].nunique()

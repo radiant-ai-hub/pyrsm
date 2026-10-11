@@ -909,6 +909,44 @@ def profile_ci(fitted, alpha: float = 0.05) -> pd.DataFrame:
     return pd.DataFrame(out, index=fitted.params.index)
 
 
+def ols_interval(fitted, df, conf=0.95, interval="confidence"):
+    """
+    Predictions of a linear regression with a confidence or prediction interval
+
+    As R's ``predict.lm(..., interval=)``: the t distribution with the
+    model's residual degrees of freedom.
+
+    Parameters
+    ----------
+    fitted : OLS model fitted using the statsmodels formula interface
+    df : Pandas dataframe with input data for prediction
+    conf : float
+        Confidence level (0-1). Default is 0.95
+    interval : str
+        "confidence": an interval around the mean of the response at these
+        values of the explanatory variables. "prediction": an interval around a
+        single new value of the response, which adds the residual variance
+
+    Returns
+    -------
+    Pandas DataFrame with the prediction and the lower and upper bounds
+    """
+    if conf < 0 or conf > 1:
+        raise ValueError(
+            "Confidence level (conf) must be a numeric value between 0 and 1"
+        )
+    low, high = (1.0 - conf) / 2.0, 1.0 - (1.0 - conf) / 2.0
+    frame = fitted.get_prediction(df).summary_frame(alpha=1 - conf)
+    side = "obs" if interval == "prediction" else "mean"
+    return pd.DataFrame(
+        {
+            "prediction": frame["mean"].to_numpy(),
+            f"{low * 100:.2f}%": frame[f"{side}_ci_lower"].to_numpy(),
+            f"{high * 100:.2f}%": frame[f"{side}_ci_upper"].to_numpy(),
+        }
+    )
+
+
 def predict_ci(fitted, df, conf=0.95, alpha=None):
     """
     Compute predicted probabilities with confidence intervals based on a
@@ -1924,6 +1962,25 @@ def _step_block(label: str, aic: float, formula: str, columns: list[str], table:
     return f"{header}\n{_r_formula_lines(formula)}\n\n" + "\n".join(out)
 
 
+def _step_record(label: str, aic: float, formula: str, columns: list[str], table: list) -> dict:
+    """One step of the stepwise trace as data: what ``_step_block`` prints.
+
+    ``rows`` are ``{"term": "- carat", <column>: value, ..., "AIC": value}``
+    with raw numbers (None where R prints nothing), ordered by AIC.
+    """
+    names = [*columns, "AIC"]
+    return {
+        "label": label,
+        "aic": float(aic),
+        "formula": formula,
+        "columns": names,
+        "rows": [
+            {"term": row[0], **{n: (None if v is None else float(v)) for n, v in zip(names, row[1:])}}
+            for row in table
+        ],
+    }
+
+
 def step_select(
     *,
     full_fit,
@@ -1963,7 +2020,8 @@ def step_select(
 
     Returns
     -------
-    dict with formula, fit, current terms, removed, added and the trace
+    dict with formula, fit, current terms, removed, added, the trace (text)
+    and the steps (the trace as data, see ``_step_record``)
     """
     design = full_fit.model.data.design_info
     has_intercept = any(len(t.factors) == 0 for t in design.terms)
@@ -2005,6 +2063,7 @@ def step_select(
     removed: list[str] = []
     added: list[str] = []
     trace: list[str] = []
+    steps: list[dict] = []
     label = "Start"
     while True:
         table = [("<none>", *stats(fit, None), fit_aic, current)]
@@ -2035,15 +2094,9 @@ def step_select(
         # R drops rows with zero df (adding an aliased term changes nothing)
         table = [table[0]] + [r for r in table[1:] if r[1] is None or round(r[1]) != 0]
         table.sort(key=lambda row: row[-2])
-        trace.append(
-            _step_block(
-                label,
-                fit_aic,
-                r_label(formula_for(current)),
-                columns,
-                [(r_label(r[0]), *r[1:-1]) for r in table],
-            )
-        )
+        rows = [(r_label(r[0]), *r[1:-1]) for r in table]
+        trace.append(_step_block(label, fit_aic, r_label(formula_for(current)), columns, rows))
+        steps.append(_step_record(label, fit_aic, r_label(formula_for(current)), columns, rows))
         label = "Step"
         best = table[0]
         if best[0] == "<none>" or best[-2] >= fit_aic - 1e-7:
@@ -2061,4 +2114,5 @@ def step_select(
         "removed": removed,
         "added": added,
         "trace": "\n\n".join(trace),
+        "steps": steps,
     }
