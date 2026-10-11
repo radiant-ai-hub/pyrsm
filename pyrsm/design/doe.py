@@ -182,7 +182,7 @@ def _find_optimal_design(Xf, ff_coded, levels_list, n_trials, n_repeats=50, seed
     best_selected = None
 
     for rep in range(n_repeats):
-        rep_seed = (seed if seed is not None else 172110) + rep
+        rep_seed = seed + rep
         rng = np.random.default_rng(rep_seed)
 
         # Random starting design
@@ -258,7 +258,8 @@ class doe:
     trials : int or None
         Number of trials. If None, search from minimum to full factorial.
     seed : int or None
-        Random seed for reproducibility
+        Random seed for reproducibility. None draws a fresh starting point,
+        so repeated calls can return different, equally good designs.
 
     Attributes
     ----------
@@ -303,6 +304,11 @@ class doe:
         self.df = df_dict
         self.df_names = df_names
         self.seed = seed
+        # Without a seed every search starts somewhere new (as R's set.seed is
+        # skipped), so running again can show an alternative design.
+        search_seed = (
+            seed if seed is not None else int(np.random.default_rng().integers(0, 2**31))
+        )
 
         # Parse interactions
         int_pairs = _parse_interactions(interactions, df_names)
@@ -346,7 +352,7 @@ class doe:
                 balanced = True
             else:
                 design_rows, Dea, balanced = _find_optimal_design(
-                    Xf, ff_coded, levels_list, n_trials, n_repeats=n_repeats, seed=seed
+                    Xf, ff_coded, levels_list, n_trials, n_repeats=n_repeats, seed=search_seed
                 )
 
                 if design_rows is None:

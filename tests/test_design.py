@@ -486,6 +486,20 @@ class TestDoe:
         out = capsys.readouterr().out
         assert "Coefficients" in out and "price:sight:food" in out
 
+    def test_no_seed_explores_alternative_designs(self):
+        # 12 of 18 trials: many equally good designs; without a seed repeated
+        # runs should not all pick the same trials (a fixed fallback seed did).
+        picks = {
+            tuple(doe(self._theater, trials=12).part["trial"].to_list())
+            for _ in range(8)
+        }
+        assert len(picks) > 1
+        same = {
+            tuple(doe(self._theater, trials=12, seed=1234).part["trial"].to_list())
+            for _ in range(3)
+        }
+        assert len(same) == 1
+
     def test_too_few_factors(self):
         d = doe({"price": ["$10", "$13"]})
         assert d.error is not None
