@@ -179,3 +179,29 @@ def test_boolean_response(dvd):
     ref = evalbin(dvd, "pred_logit", "buy", lev="yes", margin=6)
     assert ev.lev == "true"
     np.testing.assert_allclose(ev.dataset["cum_gains"].to_numpy(), ref.dataset["cum_gains"].to_numpy())
+
+
+def test_a_test_filter_picks_the_test_rows(diamonds):
+    """Training rows from the filter, test rows from their own filter."""
+    ev = evalreg(diamonds, pred=["pred_lm"], rvar="price", train="Both",
+                 data_filter="training == 1", test_filter="training == 0 and price > 2000")
+    assert ev.dat_list["Training"].height == (diamonds["training"] == 1).sum()
+    assert ev.dat_list["Test"].height == ((diamonds["training"] == 0) & (diamonds["price"] > 2000)).sum()
+    assert "Test filter : training == 0 and price > 2000" in _out(ev)
+
+
+def test_test_rows_need_only_a_test_filter(diamonds):
+    ev = evalreg(diamonds, pred=["pred_lm"], rvar="price", train="Test", test_filter="training == 0")
+    assert ev.dat_list["Test"].height == (diamonds["training"] == 0).sum()
+    with pytest.raises(ValueError, match="filter or a slice is required"):
+        evalreg(diamonds, pred=["pred_lm"], rvar="price", train="Training", test_filter="training == 0")
+
+
+def _out(ev) -> str:
+    import contextlib
+    import io
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        ev.summary()
+    return buf.getvalue()
