@@ -41,7 +41,7 @@ def _check_name(name: Any) -> str:
             'rsm.register(sales_clean, "sales_clean").'
         )
     name = name.strip()
-    if not name.isidentifier() or keyword.iskeyword(name):
+    if not name.isidentifier() or keyword.iskeyword(name) or not name.isascii():
         raise ValueError(
             f"{name!r} cannot be a dataset name: use letters, digits and "
             "underscores, starting with a letter (e.g. sales_clean)."
