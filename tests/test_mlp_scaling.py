@@ -678,3 +678,28 @@ class TestMLPFeatureNamePreservation:
 
         # After one-hot: x1, x2, category_B, category_C = 4 columns
         assert nn.n_features[1] == 4
+
+
+def test_test_rows_are_scaled_with_the_training_rows_statistics():
+    """Fit on a training filter, predict the other rows: their predictions use the
+    training means and standard deviations, so a test row's prediction does not
+    depend on which other rows are predicted with it (radiant.model's rule)."""
+    from pathlib import Path
+
+    import numpy as np
+
+    data = pl.read_parquet(Path(__file__).resolve().parents[1] / "examples/data/model/diamonds.parquet")
+    data = data.with_columns((pl.int_range(pl.len()) % 3 != 0).alias("training"))
+    nn = mlp(
+        {"d": data}, rvar="price", evar=["carat", "clarity"], mod_type="regression",
+        hidden_layer_sizes=(2,), data_filter="training == True",
+    )  # fmt: skip
+    train = data.filter(pl.col("training"))
+    assert nn.means["carat"] == pytest.approx(train["carat"].mean())
+    assert nn.stds["carat"] == pytest.approx(train["carat"].std(ddof=0))
+
+    test = data.filter(~pl.col("training"))
+    alone = nn.predict(data=test)["prediction"].to_numpy()
+    with_all = nn.predict(data=data).filter(~data["training"])["prediction"].to_numpy()
+    first_ten = nn.predict(data=test.head(10))["prediction"].to_numpy()
+    assert np.allclose(alone, with_all) and np.allclose(alone[:10], first_ten)
