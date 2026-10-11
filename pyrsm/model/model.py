@@ -978,7 +978,11 @@ def predict_ci(fitted, df, conf=0.95, alpha=None):
     low, high = [(1.0 - conf) / 2.0, (1.0 - (1.0 - conf) / 2.0)]
     Xb = np.dot(exog, fitted.params)
     se = np.sqrt((exog.dot(fitted.cov_params()) * exog).sum(-1))
-    me = stats.norm.ppf(high) * se
+    if isinstance(fitted, sm.regression.linear_model.RegressionResultsWrapper):
+        # R's predict.lm: t distribution with the residual df
+        me = stats.t.ppf(high, fitted.df_resid) * se
+    else:
+        me = stats.norm.ppf(high) * se
 
     if isinstance(fitted, sm.genmod.generalized_linear_model.GLMResultsWrapper):
         return pd.DataFrame(
@@ -1083,6 +1087,8 @@ def coef_plot(
     """
     df = fitted.conf_int(alpha=alpha).reset_index().iloc[::-1]
     df["coefficient"] = fitted.params[df["index"]].dropna().values
+    # columns dropped for perfect multicollinearity have no estimate (R: NA)
+    df = df[~df["index"].isin(getattr(fitted, "aliased", []))]
 
     if not intercept:
         df = df.query('index != "Intercept"')
@@ -1146,6 +1152,7 @@ def coef_ci(fitted, alpha: float = 0.05, intercept: bool = True, dec: int = 3):
     """
 
     df = pd.DataFrame({"coefficient": fitted.params})
+    aliased = list(getattr(fitted, "aliased", []))
 
     low, high = [round(100 * alpha / 2, 4), round(100 * (1 - (alpha / 2)), 4)]
     df[[f"{low:g}%", f"{high:g}%"]] = fitted.conf_int(alpha=alpha)
@@ -1162,7 +1169,7 @@ def coef_ci(fitted, alpha: float = 0.05, intercept: bool = True, dec: int = 3):
     if intercept is False:
         df = df[df.index != "Intercept"]
 
-    return df
+    return df[~df.index.isin(aliased)]
 
 
 def evalreg(df, rvar: str, pred: str, dec: int = 3):
@@ -1887,13 +1894,17 @@ def _r_formula_lines(formula: str, width: int = 60) -> str:
     return "\n".join(lines)
 
 
-def _step_block(label: str, aic: float, formula: str, columns: list[str], table: list) -> str:
+def _step_block(label: str, aic: float, formula: str, columns: list[str], table: list | None) -> str:
     """One step of R's ``step()`` trace: header, formula and the AIC table.
 
     ``table`` rows are ``(label, *values, aic)`` with values for ``columns``;
     a ``Df`` column prints as integers, the rest as R's ``print.anova``.
+    ``table=None`` is a step R takes without a table (dropping a term with
+    zero df, i.e. an aliased one).
     """
     header = f"{label}:  AIC={float(f'{round(aic, 2):.7g}'):.7g}"
+    if table is None:
+        return f"{header}\n{_r_formula_lines(formula)}\n"
     labels = [row[0] for row in table]
     cols = []
     for i, name in enumerate([*columns, "AIC"]):
@@ -2003,12 +2014,26 @@ def step_select(
                     keep = [x for x in current if x != t]
                     f = fit_formula(formula_for(keep), pdf)
                     table.append((f"- {t}", *stats(f, fit), aic(f), keep))
+            # R's step(): a term whose removal changes no df (its columns
+            # were dropped as aliased) goes first, the last such term in
+            # model order, without printing a table.
+            zero = [r for r in table[1:] if r[1] is not None and round(r[1]) == 0]
+            if zero:
+                trace.append(_step_block(label, fit_aic, r_label(formula_for(current)), columns, None))
+                label = "Step"
+                removed.append(zero[-1][0][2:])
+                current = zero[-1][-1]
+                fit = fit_formula(formula_for(current), pdf)
+                fit_aic = aic(fit)
+                continue
         if direction in ("forward", "both"):
             for t in upper:
                 if t not in current and addable(t, current):
                     keep = current + [t]
                     f = fit_formula(formula_for(keep), pdf)
                     table.append((f"+ {t}", *stats(f, fit), aic(f), keep))
+        # R drops rows with zero df (adding an aliased term changes nothing)
+        table = [table[0]] + [r for r in table[1:] if r[1] is None or round(r[1]) != 0]
         table.sort(key=lambda row: row[-2])
         trace.append(
             _step_block(
