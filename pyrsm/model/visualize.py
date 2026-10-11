@@ -1094,6 +1094,10 @@ def pdp_sk(
         pred_dict[v] = result
         ice_dict[v] = ice_data
         min_max = _calc_ylim(result["prediction"].to_list(), min_max, fix)
+        if ice_data:
+            # ICE lines spread wider than their average: keep them on the plot.
+            ice_values = [float(p) for preds in ice_data for p in preds if p is not None]
+            min_max = _calc_ylim(ice_values, min_max, fix)
 
     for v in incl_int:
         vl = v.split(":")
@@ -1346,6 +1350,10 @@ def pdp_sm(
         pred_dict[v] = result
         ice_dict[v] = ice_data
         min_max = _calc_ylim(result["prediction"].to_list(), min_max, fix)
+        if ice_data:
+            # ICE lines spread wider than their average: keep them on the plot.
+            ice_values = [float(p) for preds in ice_data for p in preds if p is not None]
+            min_max = _calc_ylim(ice_values, min_max, fix)
 
     for v in incl_int:
         vl = v.split(":")
