@@ -243,7 +243,14 @@ def _model_data(model: Any) -> _Data:
             scale = float(model.stds[model.rvar])
     else:
         y = model.data.get_column(model.rvar).to_numpy()
-    return _Data(X=X, y=y, estimator=model.fitted, mod_type=model.mod_type, y_scale=scale)
+    # Each fit runs on one thread: the parallelism is across fits (``n_jobs``), and
+    # xgboost would otherwise use every core of the machine for every fit. The
+    # out-of-bag score is not needed for cross-validation.
+    est = clone(model.fitted)
+    own = est.get_params()
+    fixed = {k: v for k, v in (("n_jobs", 1), ("oob_score", False)) if k in own}
+    est.set_params(**fixed)
+    return _Data(X=X, y=y, estimator=est, mod_type=model.mod_type, y_scale=scale)
 
 
 def _score(metric: str, est: Any, X: pd.DataFrame, y: np.ndarray, y_scale: float) -> float:
@@ -419,6 +426,7 @@ def tune(
     metric: str | None = None,
     seed: int = 1234,
     n_jobs: int = 4,
+    backend: str | None = None,
     max_fits: int = 300,
     progress: Callable[[int, int], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
@@ -442,6 +450,9 @@ def tune(
         (regression); the first is the default.
     max_fits : the budget: candidates x folds may not exceed it (halving
         counts the fits of all rounds).
+    n_jobs, backend : fits run in parallel on ``n_jobs`` workers; ``backend``
+        is a joblib backend ("threading" inside a daemon process, such as a
+        Celery worker, which may not start processes of its own).
     progress, should_stop : called as fits finish (``progress(done, total)``)
         and checked between fits; stopping keeps the candidates scored so far.
     """
@@ -486,7 +497,7 @@ def tune(
         import warnings
 
         warnings.filterwarnings("ignore", message=".*tasks have been successfully executed.*")
-        par = Parallel(n_jobs=n_jobs, return_as="generator_unordered")
+        par = Parallel(n_jobs=n_jobs, backend=backend, return_as="generator_unordered")
         gen = par(
             delayed(lambda ci, fi: (ci, _fit_score(data.estimator, cands[ci], metric, X, y, *splits[fi], data.y_scale)))(ci, fi)
             for ci, fi in tasks

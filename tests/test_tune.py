@@ -113,3 +113,14 @@ def test_models_take_the_tuned_settings(rf, titanic):
     res = tune(rf, {"min_samples_leaf": [5, 10]}, method="grid", folds=2, n_jobs=1)
     refit = rsm.model.rforest({"titanic": titanic}, rvar="survived", lev="Yes", evar=["pclass", "sex", "age"], cv=res)
     assert refit.fitted.get_params()["min_samples_leaf"] == res.best_params["min_samples_leaf"]
+
+
+def test_each_fit_uses_one_thread_and_threads_backend(titanic):
+    from pyrsm.model.tune import _model_data
+
+    xgb = rsm.model.xgboost(
+        {"titanic": titanic}, rvar="survived", lev="Yes", evar=["pclass", "sex", "age"], n_estimators=20
+    )
+    assert _model_data(xgb).estimator.get_params()["n_jobs"] == 1
+    res = tune(xgb, {"max_depth": [2, 3]}, method="grid", folds=3, backend="threading")
+    assert len(res.results) == 2
