@@ -14,6 +14,7 @@ Statistical tests and analyses using the `pyrsm.basics` module.
 | [basics-goodness.ipynb](basics-goodness.ipynb) | Goodness of fit test |
 | [basics-correlation.ipynb](basics-correlation.ipynb) | Correlation analysis |
 | [basics-probability-calculator.ipynb](basics-probability-calculator.ipynb) | Probability distributions |
+| [basics-clt.ipynb](basics-clt.ipynb) | Central Limit Theorem: sample sums and means from skewed, binomial and uniform populations |
 | [basics-probability-calculator-examples.ipynb](basics-probability-calculator-examples.ipynb) | Four worked probability-calculator problems (ice cream, Brita filters, gas sales, newspapers), each in Radiant and pyrsm |
 
 ## Usage
