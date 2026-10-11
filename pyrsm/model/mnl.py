@@ -45,6 +45,10 @@ from pyrsm.utils import cat_levels, check_dataframe
 
 __all__ = ["mnl"]
 
+#: Where a categorical variable's levels sit on the shared x-axis of the
+#: prediction and partial dependence plots (far from any data value).
+_CAT_OFFSET = 1e9
+
 _POWER = re.compile(r"^I\(\s*([^\s^*()]+)\s*(?:\^|\*\*)\s*(\d+)\s*\)$")
 
 
@@ -995,13 +999,11 @@ class mnl:
     def _effect_plots(self, mode, incl, excl, incl_int, nnv, minq, maxq, fix, hline, n_sample):
         from mizani.breaks import breaks_extended
         from plotnine import (
-            aes, element_blank, element_text, facet_wrap, geom_hline, geom_line,
-            geom_point, ggplot, ggtitle, labs, scale_x_continuous, scale_y_continuous,
-            theme,
+            aes, facet_wrap, geom_hline, geom_line, geom_point, ggplot, labs,
+            scale_x_continuous, theme,
         )
 
         from pyrsm.plot_style import theme_pyrsm
-        from pyrsm.plot_utils import compose_plots
 
         variables = list(self.evar) if incl is None else _as_list(incl)
         variables = [v for v in variables if v in self.evar and v not in _as_list(excl)]
@@ -1017,44 +1019,77 @@ class mnl:
             vary = {a: self._grid(a, nnv, minq, maxq), b: self._slices(b)}
             frames.append((f"{a} by {b}", a, b, self._effect_frame(mode, vary, n_sample)))
 
-        lo = min(float(f.select(self.levels).min_horizontal().min()) for *_, f in frames)
-        hi = max(float(f.select(self.levels).max_horizontal().max()) for *_, f in frames)
-        shares = self._shares() if hline else None
-        if shares is not None:
-            lo, hi = min(lo, shares["share"].min()), max(hi, shares["share"].max())
         ylab = "Partial dependence" if mode == "pdp" else "Predicted probability"
 
-        plot_list = []
-        for title, x, panel, frame in frames:
+        # One plot with a panel per variable (an interaction: a panel per slice
+        # of its second variable), so the levels share a single legend and
+        # every panel keeps its full height. Facets cannot mix numeric and
+        # categorical x-axes, so a categorical variable's levels sit at
+        # reserved positions far from any data and are labelled back.
+        cat_names: dict[int, str] = {}
+        parts, panels = [], []
+        for j, (title, x, panel, frame) in enumerate(frames):
             long = self._long(frame, x, panel)
-            p = ggplot(long, aes(x=x, y="prediction", color="level", group="level")) + geom_line(size=1)
             if x in self.xlevels:
-                p = p + geom_point(size=2.5)
-            if shares is not None:
-                p = p + geom_hline(
-                    shares, aes(yintercept="share", color="level"), linetype="dashed", alpha=0.6
-                )
-            if panel is not None:
-                p = p + facet_wrap("~panel", nrow=1)
-                if x not in self.xlevels:
-                    # three panels share the cell's width: fewer x-axis labels
-                    p = p + scale_x_continuous(breaks=breaks_extended(n=3))
-            if fix:
-                p = p + scale_y_continuous(limits=(max(0.0, lo - 0.02), min(1.0, hi + 0.02)))
-            p = (
-                p
-                + labs(x="", y=ylab, color=self.rvar)
-                + ggtitle(title)
-                + theme_pyrsm()
-                + theme(
-                    legend_position="bottom",
-                    legend_title=element_blank(),
-                    legend_text=element_text(size=8),
-                    legend_box_margin=0,
-                )
+                offset = _CAT_OFFSET * (j + 1)
+                cats = list(long[x].cat.categories)
+                pos = {c: offset + i for i, c in enumerate(cats)}
+                cat_names.update({offset + i: c for i, c in enumerate(cats)})
+                long["x"] = [pos[str(v)] for v in long[x].astype(str)]
+                long["categorical"] = True
+            else:
+                long["x"] = long[x].astype(float)
+                long["categorical"] = False
+            if panel is None:
+                long["facet"] = title
+                panels.append(title)
+            else:
+                long["facet"] = [f"{x} | {panel} = {v}" for v in long["panel"].astype(str)]
+                panels += [f"{x} | {panel} = {v}" for v in long["panel"].cat.categories]
+            parts.append(long[["facet", "x", "level", "prediction", "categorical"]])
+        data = pd.concat(parts, ignore_index=True)
+        data["facet"] = pd.Categorical(data["facet"], categories=list(dict.fromkeys(panels)))
+        data["level"] = pd.Categorical(data["level"].astype(str), categories=self.levels)
+
+        def breaks(limits):
+            lo, hi = limits
+            if lo >= _CAT_OFFSET - 1:
+                return [v for v in sorted(cat_names) if lo <= v <= hi]
+            # the limits include the axis padding (expand): label only values
+            # inside the data range, so no label sits on a panel's edge
+            pad = 0.08 / 1.16 * (hi - lo)
+            return [b for b in breaks_extended(n=6)(limits) if lo + pad <= b <= hi - pad]
+
+        def labels(values):
+            return [
+                cat_names.get(int(round(v)), "") if v >= _CAT_OFFSET - 1 else f"{v:g}"
+                for v in values
+            ]
+
+        npanel = len(data["facet"].cat.categories)
+        ncol = 1 if npanel == 1 else 2
+        nrow = -(-npanel // ncol)
+        p = (
+            ggplot(data, aes(x="x", y="prediction", color="level", group="level"))
+            + geom_line(size=1)
+            + geom_point(data=data[data["categorical"]], size=2.5)
+            + facet_wrap("~facet", ncol=ncol, scales="free_x" if fix else "free")
+            + scale_x_continuous(breaks=breaks, labels=labels, expand=(0.08, 0))
+        )
+        if hline:
+            p = p + geom_hline(
+                self._shares(), aes(yintercept="share", color="level"), linetype="dashed",
+                alpha=0.8, size=0.6,
             )
-            plot_list.append(p)
-        return compose_plots(plot_list, ncol=2)
+        return (
+            p
+            + labs(x="", y=ylab, color=self.rvar)
+            + theme_pyrsm()
+            + theme(
+                legend_position="bottom",
+                figure_size=(8 if ncol == 2 else 5, 3 * nrow + 0.6),
+            )
+        )
 
     def _pip_plot(self, rep: int = 10):
         """Permutation importance: the drop in McFadden's pseudo R-squared when
