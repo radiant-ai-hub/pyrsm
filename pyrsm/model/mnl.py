@@ -734,7 +734,7 @@ class mnl:
         data_cmd : dict, optional
             Values that replace columns of ``data`` before predicting.
         dec : int, optional
-            Round the probabilities.
+            Round the probabilities and the numeric inputs.
 
         Returns
         -------
@@ -770,7 +770,9 @@ class mnl:
             [pl.Series(lv, P[:, i]) for i, lv in enumerate(self.levels)]
         )
         if dec is not None:
-            out = out.with_columns([pl.col(lv).round(dec) for lv in self.levels])
+            out = out.with_columns(
+                [pl.col(c).round(dec) for c in out.columns if out[c].dtype in (pl.Float64, pl.Float32)]
+            )
         return out
 
     def plot(

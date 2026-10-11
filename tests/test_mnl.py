@@ -308,3 +308,10 @@ def test_errors_are_clear():
         rsm.model.mnl(k, rvar="choice", evar=["choice"])
     with pytest.raises(ValueError, match="not in evar"):
         rsm.model.mnl(k, rvar="choice", evar=PRICES, ivar=["price.heinz28:disp.heinz28"])
+
+
+def test_predict_dec_rounds_every_numeric_column():
+    m = rsm.model.mnl({"k": load("ketchup")}, rvar="choice", lev="heinz28", evar=PRICES)
+    pred = m.predict(cmd={"price.heinz28": [3.4, 5.2]}, dec=3)
+    assert pred["price.heinz32"].to_list() == [3.143, 3.143]
+    assert pred["heinz32"].to_list() == [0.393, 0.728]
