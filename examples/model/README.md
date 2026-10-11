@@ -9,6 +9,8 @@ Regression and machine learning models using the `pyrsm.model` module.
 | [model-linear-regression.ipynb](model-linear-regression.ipynb) | OLS regression with statsmodels |
 | [model-logistic-regression.ipynb](model-logistic-regression.ipynb) | Logistic regression with statsmodels |
 | [model-mnl.ipynb](model-mnl.ipynb) | Multinomial logistic regression (MNL) for a response with several levels |
+| [model-crtree-classification.ipynb](model-crtree-classification.ipynb) | Classification tree: grow, prune, read from counts, prior and cost/margin |
+| [model-crtree-regression.ipynb](model-crtree-regression.ipynb) | Regression tree: grow, prune, SSE and R-squared by split, interactions |
 | [model-rforest-classification.ipynb](model-rforest-classification.ipynb) | Random forest classifier |
 | [model-rforest-regression.ipynb](model-rforest-regression.ipynb) | Random forest regressor |
 | [model-mlp-classification.ipynb](model-mlp-classification.ipynb) | Neural network classifier |
