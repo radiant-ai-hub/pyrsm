@@ -1785,6 +1785,12 @@ def cross_validation(
         cv = load_state(cv_file)["cv"]
     else:
         rvar = mlobj.rvar
+        # the data the model was fitted on: pandas for sklearn, and for mlp the
+        # standardized target it was trained on
+        X = mlobj.data_onehot
+        X = X.to_pandas() if hasattr(X, "to_pandas") else X
+        source = mlobj.data_std if hasattr(mlobj, "data_std") else mlobj.data
+        y = source.get_column(rvar).to_pandas() if hasattr(source, "get_column") else source[rvar]
         cv = GridSearchCV(
             mlobj.fitted,
             param_grid=param_grid,
@@ -1793,7 +1799,7 @@ def cross_validation(
             n_jobs=n_jobs,
             refit=refit,
             verbose=verbose,
-        ).fit(mlobj.data_onehot, mlobj.data[rvar])
+        ).fit(X, y)
         if not os.path.exists(directory):
             os.mkdir(directory)
         save_state({"cv": cv}, cv_file)

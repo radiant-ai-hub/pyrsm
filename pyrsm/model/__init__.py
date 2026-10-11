@@ -36,6 +36,8 @@ _LAZY_FUNCTIONS = {
     "auc": "perf",
     "profit_max": "perf",
     "cv_crtree": "crtree",
+    "tune": "tune",
+    "TuneResult": "tune",
     "plot_predictions": "visualize",
 }
 
