@@ -796,6 +796,8 @@ class mnl:
         n_sample: int = 2000,
         rep: int = 10,
         ret: bool = False,
+        ice: bool = False,
+        ice_nobs: int = 100,
         figsize=None,
     ):
         """
@@ -828,6 +830,13 @@ class mnl:
             Dashed lines at each level's share of the data.
         ret : bool
             ``"pip"`` only: return ``(plot, importance table)``.
+        ice : bool
+            ``"pdp"`` only: individual conditional expectation lines -- each
+            sampled row's probability of every level as the variable moves --
+            drawn faintly behind the averages (not for interaction panels).
+        ice_nobs : int
+            Rows drawn as ICE lines, from the partial dependence sample
+            (-1: all of them).
         """
         plots = _as_list(plots)
         if "dist" in plots:
@@ -844,9 +853,10 @@ class mnl:
             imp, p = self._pip_plot(rep)
             return (p, imp) if ret else p
         if "pred" in plots or "pdp" in plots:
+            mode = "pdp" if "pdp" in plots else "pred"
             return self._effect_plots(
-                "pdp" if "pdp" in plots else "pred",
-                incl, excl, incl_int, nnv, minq, maxq, fix, hline, n_sample,
+                mode, incl, excl, incl_int, nnv, minq, maxq, fix, hline, n_sample,
+                ice_nobs=ice_nobs if ice and mode == "pdp" else None,
             )
         return self._coef_plot(1 - alpha, intercept, incl, excl)
 
@@ -963,6 +973,28 @@ class mnl:
             )
         return pl.concat([keys, means.drop("__combo")], how="horizontal")
 
+    def _ice_frame(self, v: str, grid: list, n_sample: int, ice_nobs: int) -> pl.DataFrame:
+        """ICE: each sampled row's probability of every level as ``v`` moves.
+
+        The rows are a sample (``ice_nobs``; -1: all) of the partial dependence
+        sample, so every line is one of the rows the average is taken over.
+        """
+        base = self.data.select(self.evar)
+        if 0 < n_sample < base.height:
+            base = base.sample(n=n_sample, seed=1234)
+        if ice_nobs is not None and 0 <= ice_nobs < base.height:
+            base = base.sample(n=ice_nobs, seed=5678)
+        dtype = self.data[v].dtype if v in self.xlevels else pl.Float64
+        obs = pl.int_range(base.height, eager=True).alias("__obs")
+        stacked = pl.concat(
+            [base.with_columns(pl.lit(g).cast(dtype).alias(v), obs) for g in grid]
+        )
+        P = self._probs(stacked.select(self.evar))
+        key = stacked[v].cast(pl.Utf8) if v in self.xlevels else stacked[v]
+        return pl.DataFrame({lv: P[:, j] for j, lv in enumerate(self.levels)}).with_columns(
+            key.alias(v), stacked["__obs"]
+        )
+
     def _shares(self) -> pd.DataFrame:
         w = np.ones(len(self._y)) if self._w is None else self._w
         wk = np.bincount(self._y, weights=w, minlength=len(self.levels))
@@ -996,7 +1028,8 @@ class mnl:
                 )
         return long
 
-    def _effect_plots(self, mode, incl, excl, incl_int, nnv, minq, maxq, fix, hline, n_sample):
+    def _effect_plots(self, mode, incl, excl, incl_int, nnv, minq, maxq, fix, hline, n_sample,
+                      ice_nobs=None):
         from mizani.breaks import breaks_extended
         from plotnine import (
             aes, facet_wrap, geom_hline, geom_line, geom_point, ggplot, labs,
@@ -1012,8 +1045,12 @@ class mnl:
             return None
 
         frames = []
+        ice_frames = {}
         for v in variables:
-            frames.append((v, v, None, self._effect_frame(mode, {v: self._grid(v, nnv, minq, maxq)}, n_sample)))
+            grid = self._grid(v, nnv, minq, maxq)
+            frames.append((v, v, None, self._effect_frame(mode, {v: grid}, n_sample)))
+            if ice_nobs is not None:
+                ice_frames[v] = self._ice_frame(v, grid, n_sample, ice_nobs)
         for term in pairs:
             a, b = [t.strip() for t in term.split(":")]
             vary = {a: self._grid(a, nnv, minq, maxq), b: self._slices(b)}
@@ -1027,7 +1064,7 @@ class mnl:
         # categorical x-axes, so a categorical variable's levels sit at
         # reserved positions far from any data and are labelled back.
         cat_names: dict[int, str] = {}
-        parts, panels = [], []
+        parts, panels, ice_parts = [], [], []
         for j, (title, x, panel, frame) in enumerate(frames):
             long = self._long(frame, x, panel)
             if x in self.xlevels:
@@ -1038,8 +1075,15 @@ class mnl:
                 long["x"] = [pos[str(v)] for v in long[x].astype(str)]
                 long["categorical"] = True
             else:
+                pos = None
                 long["x"] = long[x].astype(float)
                 long["categorical"] = False
+            if panel is None and x in ice_frames:
+                ice = self._long(ice_frames[x], x, None)
+                ice["x"] = [pos[str(v)] for v in ice[x].astype(str)] if pos else ice[x].astype(float)
+                ice["facet"] = title
+                ice["ice_group"] = ice["__obs"].astype(str) + ":" + ice["level"].astype(str)
+                ice_parts.append(ice[["facet", "x", "level", "prediction", "ice_group"]])
             if panel is None:
                 long["facet"] = title
                 panels.append(title)
@@ -1069,8 +1113,18 @@ class mnl:
         npanel = len(data["facet"].cat.categories)
         ncol = 1 if npanel == 1 else 2
         nrow = -(-npanel // ncol)
+        p = ggplot(data, aes(x="x", y="prediction", color="level", group="level"))
+        if ice_parts:
+            # Behind the averages, so each level's partial dependence stays readable.
+            ice_data = pd.concat(ice_parts, ignore_index=True)
+            ice_data["facet"] = pd.Categorical(ice_data["facet"], categories=data["facet"].cat.categories)
+            ice_data["level"] = pd.Categorical(ice_data["level"].astype(str), categories=self.levels)
+            p = p + geom_line(
+                data=ice_data, mapping=aes(x="x", y="prediction", color="level", group="ice_group"),
+                alpha=0.15, size=0.3,
+            )
         p = (
-            ggplot(data, aes(x="x", y="prediction", color="level", group="level"))
+            p
             + geom_line(size=1)
             + geom_point(data=data[data["categorical"]], size=2.5)
             + facet_wrap("~facet", ncol=ncol, scales="free_x" if fix else "free")

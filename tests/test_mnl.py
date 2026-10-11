@@ -358,3 +358,31 @@ def test_effect_plots_take_variables_and_interactions():
         assert m.plot(mode, incl=["disp.heinz28"]) is not None
         assert m.plot(mode, incl=[], incl_int=["price.heinz28:disp.heinz28"]) is not None
         assert m.plot(mode, incl=[], incl_int=[]) is None
+
+
+def test_ice_lines_average_to_the_partial_dependence():
+    m = _ketchup_mnl()
+    grid = [3.4, 4.3, 5.2]
+    ice = m._ice_frame("price.heinz28", grid, n_sample=0, ice_nobs=-1)
+    pdp = m._effect_frame("pdp", {"price.heinz28": grid}, n_sample=0)
+    assert ice.height == len(grid) * m.data.height
+    means = ice.group_by("price.heinz28").agg([pl.col(lv).mean() for lv in m.levels]).sort("price.heinz28")
+    np.testing.assert_allclose(means.select(m.levels).to_numpy(), pdp.select(m.levels).to_numpy(), atol=1e-12)
+    # ice_nobs rows of the sample, the same rows at every grid value
+    few = m._ice_frame("price.heinz28", grid, n_sample=0, ice_nobs=25)
+    assert few.height == 3 * 25 and few["__obs"].n_unique() == 25
+
+
+def test_pdp_plot_draws_ice_lines_behind_the_averages():
+    import matplotlib
+
+    matplotlib.use("Agg")
+    m = _ketchup_mnl()
+    plain = m.plot("pdp", incl=["price.heinz28", "disp.heinz28"])
+    with_ice = m.plot("pdp", incl=["price.heinz28", "disp.heinz28"], ice=True, ice_nobs=20, incl_int=["price.heinz28:disp.heinz28"])
+    assert len(with_ice.layers) == len(plain.layers) + 1
+    ice_layer = with_ice.layers[0]
+    assert ice_layer.geom.data["ice_group"].nunique() == 20 * len(m.levels) and ice_layer.geom.aes_params.get("alpha") == 0.15
+    with_ice.draw()  # renders, interaction panels without ICE
+    # pred plots never get ICE lines
+    assert len(m.plot("pred", incl=["price.heinz28"], ice=True).layers) == len(m.plot("pred", incl=["price.heinz28"]).layers)
