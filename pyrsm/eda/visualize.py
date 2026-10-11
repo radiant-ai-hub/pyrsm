@@ -221,6 +221,9 @@ def visualize(
     ncol: int = 2,
     ret: str = "compose",
     combine: str | None = None,
+    data_filter: str = "",
+    sort: str = "",
+    slice: str = "",  # noqa: A002 - the argument name every class publishes
 ):
     """
     Create one or more plots using plotnine.
@@ -288,6 +291,15 @@ def visualize(
         on the other axis or as a facet variable, and ``color``/``fill`` cannot
         also be mapped to a column. ``None`` (default) keeps the grid
         behaviour.
+    data_filter : str
+        Rows to keep, as a Python expression (e.g., ``"price > 1000"``),
+        applied before anything is computed. Then ``sort`` (e.g., ``"-price"``)
+        and ``slice`` (e.g., ``"1:100"``), in that order, as in the model and
+        basics classes.
+    sort : str
+        Columns to sort by, comma separated; a leading ``-`` sorts descending.
+    slice : str
+        Rows to keep after filtering and sorting (e.g., ``"1:100"``).
 
     Returns
     -------
@@ -321,6 +333,12 @@ def visualize(
 
     if isinstance(df, pl.LazyFrame):
         df = df.collect()
+    if data_filter or sort or slice:
+        from pyrsm.data_scope import apply_scope
+
+        if isinstance(df, pl.LazyFrame):
+            df = df.collect()
+        df = apply_scope(df, data_filter, sort, slice)
 
     x_vars = _as_list(x, "x")
     y_vars = _as_list(y, "y")

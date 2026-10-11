@@ -36,6 +36,9 @@ def pivot(
     fill: float | None = None,
     perc: bool = False,
     dec: int = 2,
+    data_filter: str = "",
+    sort: str = "",
+    slice: str = "",  # noqa: A002 - the argument name every class publishes
 ) -> pl.DataFrame:
     """
     Create pivot tables and crosstabs.
@@ -69,6 +72,15 @@ def pivot(
         a proportion scale (or any other non-count aggregate) are formatted.
     dec : int
         Number of decimals used when ``perc=True``. Default: 2.
+    data_filter : str
+        Rows to keep, as a Python expression (e.g., ``"price > 1000"``),
+        applied before anything is computed. Then ``sort`` (e.g., ``"-price"``)
+        and ``slice`` (e.g., ``"1:100"``), in that order, as in the model and
+        basics classes.
+    sort : str
+        Columns to sort by, comma separated; a leading ``-`` sorts descending.
+    slice : str
+        Rows to keep after filtering and sorting (e.g., ``"1:100"``).
 
     Returns
     -------
@@ -144,6 +156,12 @@ def pivot(
 
     # ``{name: frame}`` names the dataset, as in the model and basics classes.
     _, df = named_data(df)
+    if data_filter or sort or slice:
+        from pyrsm.data_scope import apply_scope
+
+        if isinstance(df, pl.LazyFrame):
+            df = df.collect()
+        df = apply_scope(df, data_filter, sort, slice)
 
     # Convert to LazyFrame for consistency
     if isinstance(df, pl.DataFrame):

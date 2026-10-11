@@ -1785,14 +1785,20 @@ def cross_validation(
         cv = load_state(cv_file)["cv"]
     else:
         rvar = mlobj.rvar
-        # the data the model was fitted on: pandas for sklearn, and for mlp the
-        # standardized target it was trained on
-        X = mlobj.data_onehot
-        X = X.to_pandas() if hasattr(X, "to_pandas") else X
-        source = mlobj.data_std if hasattr(mlobj, "data_std") else mlobj.data
-        y = source.get_column(rvar).to_pandas() if hasattr(source, "get_column") else source[rvar]
+        if hasattr(mlobj, "data_std"):
+            # mlp: the raw data and a network that standardizes inside every fit,
+            # so each fold is scaled by its own training rows and regression
+            # scores are in the response's units
+            from pyrsm.model.mlp import fold_scaled_data
+
+            X, y, estimator = fold_scaled_data(mlobj)
+        else:
+            X = mlobj.data_onehot
+            X = X.to_pandas() if hasattr(X, "to_pandas") else X
+            y = mlobj.data.get_column(rvar).to_pandas() if hasattr(mlobj.data, "get_column") else mlobj.data[rvar]
+            estimator = mlobj.fitted
         cv = GridSearchCV(
-            mlobj.fitted,
+            estimator,
             param_grid=param_grid,
             scoring=scoring,
             cv=kfolds,

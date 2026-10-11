@@ -90,6 +90,9 @@ def explore(
     by: str | list[str] | None = None,
     to_dummies: bool = True,
     header: Literal["function", "variable"] = "function",
+    data_filter: str = "",
+    sort: str = "",
+    slice: str = "",  # noqa: A002 - the argument name every class publishes
 ) -> pl.DataFrame:
     """
     Compute summary statistics for numeric columns.
@@ -115,6 +118,15 @@ def explore(
         Layout of the result table. ``"function"`` (default) puts statistic
         names across the top (variables as rows). ``"variable"`` puts variable
         names across the top (statistics as rows).
+    data_filter : str
+        Rows to keep, as a Python expression (e.g., ``"price > 1000"``),
+        applied before anything is computed. Then ``sort`` (e.g., ``"-price"``)
+        and ``slice`` (e.g., ``"1:100"``), in that order, as in the model and
+        basics classes.
+    sort : str
+        Columns to sort by, comma separated; a leading ``-`` sorts descending.
+    slice : str
+        Rows to keep after filtering and sorting (e.g., ``"1:100"``).
 
     Returns
     -------
@@ -204,6 +216,12 @@ def explore(
     from pyrsm.utils import named_data
 
     _, df = named_data(df)
+    if data_filter or sort or slice:
+        from pyrsm.data_scope import apply_scope
+
+        if isinstance(df, pl.LazyFrame):
+            df = df.collect()
+        df = apply_scope(df, data_filter, sort, slice)
 
     # Normalize ``by`` to a list so one and many grouping variables follow
     # the same path.

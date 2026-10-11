@@ -227,51 +227,52 @@ class _Data:
     y: np.ndarray
     estimator: Any
     mod_type: str
-    y_scale: float = 1.0  # mlp regression fits a standardized target
 
 
 def _model_data(model: Any) -> _Data:
     for attr in ("fitted", "data_onehot", "mod_type", "rvar"):
         if not hasattr(model, attr):
             raise TuneError("tune() needs a fitted pyrsm mlp, rforest or xgboost model")
-    X = model.data_onehot
-    X = X.to_pandas() if isinstance(X, pl.DataFrame) else X
-    scale = 1.0
-    if hasattr(model, "data_std"):  # mlp: fitted on standardized data
-        y = model.data_std.get_column(model.rvar).to_numpy()
-        if model.mod_type == "regression" and getattr(model, "stds", None) is not None:
-            scale = float(model.stds[model.rvar])
+    if hasattr(model, "data_std"):
+        # mlp: raw data and a network that standardizes inside every fit, so each
+        # fold is scaled by its own training rows (see ``FoldScaledMLPRegressor``)
+        from pyrsm.model.mlp import fold_scaled_data
+
+        X, y, est = fold_scaled_data(model)
     else:
+        X = model.data_onehot
+        X = X.to_pandas() if isinstance(X, pl.DataFrame) else X
         y = model.data.get_column(model.rvar).to_numpy()
+        est = clone(model.fitted)
     # Each fit runs on one thread: the parallelism is across fits (``n_jobs``), and
     # xgboost would otherwise use every core of the machine for every fit. The
     # out-of-bag score is not needed for cross-validation.
-    est = clone(model.fitted)
     own = est.get_params()
     fixed = {k: v for k, v in (("n_jobs", 1), ("oob_score", False)) if k in own}
     est.set_params(**fixed)
-    return _Data(X=X, y=y, estimator=est, mod_type=model.mod_type, y_scale=scale)
+    return _Data(X=X, y=y, estimator=est, mod_type=model.mod_type)
 
 
-def _score(metric: str, est: Any, X: pd.DataFrame, y: np.ndarray, y_scale: float) -> float:
+def _score(metric: str, y: np.ndarray, pred: np.ndarray | None = None, prob: np.ndarray | None = None) -> float:
     if metric == "auc":
         if len(np.unique(y)) < 2:
             return float("nan")
-        return float(roc_auc_score(y, est.predict_proba(X)[:, -1]))
+        return float(roc_auc_score(y, prob))
     if metric == "accuracy":
-        return float(accuracy_score(y, est.predict(X)))
-    pred = est.predict(X)
+        return float(accuracy_score(y, pred))
     if metric == "rmse":
-        return float(np.sqrt(np.mean((y - pred) ** 2)) * y_scale)
+        return float(np.sqrt(np.mean((y - pred) ** 2)))
     if metric == "r2":
         return float(r2_score(y, pred))
     raise TuneError(f"unknown metric '{metric}'")
 
 
-def _fit_score(estimator: Any, params: dict[str, Any], metric: str, X, y, train, test, y_scale) -> float:
+def _fit_score(estimator: Any, params: dict[str, Any], metric: str, X, y, train, test) -> float:
     est = clone(estimator).set_params(**params)
     est.fit(X.iloc[train], y[train])
-    return _score(metric, est, X.iloc[test], y[test], y_scale)
+    if metric == "auc":
+        return _score(metric, y[test], prob=est.predict_proba(X.iloc[test])[:, -1])
+    return _score(metric, y[test], pred=est.predict(X.iloc[test]))
 
 
 def _higher_is_better(metric: str) -> bool:
@@ -499,7 +500,7 @@ def tune(
         warnings.filterwarnings("ignore", message=".*tasks have been successfully executed.*")
         par = Parallel(n_jobs=n_jobs, backend=backend, return_as="generator_unordered")
         gen = par(
-            delayed(lambda ci, fi: (ci, _fit_score(data.estimator, cands[ci], metric, X, y, *splits[fi], data.y_scale)))(ci, fi)
+            delayed(lambda ci, fi: (ci, _fit_score(data.estimator, cands[ci], metric, X, y, *splits[fi])))(ci, fi)
             for ci, fi in tasks
         )
         try:

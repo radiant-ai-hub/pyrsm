@@ -1,8 +1,10 @@
 from functools import lru_cache
 from typing import Literal
 
+import numpy as np
 import pandas as pd
 import polars as pl
+from sklearn.base import is_classifier
 from sklearn.neural_network import MLPClassifier, MLPRegressor
 
 from pyrsm.model.model import (
@@ -18,6 +20,103 @@ from pyrsm.model.perf import auc
 from pyrsm.stats import scale_df
 from pyrsm.utils import check_dataframe, ifelse
 from pyrsm.data_scope import apply_scope, print_scope
+
+
+class _FoldScaled:
+    """An sklearn network that standardizes its own training rows.
+
+    ``fit`` measures the mean and standard deviation (ddof=0, as ``mlp``) of
+    ``scale_cols`` -- and, with ``scale_y``, of the response -- on the rows it
+    is given and applies them to every row it later predicts, scoring
+    predictions back in the response's own units. Cross-validation with this
+    estimator therefore standardizes each fold by that fold's training rows
+    only, as ``mlp`` does with the training data and ``predict`` with new data.
+    Standardizing once, before the split, would let every held-out fold shape
+    the scaling of the rows the network was trained on.
+
+    The network's own settings keep their names (``alpha``, not
+    ``mlp__alpha``), so a search's ``best_params_`` go straight into ``mlp``.
+    """
+
+    _base: type
+
+    def __init__(self, scale_cols=(), scale_y=False, **params):
+        self.scale_cols = scale_cols
+        self.scale_y = scale_y
+        self._base.__init__(self, **params)
+
+    @classmethod
+    def _get_param_names(cls):
+        return sorted({"scale_cols", "scale_y", *cls._base._get_param_names()})
+
+    def _scaled(self, X):
+        if not isinstance(X, pd.DataFrame):
+            raise TypeError("a fold-scaled network needs a pandas DataFrame with column names")
+        cols = list(self.scale_cols)
+        if not cols:
+            return X
+        X = X.copy()
+        X[cols] = (X[cols].astype(float) - self.x_mean_) / self.x_std_
+        return X
+
+    def fit(self, X, y):
+        cols = list(self.scale_cols)
+        if cols:
+            self.x_mean_ = X[cols].astype(float).mean()
+            self.x_std_ = X[cols].astype(float).std(ddof=0).replace(0.0, 1.0)
+        y = np.asarray(y)
+        if self.scale_y:
+            self.y_mean_ = float(np.mean(y))
+            self.y_std_ = float(np.std(y)) or 1.0
+            y = (y - self.y_mean_) / self.y_std_
+        return self._base.fit(self, self._scaled(X), y)
+
+    def predict(self, X):
+        pred = self._base.predict(self, self._scaled(X))
+        return pred * self.y_std_ + self.y_mean_ if self.scale_y else pred
+
+    def predict_proba(self, X):
+        return self._base.predict_proba(self, self._scaled(X))
+
+    def score(self, X, y, sample_weight=None):
+        from sklearn.metrics import accuracy_score, r2_score
+
+        if is_classifier(self):
+            return accuracy_score(y, self.predict(X), sample_weight=sample_weight)
+        return r2_score(y, self.predict(X), sample_weight=sample_weight)
+
+
+class FoldScaledMLPRegressor(_FoldScaled, MLPRegressor):
+    _base = MLPRegressor
+
+
+class FoldScaledMLPClassifier(_FoldScaled, MLPClassifier):
+    _base = MLPClassifier
+
+
+def fold_scaled_data(model):
+    """Raw data and a fold-scaled network for cross-validating a fitted ``mlp``.
+
+    Returns ``(X, y, estimator)``: the one-hot explanatory variables *before*
+    standardization (pandas), the response as ``mlp`` models it (its original
+    units for regression), and a clone of the fitted network that standardizes
+    inside every fit.
+    """
+    X = (
+        get_dummies(model.data.select(model.evar), drop_nonvarying=False, categories=model.categories)
+        .select(model.feature_names)
+        .to_pandas()
+    )
+    means = model.means or {}
+    scale_cols = [c for c in means if c != model.rvar and c in X.columns]
+    params = model.fitted.get_params()
+    if model.mod_type == "regression":
+        y = model.data.get_column(model.rvar).to_numpy()
+        est = FoldScaledMLPRegressor(scale_cols=scale_cols, scale_y=model.rvar in means, **params)
+    else:
+        y = model.data_std.get_column(model.rvar).to_numpy()
+        est = FoldScaledMLPClassifier(scale_cols=scale_cols, **params)
+    return X, y, est
 
 
 @lru_cache(maxsize=1)

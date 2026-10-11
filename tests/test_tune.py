@@ -75,6 +75,56 @@ def test_regression_and_mlp_target_scale():
     assert res.metric == "r2" and 0.5 < res.best_score <= 1
 
 
+def test_mlp_standardizes_inside_each_fold(tmp_path):
+    """Each fold is scaled by its own training rows, like a scaler inside a pipeline."""
+    import numpy as np
+    from sklearn.base import clone
+    from sklearn.compose import ColumnTransformer, TransformedTargetRegressor
+    from sklearn.metrics import roc_auc_score
+    from sklearn.model_selection import KFold, StratifiedKFold
+    from sklearn.neural_network import MLPClassifier, MLPRegressor
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import StandardScaler
+
+    from pyrsm.model.tune import _fit_score, _model_data
+
+    def pipe(net, col):
+        return make_pipeline(ColumnTransformer([("num", StandardScaler(), [col])], remainder="passthrough"), net)
+
+    dia = pl.read_parquet(DATA / "diamonds.parquet")
+    nn = rsm.model.mlp({"diamonds": dia}, rvar="price", evar=["carat", "clarity"], mod_type="regression", hidden_layer_sizes=(2,))
+    data = _model_data(nn)
+    # raw values go in; nothing was standardized with the held-out rows
+    assert np.allclose(data.X["carat"].to_numpy(), nn.data["carat"].to_numpy())
+    assert data.estimator.scale_cols == ["carat"] and data.estimator.scale_y
+    assert clone(data.estimator).get_params()["alpha"] == nn.fitted.alpha
+    train, test = next(KFold(n_splits=3, shuffle=True, random_state=1234).split(data.X, data.y))
+    ours = _fit_score(data.estimator, {}, "rmse", data.X, data.y, train, test)
+    net = MLPRegressor(**nn.fitted.get_params())
+    ref = TransformedTargetRegressor(pipe(net, "carat"), transformer=StandardScaler()).fit(data.X.iloc[train], data.y[train])
+    expected = np.sqrt(np.mean((ref.predict(data.X.iloc[test]) - data.y[test]) ** 2))
+    assert ours == pytest.approx(expected, rel=1e-6)
+
+    tit = pl.read_parquet(DATA / "titanic.parquet")
+    clf = rsm.model.mlp({"titanic": tit}, rvar="survived", lev="Yes", evar=["age", "sex"], hidden_layer_sizes=(2,))
+    data = _model_data(clf)
+    assert data.estimator.scale_cols == ["age"] and not data.estimator.scale_y
+    train, test = next(StratifiedKFold(n_splits=3, shuffle=True, random_state=1234).split(data.X, data.y))
+    ours = _fit_score(data.estimator, {}, "auc", data.X, data.y, train, test)
+    ref = pipe(MLPClassifier(**clf.fitted.get_params()), "age").fit(data.X.iloc[train], data.y[train])
+    assert ours == pytest.approx(roc_auc_score(data.y[test], ref.predict_proba(data.X.iloc[test])[:, -1]), rel=1e-6)
+
+    # cross_validation uses the same estimator: RMSE in dollars, and the best
+    # settings go straight back into mlp
+    cv = rsm.model.cross_validation(
+        nn, "nn", {"alpha": [0.0001, 0.01]}, {"rmse": "neg_root_mean_squared_error"},
+        prn=False, directory=str(tmp_path), n_splits=3, n_jobs=1, verbose=0,
+    )  # fmt: skip
+    assert 300 < -cv.best_score_ < 3000
+    refit = rsm.model.mlp({"diamonds": dia}, rvar="price", evar=["carat", "clarity"], mod_type="regression", cv=cv)
+    assert refit.alpha == cv.best_params_["alpha"]
+
+
 @pytest.mark.parametrize(
     ("kwargs", "message"),
     [
