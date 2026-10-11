@@ -423,7 +423,7 @@ for _p in ("pred", "pdp", "pip", "or", "dashboard", "dist", "corr"):
         return _model("logistic").plot(plots=p)
 
 
-for _p in ("coef", "pred", "dist", "corr"):
+for _p in ("coef", "pred", "pdp", "pip", "dist", "corr"):
 
     @case(f"model.mnl-{_p}")
     def _mnl(p=_p):
