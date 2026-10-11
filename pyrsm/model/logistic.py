@@ -203,6 +203,7 @@ class logistic:
         self.removed: list[str] = []
         self.added: list[str] = []
         self.step_trace = ""
+        self.step_steps: list[dict] = []
 
         # Handle weights
         if weights is not None and weights != "None":
@@ -287,6 +288,7 @@ class logistic:
                 columns=["Df", "Deviance"],
             )
             self.step_trace = out["trace"]
+            self.step_steps = out["steps"]
             self.removed, self.added = out["removed"], out["added"]
             self.formula = out["formula"]
             self.fitted = out["fit"]
@@ -577,13 +579,24 @@ class logistic:
         display(gt)
 
     def predict(
-        self, data=None, cmd=None, data_cmd=None, ci=False, conf=0.95, dec=None
+        self, data=None, cmd=None, data_cmd=None, ci=False, conf=0.95, dec=None,
+        interval="confidence",
     ) -> pl.DataFrame:
         """
         Generate probability predictions using the fitted model.
 
         Parameters
         ----------
+        ci : bool, default False
+            Add a confidence interval for each predicted probability, calculated
+            on the log-odds scale and converted back to a probability.
+        conf : float, default 0.95
+            Confidence level for the intervals.
+        interval : str, default "confidence"
+            Only "confidence". A prediction interval for a single new 0/1 value
+            of the response is not available: its variance, p * (1 - p), is
+            fixed by the predicted probability, so a 95% interval for one
+            outcome is the whole 0-1 range unless p is very close to 0 or 1.
         dec : int, optional
             Number of decimal places to round float columns in the output.
             If None (default), no rounding is applied.
@@ -594,6 +607,15 @@ class logistic:
             DataFrame containing the predictions and the data used to make those predictions.
         """
         from pyrsm.model.model import check_pred_vars
+
+        if interval == "prediction":
+            raise ValueError(
+                "Prediction intervals are not available for logistic regression: for a "
+                "0/1 response the interval for a single new value is the whole 0-1 range. "
+                "Use interval='confidence' for an interval around the predicted probability."
+            )
+        if interval != "confidence":
+            raise ValueError("interval must be 'confidence'")
 
         check_pred_vars(
             self.evar,
@@ -630,16 +652,9 @@ class logistic:
         model_data = self._scale(pred_data) if self.scale_means else pred_data
 
         if ci:
-            if data_cmd is not None:
-                raise ValueError(
-                    "Confidence intervals not available when using the Data & Command option"
-                )
-            else:
-                # predict_ci returns pandas, convert result to polars
-                ci_result = predict_ci(self.fitted, model_data.to_pandas(), conf=conf)
-                pred = pl.concat(
-                    [pred_data, pl.from_pandas(ci_result)], how="horizontal"
-                )
+            # predict_ci returns pandas, convert result to polars
+            ci_result = predict_ci(self.fitted, model_data.to_pandas(), conf=conf)
+            pred = pl.concat([pred_data, pl.from_pandas(ci_result)], how="horizontal")
 
         else:
             # Get predictions from statsmodels (needs pandas), add to polars DataFrame

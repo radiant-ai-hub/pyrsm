@@ -250,6 +250,7 @@ class mnl:
         self.removed: list[str] = []
         self.added: list[str] = []
         self.step_trace = ""
+        self.step_steps: list[dict] = []
         if self.stepwise:
             self.terms = self._step()
             self.ivar = [t for t in self.ivar if t in self.terms]
@@ -422,7 +423,7 @@ class mnl:
 
     def _step(self) -> list[str]:
         """Stepwise selection by AIC with R's ``step()`` rules and trace."""
-        from pyrsm.model.model import _step_block
+        from pyrsm.model.model import _step_block, _step_record
 
         upper = list(self.evar) + list(self.ivar)
         factors = {t: set(self._term_vars(t)) if ":" in t else {t} for t in upper}
@@ -452,6 +453,7 @@ class mnl:
         current = list(upper) if self.stepwise == "backward" else []
         edf, aic = score(current)
         trace, label = [], "Start"
+        self.step_steps = []
         while True:
             table = [("<none>", edf, aic, current)]
             if self.stepwise in ("backward", "both"):
@@ -467,6 +469,9 @@ class mnl:
             table.sort(key=lambda r: r[2])
             trace.append(
                 _step_block(label, aic, formula_for(current), ["Df"], [r[:3] for r in table])
+            )
+            self.step_steps.append(
+                _step_record(label, aic, formula_for(current), ["Df"], [r[:3] for r in table])
             )
             label = "Step"
             best = table[0]
@@ -833,7 +838,7 @@ class mnl:
         ice : bool
             ``"pdp"`` only: individual conditional expectation lines -- each
             sampled row's probability of every level as the variable moves --
-            drawn faintly behind the averages (not for interaction panels).
+            drawn faintly behind the averages, in every panel of an interaction too.
         ice_nobs : int
             Rows drawn as ICE lines, from the partial dependence sample
             (-1: all of them).
@@ -973,8 +978,8 @@ class mnl:
             )
         return pl.concat([keys, means.drop("__combo")], how="horizontal")
 
-    def _ice_frame(self, v: str, grid: list, n_sample: int, ice_nobs: int) -> pl.DataFrame:
-        """ICE: each sampled row's probability of every level as ``v`` moves.
+    def _ice_frame(self, vary: dict, n_sample: int, ice_nobs: int) -> pl.DataFrame:
+        """ICE: each sampled row's probability of every level over the combinations in ``vary``.
 
         The rows are a sample (``ice_nobs``; -1: all) of the partial dependence
         sample, so every line is one of the rows the average is taken over.
@@ -984,15 +989,25 @@ class mnl:
             base = base.sample(n=n_sample, seed=1234)
         if ice_nobs is not None and 0 <= ice_nobs < base.height:
             base = base.sample(n=ice_nobs, seed=5678)
-        dtype = self.data[v].dtype if v in self.xlevels else pl.Float64
+        names = list(vary)
+        combos = [{}]
+        for k in names:
+            combos = [{**c, k: v} for c in combos for v in vary[k]]
         obs = pl.int_range(base.height, eager=True).alias("__obs")
         stacked = pl.concat(
-            [base.with_columns(pl.lit(g).cast(dtype).alias(v), obs) for g in grid]
+            [
+                base.with_columns(
+                    [pl.lit(v).cast(self.data[k].dtype if k in self.xlevels else pl.Float64).alias(k)
+                     for k, v in combo.items()]
+                    + [obs]
+                )
+                for combo in combos
+            ]
         )
         P = self._probs(stacked.select(self.evar))
-        key = stacked[v].cast(pl.Utf8) if v in self.xlevels else stacked[v]
+        keys = [stacked[k].cast(pl.Utf8) if k in self.xlevels else stacked[k] for k in names]
         return pl.DataFrame({lv: P[:, j] for j, lv in enumerate(self.levels)}).with_columns(
-            key.alias(v), stacked["__obs"]
+            *keys, stacked["__obs"]
         )
 
     def _shares(self) -> pd.DataFrame:
@@ -1050,11 +1065,14 @@ class mnl:
             grid = self._grid(v, nnv, minq, maxq)
             frames.append((v, v, None, self._effect_frame(mode, {v: grid}, n_sample)))
             if ice_nobs is not None:
-                ice_frames[v] = self._ice_frame(v, grid, n_sample, ice_nobs)
+                ice_frames[v] = self._ice_frame({v: grid}, n_sample, ice_nobs)
         for term in pairs:
             a, b = [t.strip() for t in term.split(":")]
             vary = {a: self._grid(a, nnv, minq, maxq), b: self._slices(b)}
-            frames.append((f"{a} by {b}", a, b, self._effect_frame(mode, vary, n_sample)))
+            title = f"{a} by {b}"
+            frames.append((title, a, b, self._effect_frame(mode, vary, n_sample)))
+            if ice_nobs is not None:
+                ice_frames[title] = self._ice_frame(vary, n_sample, ice_nobs)
 
         ylab = "Partial dependence" if mode == "pdp" else "Predicted probability"
 
@@ -1078,10 +1096,13 @@ class mnl:
                 pos = None
                 long["x"] = long[x].astype(float)
                 long["categorical"] = False
-            if panel is None and x in ice_frames:
-                ice = self._long(ice_frames[x], x, None)
+            if title in ice_frames:
+                ice = self._long(ice_frames[title], x, panel)
                 ice["x"] = [pos[str(v)] for v in ice[x].astype(str)] if pos else ice[x].astype(float)
-                ice["facet"] = title
+                ice["facet"] = (
+                    title if panel is None
+                    else [f"{x} | {panel} = {v}" for v in ice["panel"].astype(str)]
+                )
                 ice["ice_group"] = ice["__obs"].astype(str) + ":" + ice["level"].astype(str)
                 ice_parts.append(ice[["facet", "x", "level", "prediction", "ice_group"]])
             if panel is None:

@@ -871,3 +871,51 @@ class TestPdpIce:
         if plot is not None:
             plot.save(f"{PLOT_DIR}/pdp_sk_ice.png", dpi=100, verbose=False)
         plt.close("all")
+
+
+class TestInteractionIce:
+    """ICE lines for interaction plots (``incl_int``): one per sampled row and
+    value of the second variable, drawn behind the averages."""
+
+    @staticmethod
+    def _frame(data):
+        return data.to_pandas() if isinstance(data, pl.DataFrame) else data
+
+    @staticmethod
+    def _ice_layers(plot):
+        return [
+            layer for layer in plot.layers
+            if type(layer.geom).__name__ == "geom_line" and "ice_group" in str(layer.mapping)
+        ]
+
+    def test_statsmodels_interaction_gets_ice_lines(self, ols_model):
+        model, df = ols_model
+        df_pl = pl.from_pandas(df)
+        kwargs = dict(incl=[], incl_int=["yrs_since_phd:rank"], mode="pdp",
+                      grid_resolution=5, n_sample=60)
+        without = pdp_sm(model, df_pl, ice=False, **kwargs)
+        with_ice = pdp_sm(model, df_pl, ice=True, ice_nobs=10, **kwargs)
+        assert not self._ice_layers(without)
+        (layer,) = self._ice_layers(with_ice)
+        ice = self._frame(layer._data)
+        # 5 grid points x 3 ranks x 10 rows
+        assert len(ice) == 5 * df_pl["rank"].n_unique() * 10
+        # each line is one row at one rank: its rank never changes along the line
+        assert (ice.groupby("ice_group")["rank"].nunique() == 1).all()
+
+    def test_interaction_ice_averages_to_the_pdp(self, ols_model):
+        """With every sampled row drawn, the ICE lines average to the PDP line."""
+        model, df = ols_model
+        df_pl = pl.from_pandas(df)
+        plot = pdp_sm(model, df_pl, incl=[], incl_int=["yrs_since_phd:rank"], mode="pdp",
+                      grid_resolution=4, n_sample=50, ice=True, ice_nobs=-1)
+        (layer,) = self._ice_layers(plot)
+        ice = self._frame(layer._data).groupby(["yrs_since_phd", "rank"])["prediction"].mean().round(6)
+        pdp = self._frame(plot.data).set_index(["yrs_since_phd", "rank"])["prediction"].round(6)
+        assert ice.sort_index().tolist() == pdp.sort_index().tolist()
+
+    def test_sklearn_interaction_gets_ice_lines(self, rf_classifier, titanic_data):
+        plot = pdp_sk(rf_classifier.fitted, titanic_data, incl=[], incl_int=["age:sex"],
+                      mode="pdp", grid_resolution=5, n_sample=50, ice=True, ice_nobs=8)
+        (layer,) = self._ice_layers(plot)
+        assert len(layer._data) == 5 * 2 * 8

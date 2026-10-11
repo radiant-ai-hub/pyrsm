@@ -119,3 +119,9 @@ def test_plots_render(titanic, plots, tmp_path):
     m = _fit(titanic, robust=True)
     p = m.plot(plots, nobs=500)
     p.save(tmp_path / f"{plots}.png", dpi=40, verbose=False)
+
+
+def test_step_steps_are_the_trace_as_data(titanic):
+    clf = logistic({"titanic": titanic}, rvar="survived", lev="Yes", evar=["pclass", "sex", "age", "fare"], stepwise="backward")
+    assert len(clf.step_steps) == clf.step_trace.count("AIC=")
+    assert clf.step_steps[0]["columns"] == ["Df", "Deviance", "AIC"]

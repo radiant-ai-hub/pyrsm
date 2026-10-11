@@ -79,6 +79,9 @@ class regress:
         Terms dropped by stepwise selection.
     step_trace : str
         The stepwise selection trace, laid out as R's ``step()`` prints it.
+    step_steps : list[dict]
+        The same trace as data: per step its label, AIC, formula and a table of
+        the candidate changes (``term``, the statistics, ``AIC``).
     fitted_inference : statsmodels results
         The results used for coefficient inference: ``fitted`` itself, or its
         HC1 robust version when ``robust=True``.
@@ -91,7 +94,7 @@ class regress:
         Summarize the model output.
     plot(plot_type, nobs=1000, incl=None, excl=None, incl_int=None, fix=True, hline=False, nnv=20, minq=0.025, maxq=0.975)
         Plots for the model.
-    predict(data=None, cmd=None, data_cmd=None, ci=False, conf=0.95)
+    predict(data=None, cmd=None, data_cmd=None, ci=False, conf=0.95, interval="confidence")
         Generate predictions using the fitted model.
     """
 
@@ -221,6 +224,7 @@ class regress:
         self.removed: list[str] = []
         self.added: list[str] = []
         self.step_trace = ""
+        self.step_steps: list[dict] = []
 
         # The data in original units. Standardizing or centering changes what
         # is estimated, not what a student types for a prediction, so
@@ -351,6 +355,7 @@ class regress:
             columns=["Df", "Sum of Sq", "RSS"],
         )
         self.step_trace = out["trace"]
+        self.step_steps = out["steps"]
         self.removed, self.added = out["removed"], out["added"]
         self.formula = out["formula"]
         self.fitted = out["fit"]
@@ -532,7 +537,8 @@ class regress:
         display(gt)
 
     def predict(
-        self, data=None, cmd=None, data_cmd=None, ci=False, conf=0.95, dec=None
+        self, data=None, cmd=None, data_cmd=None, ci=False, conf=0.95, dec=None,
+        interval="confidence",
     ) -> pl.DataFrame:
         """
         Generate predictions using the fitted model.
@@ -546,19 +552,29 @@ class regress:
         data_cmd : dict[str, Union[int, list[int]]], optional
             Dictionary with the names of the columns to be used in the prediction and the values to be used.
         ci : bool, default False
-            Calculate confidence intervals for the predictions.
+            Add an interval to each prediction (see ``interval``).
         conf : float, default 0.95
             Confidence level for the intervals.
         dec : int, optional
             Number of decimal places to round float columns in the output.
             If None (default), no rounding is applied.
+        interval : str, default "confidence"
+            With ``ci=True``: "confidence" for an interval around the mean of
+            the response at these values of the explanatory variables, or
+            "prediction" for an interval around a single new value of the
+            response. A prediction interval also carries the residual variance,
+            so it is always wider. Both use the t distribution, as R's
+            ``predict.lm``.
 
         Returns
         -------
         pl.DataFrame
             DataFrame containing the predictions and the data used to make those predictions.
         """
-        from pyrsm.model.model import check_pred_vars
+        from pyrsm.model.model import check_pred_vars, ols_interval
+
+        if interval not in ("confidence", "prediction"):
+            raise ValueError("interval must be 'confidence' or 'prediction'")
 
         check_pred_vars(
             self.evar,
@@ -596,20 +612,16 @@ class regress:
         model_data = self._scale(pred_data) if self.scale_means else pred_data
 
         if ci:
-            if data_cmd is not None:
-                raise ValueError(
-                    "Confidence intervals not available when using the Data & Command option"
+            ci_result = pl.from_pandas(
+                ols_interval(self.fitted, model_data.to_pandas(), conf=conf, interval=interval)
+            )
+            # Standardizing is linear, so the interval converts back to the
+            # response's units exactly.
+            if self.scale_means:
+                ci_result = ci_result.with_columns(
+                    [self._unscale_response(pl.col(c)) for c in ci_result.columns]
                 )
-            else:
-                # predict_ci returns pandas, convert result to polars
-                ci_result = pl.from_pandas(
-                    model_utils.predict_ci(self.fitted, model_data.to_pandas(), conf=conf)
-                )
-                if self.scale_means:
-                    ci_result = ci_result.with_columns(
-                        [self._unscale_response(pl.col(c)) for c in ci_result.columns]
-                    )
-                pred = pl.concat([pred_data, ci_result], how="horizontal")
+            pred = pl.concat([pred_data, ci_result], how="horizontal")
         else:
             # Get predictions from statsmodels (needs pandas), add to polars DataFrame
             predictions = self.fitted.predict(model_data.to_pandas()).values
