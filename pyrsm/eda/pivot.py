@@ -197,7 +197,9 @@ def pivot(
 
     # Frequency table (no cols variable)
     if not cols:
-        result = lf.group_by(rows_list).agg(agg_expr)
+        # In the order of the row variables' levels (radiant.data), not the
+        # order the groups happen to come out of group_by.
+        result = lf.group_by(rows_list).agg(agg_expr).sort(rows_list, nulls_last=True)
 
         # Rename 'value' to more descriptive name (col_agg format, consistent with explore)
         value_col = f"{values}_{agg}" if values else "count"
@@ -256,8 +258,9 @@ def pivot(
     group_cols = rows_list + [cols]
     grouped = lf.group_by(group_cols).agg(agg_expr)
 
-    # Polars LazyFrame.pivot requires collect first
-    df_grouped = grouped.collect()
+    # Polars LazyFrame.pivot requires collect first; rows and columns in the
+    # order of the variables' levels (radiant.data).
+    df_grouped = grouped.collect().sort(group_cols, nulls_last=True)
 
     # Pivot the data
     pivoted = df_grouped.pivot(
@@ -266,6 +269,9 @@ def pivot(
         values="value",
         aggregate_function=None,  # Already aggregated
     )
+    col_levels = [str(v) for v in df_grouped[cols].unique().sort(nulls_last=True).to_list()]
+    pivoted = pivoted.select(rows_list + [c for c in col_levels if c in pivoted.columns]
+                             + [c for c in pivoted.columns if c not in rows_list and c not in col_levels])
 
     # Get the column names (excluding index columns)
     data_cols = [c for c in pivoted.columns if c not in rows_list]
