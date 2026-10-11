@@ -345,6 +345,10 @@ class doe:
         n_repeats = max(10, min(50, 500 // max(1, max_trials - min_trials + 1)))
 
         for n_trials in range(min_trials, max_trials + 1):
+            if n_trials < Xf.shape[1] and n_trials < n_full:
+                # Fewer trials than model coefficients cannot estimate the
+                # model (R's optFederov refuses, so the row never shows).
+                continue
             if n_trials == n_full:
                 # Full factorial — use all rows
                 design_rows = list(range(n_full))

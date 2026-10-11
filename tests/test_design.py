@@ -500,6 +500,12 @@ class TestDoe:
         }
         assert len(same) == 1
 
+    def test_interaction_needs_as_many_trials_as_coefficients(self):
+        # main effects (6) + price:sight (2) = 8 coefficients: no 7-trial row
+        d = doe(self._theater, interactions=["price:sight"], seed=1234)
+        assert d.eff["Trials"].min() == 8
+        assert d.eff["Trials"].max() == 18
+
     def test_too_few_factors(self):
         d = doe({"price": ["$10", "$13"]})
         assert d.error is not None
