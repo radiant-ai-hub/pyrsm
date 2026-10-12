@@ -177,8 +177,14 @@ class goodness:
             Number of decimal places to display.
         plain : bool
             If True (default), print plain text output. If False and running
-            in a Jupyter notebook, use styled table output.
+            in a notebook (or a rendered Quarto report), show the formatted
+            report Radiant shows.
         """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            from pyrsm.basics.report import goodness_report
+
+            return du.show_report(self, goodness_report(self, output=output, dec=dec), output=output, dec=dec)
         output = ifelse(isinstance(output, str), [output], output)
         self._validate_and_print_header()
 

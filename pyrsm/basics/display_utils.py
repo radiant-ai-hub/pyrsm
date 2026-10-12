@@ -18,6 +18,14 @@ def is_notebook() -> bool:
     return False
 
 
+def show_report(model, report, **summary_kwargs) -> None:
+    """``summary(plain=False)`` in a notebook: the formatted report Radiant shows
+    (:mod:`pyrsm.report`), with the plain summary as its text form."""
+    from pyrsm.report import capture, display
+
+    display(report, text=capture(model.summary, plain=True, **summary_kwargs))
+
+
 def has_great_tables() -> bool:
     """Styled tables need great_tables (``pip install pyrsm[tables]``); without
     it ``plain=False`` prints the plain text tables instead of failing."""

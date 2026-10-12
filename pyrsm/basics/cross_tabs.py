@@ -292,7 +292,8 @@ class cross_tabs:
             Number of decimal places to use in rounding
         plain : bool
             If True (default), print plain text output. If False and running
-            in a Jupyter notebook, use styled table output.
+            in a notebook (or a rendered Quarto report), show the formatted
+            report Radiant shows.
 
         Examples
         --------
@@ -301,6 +302,11 @@ class cross_tabs:
         ct = rsm.cross_tabs(newspaper)
         ct.summary()
         """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            from pyrsm.basics.report import cross_tabs_report
+
+            return du.show_report(self, cross_tabs_report(self, output=output, dec=dec), output=output, dec=dec)
         output = ifelse(isinstance(output, str), [output], output)
         self._summary_header()
 

@@ -296,8 +296,14 @@ class compare_props:
             Number of decimal places to display.
         plain : bool
             If True (default), print plain text output. If False and running
-            in a Jupyter notebook, use styled table output.
+            in a notebook (or a rendered Quarto report), show the formatted
+            report Radiant shows.
         """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            from pyrsm.basics.report import compare_props_report
+
+            return du.show_report(self, compare_props_report(self, extra=extra, dec=dec), extra=extra, dec=dec)
         display = du.SummaryDisplay(
             header_func=self._summary_header,
             plain_func=lambda e, d: self._summary_plain(e, d),

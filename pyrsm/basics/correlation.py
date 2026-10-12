@@ -230,7 +230,8 @@ class correlation:
             Number of decimal places to use in rounding
         plain : bool
             If True (default), print plain text output. If False and running
-            in a Jupyter notebook, use styled table output.
+            in a notebook (or a rendered Quarto report), show the formatted
+            report Radiant shows.
 
         Examples
         --------
@@ -239,6 +240,11 @@ class correlation:
         cr = rsm.correlation(salary.select(["salary", "yrs.since.phd", "yrs.service"]))
         cr.summary()
         """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            from pyrsm.basics.report import correlation_report
+
+            return du.show_report(self, correlation_report(self, cov=cov, cutoff=cutoff, dec=dec), cov=cov, cutoff=cutoff, dec=dec)
         self._summary_header()
         if len(self.vars) < 2:
             print("\n**Select two or more variables to calculate correlations**")
