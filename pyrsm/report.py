@@ -801,7 +801,11 @@ def _table_md(t: Mapping[str, Any], with_title: bool = True) -> str:
             value = row.get(c.get("key", ""), "")
             if c.get("kind") == "tree":
                 value = f"{row.get('_guide', '')}{value}"
-            cells.append("" if value is None else str(value))
+            text = "" if value is None else str(value)
+            if c.get("kind") not in ("term", "tree") and re.match(r"-[0-9.]", text):
+                # a true minus: LaTeX would break a line after a hyphen
+                text = "\u2212" + text[1:]
+            cells.append(text)
         rows.append(cells)
     labels = [str(c.get("label", "")) for c in columns]
     # A wide table wraps to the page; pandoc sizes its columns by the dashes
@@ -811,14 +815,19 @@ def _table_md(t: Mapping[str, Any], with_title: bool = True) -> str:
     for j, c in enumerate(columns):
         width = max([len(labels[j])] + [len(r[j]) for r in rows]) + 1
         if c.get("kind") in ("term", "tree"):
-            rule.append(":" + "-" * max(3, min(width, 12)))
+            rule.append(":" + "-" * max(3, min(width, 10)))
         elif c.get("kind") == "stars":
             rule.append(":" + "-" * 3)
         else:
             rule.append("-" * max(3, width) + ":")
-    out.append("| " + " | ".join(_md(x) or " " for x in labels) + " |")
-    out.append("|" + "|".join(rule) + "|")
-    out.extend("| " + " | ".join(_md(x) or " " for x in r) + " |" for r in rows)
+    lines = ["| " + " | ".join(_md(x) or " " for x in labels) + " |", "|" + "|".join(rule) + "|"]
+    lines += ["| " + " | ".join(_md(x) or " " for x in r) + " |" for r in rows]
+    if max(len(line) for line in lines) > 72:
+        # Too wide for a PDF page at the body font: a smaller font there (Word
+        # and HTML ignore a LaTeX block), so the numbers keep their columns.
+        lines = ["```{=latex}", "\\begingroup\\footnotesize", "```", "", *lines,
+                 "", "```{=latex}", "\\endgroup", "```"]
+    out.extend(lines)
     if t.get("note"):
         out.append(f"\n{_md(t['note'])}")
     return "\n".join(out) + "\n"
