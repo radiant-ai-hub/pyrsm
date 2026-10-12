@@ -741,10 +741,11 @@ def _section_html(section: Mapping[str, Any]) -> str:
 
 def render_html(report: Mapping[str, Any], *, style: bool = True) -> str:
     """The report as HTML: ``PyrsmReport.svelte``'s markup, with its CSS."""
-    out = []
+    out = [f'<section class="pyrsm-report" aria-label="{_esc(report.get("title", ""))}">']
     if style:
+        # Inside the section: an HTML sanitizer (DOMPurify, as Radiant's report
+        # preview uses) drops a <style> that opens a fragment, not one inside it.
         out.append(f"<style>{CSS}{HOST_CSS}</style>")
-    out.append(f'<section class="pyrsm-report" aria-label="{_esc(report.get("title", ""))}">')
     out.append('<header class="pyrsm-header">')
     if report.get("title"):
         out.append(f'<div class="pyrsm-header__title">{_esc(report["title"])}</div>')

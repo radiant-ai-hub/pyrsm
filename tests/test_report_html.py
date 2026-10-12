@@ -70,7 +70,7 @@ def test_summary_plain_false_shows_the_formatted_report(name, shown, capsys):
     assert len(shown) == 1
     html = shown[0]._repr_html_()
     assert "|" in shown[0]._repr_markdown_()
-    assert html.startswith("<style>") and '<section class="pyrsm-report"' in html
+    assert html.startswith('<section class="pyrsm-report"') and "<style>" in html
     for text in expected:
         assert text in html, f"{name}: {text!r} missing"
     # the text form is pyrsm's plain summary
