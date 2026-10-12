@@ -77,6 +77,7 @@ _WRAPPER_MAP = {
 
 
 _LAZY_FUNCTIONS = {
+    "dtab": "pyrsm.interactive_table",
     "md": "pyrsm.utils",
     "register": "pyrsm.data",
 }
