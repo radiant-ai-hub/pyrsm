@@ -237,7 +237,7 @@ class correlation:
 
         self._print_hypothesis_info(cutoff)
 
-        if not plain and du.is_notebook():
+        if not plain and du.is_notebook() and du.has_great_tables():
             self._style_tables(cov=cov, cutoff=cutoff, dec=dec)
         else:
             self._summary_plain(cov=cov, cutoff=cutoff, dec=dec)

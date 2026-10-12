@@ -18,6 +18,14 @@ def is_notebook() -> bool:
     return False
 
 
+def has_great_tables() -> bool:
+    """Styled tables need great_tables (``pip install pyrsm[tables]``); without
+    it ``plain=False`` prints the plain text tables instead of failing."""
+    import importlib.util
+
+    return importlib.util.find_spec("great_tables") is not None
+
+
 def format_pval(p: float, dec: int = 3) -> str:
     """Format p-value for display."""
     if p < 0.001:
@@ -134,7 +142,7 @@ class SummaryDisplay:
         """
         self.header_func()
 
-        if not plain and is_notebook() and self.styled_func is not None:
+        if not plain and is_notebook() and self.styled_func is not None and has_great_tables():
             self.styled_func(extra, dec)
         else:
             self.plain_func(extra, dec)

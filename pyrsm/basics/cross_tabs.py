@@ -304,7 +304,7 @@ class cross_tabs:
         output = ifelse(isinstance(output, str), [output], output)
         self._summary_header()
 
-        if not plain and du.is_notebook():
+        if not plain and du.is_notebook() and du.has_great_tables():
             self._style_tables(output=output, dec=dec)
         else:
             self._summary_plain(output=output, dec=dec)

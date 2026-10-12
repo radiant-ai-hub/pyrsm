@@ -462,7 +462,7 @@ class logistic:
             print(f"\n{line}\n{title} stepwise selection of variables\n{line}")
 
         self._summary_header()
-        if not plain and du.is_notebook():
+        if not plain and du.is_notebook() and du.has_great_tables():
             self._summary_styled(dec)
         else:
             self._summary_plain(dec)

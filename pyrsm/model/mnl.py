@@ -621,7 +621,7 @@ class mnl:
             .otherwise(pl.col("p.value").round(dec).cast(pl.Utf8))
             .alias("p.value"),
         )
-        if not plain and du.is_notebook():
+        if not plain and du.is_notebook() and du.has_great_tables():
             from IPython.display import display
 
             display(
