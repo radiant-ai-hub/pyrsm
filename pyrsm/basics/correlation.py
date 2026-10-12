@@ -137,8 +137,17 @@ class correlation:
                 cat = col.dtype == pl.String or isinstance(
                     col.dtype, (pl.Categorical, pl.Enum)
                 )
-                if cat:
-                    numeric = col.cast(pl.Categorical).to_physical().cast(pl.Float64)
+                if isinstance(col.dtype, pl.Enum):
+                    # the level order (I1 < SI2 < ... < IF), as R's factor codes
+                    numeric = col.to_physical().cast(pl.Float64)
+                elif cat:
+                    # no level order: alphabetical, as R's factor() would set it
+                    levels = sorted(col.drop_nulls().cast(pl.Utf8).unique().to_list())
+                    numeric = (
+                        col.cast(pl.Utf8)
+                        .replace_strict(levels, list(range(len(levels))), default=None)
+                        .cast(pl.Float64)
+                    )
                 else:
                     numeric = col.cast(pl.Float64)
                 codes.append(numeric.to_numpy())

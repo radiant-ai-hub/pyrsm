@@ -234,3 +234,19 @@ def test_mnl_residuals_are_one_minus_the_probability_of_the_choice():
     r = m.residuals
     assert len(r) == t.height and r.null_count() == 5
     assert 0.0 <= r.drop_nulls().min() and r.drop_nulls().max() <= 1.0
+
+
+def test_categorical_correlations_follow_the_level_order():
+    """A categorical variable is coded in its level order (Enum), not in the
+    order its values first appear: bigger diamonds have worse clarity."""
+    import polars as pl
+    import pyrsm as rsm
+    from pathlib import Path
+
+    d = pl.read_parquet(Path(__file__).parents[1] / "examples/data/data/diamonds.parquet")
+    cr = rsm.basics.correlation({"d": d}, vars=["carat", "clarity"], method="polychoric").cr
+    assert cr[0, 1] < -0.3
+    # the same answer when the rows come in another order
+    shuffled = d.sample(fraction=1.0, shuffle=True, seed=1)
+    cr2 = rsm.basics.correlation({"d": shuffled}, vars=["carat", "clarity"], method="polychoric").cr
+    assert abs(cr[0, 1] - cr2[0, 1]) < 1e-9
