@@ -103,3 +103,46 @@ def test_partial_dependence_defaults(model):
     params = inspect.signature(model.plot).parameters
     assert params["hline"].default is True
     assert params["ice"].default is False
+
+
+def test_logistic_conf_int_is_computed_once_per_level(monkeypatch):
+    """Profile intervals refit the model per bound: summary, report and a later
+    odds request reuse them, and a new confidence level computes new ones."""
+    import numpy as np
+    import polars as pl
+    import pyrsm as rsm
+    import pyrsm.model.model as mm
+
+    rng = np.random.default_rng(1)
+    x = rng.normal(size=300)
+    y = np.where(rng.random(300) < 1 / (1 + np.exp(-x)), "yes", "no")
+    m = rsm.model.logistic({"d": pl.DataFrame({"y": y, "x": x})}, rvar="y", lev="yes", evar=["x"])
+    assert m.ci_type == "profile"
+    calls = []
+    real = mm.profile_ci
+    monkeypatch.setattr(mm, "profile_ci", lambda *a, **k: calls.append(1) or real(*a, **k))
+    first = m.conf_int()
+    first.iloc[0, 0] = 99.0  # a caller's change must not leak into the cache
+    again = m.conf_int(0.95)
+    assert len(calls) == 1 and again.iloc[0, 0] != 99.0
+    m.conf_int(0.9)
+    assert len(calls) == 2
+
+
+def test_logistic_distribution_plot_shows_the_response_levels():
+    """The response is estimated as 0/1 but plotted with its own levels."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import polars as pl
+    import pyrsm as rsm
+
+    d = pl.DataFrame(
+        {"y": pl.Series(["yes", "no", "no", "yes", "no", "yes", "no", "no"], dtype=pl.Enum(["yes", "no"])),
+         "x": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]}
+    )
+    m = rsm.model.logistic({"d": d}, rvar="y", lev="yes", evar=["x"])
+    fig = m.plot("dist")
+    fig = getattr(fig, "draw", lambda: fig)() if not hasattr(fig, "axes") else fig
+    labels = {t.get_text() for ax in fig.axes for t in ax.get_xticklabels()}
+    assert {"yes", "no"} <= labels and "0" not in labels

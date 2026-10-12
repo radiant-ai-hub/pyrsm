@@ -410,12 +410,19 @@ class logistic:
         """Coefficient confidence intervals (``ci_type``), as radiant.model."""
         from pyrsm.model.model import profile_ci
 
-        alpha = 1 - conf
-        if self.ci_type == "profile":
-            return profile_ci(self.fitted, alpha=alpha)
-        ci = self.fitted_inference.conf_int(alpha=alpha)
-        ci = pd.DataFrame(np.asarray(ci), index=self.fitted.params.index)
-        return ci
+        # Profile intervals refit the model for every coefficient bound, so the
+        # summary, a report and a later VIF or odds request share one computation.
+        cache = self.__dict__.setdefault("_conf_int_cache", {})
+        key = (round(float(conf), 10), self.ci_type)
+        if key not in cache:
+            alpha = 1 - conf
+            if self.ci_type == "profile":
+                ci = profile_ci(self.fitted, alpha=alpha)
+            else:
+                ci = self.fitted_inference.conf_int(alpha=alpha)
+                ci = pd.DataFrame(np.asarray(ci), index=self.fitted.params.index)
+            cache[key] = ci
+        return cache[key].copy()
 
     def summary(
         self,
@@ -785,6 +792,14 @@ class logistic:
                 _,
                 _,
             ) = _get_visualize_plots()
+            # The response as the student knows it (Yes / No), not the 0/1
+            # the model is estimated on.
+            if (
+                self.rvar in data.columns
+                and self.rv is not None
+                and len(self.rv) == data.height
+            ):
+                data = data.with_columns(self.rv.alias(self.rvar))
             return distr_plot(data).plot()
         elif "corr" in plots:
             correlation = _get_correlation()
