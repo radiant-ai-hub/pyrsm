@@ -372,7 +372,7 @@ class goodness:
             plot_list.append(p)
 
         # Return single plot or first plot if multiple requested
-        combined = compose_plots(plot_list)
+        combined = compose_plots(plot_list, ncol=1, width_per_col=7, height_per_row=4.5)  # stacked, as radiant.basics
         if combined is None:
             raise ValueError("No valid plot type specified.")
         return combined

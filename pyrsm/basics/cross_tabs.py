@@ -673,4 +673,4 @@ Chi-squared: {round(self.chisq_test[0], dec)} df({int(self.chisq_test[2])}), p.v
                 + theme_pyrsm()
             )
 
-        return compose_plots(plot_list)
+        return compose_plots(plot_list, ncol=1, width_per_col=7, height_per_row=4.5)  # stacked, as radiant.basics
