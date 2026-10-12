@@ -123,7 +123,7 @@ Filtering changes the sample used to compute the correlation matrix, so the diag
 
 ## Including categorical variables
 
-The pre-factor analysis diagnostics are calculated using Principal Components Analysis (PCA). The correlation matrix used as input for PCA can be calculated for numeric, integer, date and categorical variables (polars `Enum`, `Categorical` or `String` columns). When categorical variables are included, set `hcor=True`. With this adjustment, categorical variables are treated as ordinal and all other variables as continuous. The order of the levels comes from an `Enum`'s categories; for `Categorical` and `String` columns it is the order in which the levels first appear in the data, so convert ordinal items to `Enum` first. In that case `pyrsm` computes heterogeneous (polychoric/polyserial) correlations rather than ordinary Pearson correlations.
+The pre-factor analysis diagnostics are calculated using Principal Components Analysis (PCA). The correlation matrix used as input for PCA can be calculated for numeric, integer, date and categorical variables (polars `Enum` columns). When categorical variables are included, set `hcor=True`. With this adjustment, categorical variables are treated as ordinal and all other variables as continuous. The analysis follows the order of the levels of each `Enum` column, so check that order first. In that case `pyrsm` computes heterogeneous (polychoric/polyserial) correlations rather than ordinary Pearson correlations.
 
 The example below converts the six items to ordered categories and recomputes the diagnostics with `hcor=True`. Notice that the "Correlation" line in the summary now reports the adjusted correlation type.
 

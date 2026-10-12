@@ -148,7 +148,7 @@ class pre_factor:
         print(f"Observations: {format_nr(self.nobs, dec=0)}")
         if self.hcor and self.any_categorical:
             print("Correlation : Heterogeneous correlations using polychoric/polyserial")
-            print("** Categorical variables (Enum, Categorical or String) are treated as ordinal **\n")
+            print("** Categorical variables are treated as ordinal **\n")
         else:
             print("Correlation : Pearson\n")
 

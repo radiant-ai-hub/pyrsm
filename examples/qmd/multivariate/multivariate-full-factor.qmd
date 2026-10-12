@@ -203,7 +203,7 @@ The shopping items split into the same kind of two-factor pattern as the toothpa
 
 ## Including Categorical Variables
 
-The correlation matrix used as input for estimation can be calculated for numeric, integer, date and categorical variables (polars `Enum`, `Categorical` or `String` columns). When categorical variables are included, set `hcor=True`. With this adjustment, categorical variables are treated as ordinal and all other variables as continuous, and the correlation matrix is built from polychoric/heterogeneous correlations instead of plain Pearson correlations.
+The correlation matrix used as input for estimation can be calculated for numeric, integer, date and categorical variables (polars `Enum` columns). When categorical variables are included, set `hcor=True`. With this adjustment, categorical variables are treated as ordinal and all other variables as continuous, and the correlation matrix is built from polychoric/heterogeneous correlations instead of plain Pearson correlations.
 
 ```{python}
 levels = [str(x) for x in range(1, 8)]

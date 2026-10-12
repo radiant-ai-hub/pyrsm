@@ -150,7 +150,7 @@ Apple sits far to the right (high on style/modern/high-end), while Gateway sits 
 
 ## Including Categorical Variables
 
-Attribute-based perceptual maps are calculated using Principal Components Analysis (PCA). The correlation matrix used as input for PCA can currently be calculated only for variables of type `numeric`, `integer`, and `date`. Preference information, however, can be of type `numeric`, `integer`, `date`, and categorical (polars `Enum`, `Categorical` or `String`). When categorical preference variables are included, set `hcor=True`. Correlations between the factor scores and the preference data will then be calculated using a heterogeneous-correlation approach (`polycor::hetcor` in R): the categorical variables are treated as (ordinal) categorical and all other variables are treated as continuous.
+Attribute-based perceptual maps are calculated using Principal Components Analysis (PCA). The correlation matrix used as input for PCA can currently be calculated only for variables of type `numeric`, `integer`, and `date`. Preference information, however, can be of type `numeric`, `integer`, `date`, and categorical (polars `Enum`). When categorical preference variables are included, set `hcor=True`. Correlations between the factor scores and the preference data will then be calculated using a heterogeneous-correlation approach (`polycor::hetcor` in R): the categorical variables are treated as (ordinal) categorical and all other variables are treated as continuous.
 
 ```python
 # example: categorical preference variables
