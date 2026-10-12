@@ -342,8 +342,8 @@ def test_pdp_and_dashboard():
     assert ct.plot("pdp", incl=["age"]) is not None
     rt, _ = fit_case("diamonds_reg_color")
     assert rt.plot("dashboard") is not None
-    with pytest.raises(ValueError, match="only available for regression"):
-        ct.plot("dashboard")
+    # a classification tree draws the logistic regression dashboard
+    assert ct.plot("dashboard") is not None
 
 
 def test_pip_returns_table():

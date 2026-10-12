@@ -775,10 +775,9 @@ class regress:
             distr_plot, _, _, _ = _get_visualize_plots()
             return distr_plot(data).plot()
         if "corr" in plots:
-            from pyrsm.basics.correlation import correlation
+            from pyrsm.model.model import corr_plot
 
-            cr = correlation(data)
-            return cr.plot(nobs=nobs, figsize=figsize)
+            return corr_plot(data, nobs=nobs, figsize=figsize)
         if "scatter" in plots:
             return model_utils.scatter_plot(
                 self.fitted, data, nobs=nobs, figsize=figsize, lines=lines

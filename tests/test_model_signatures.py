@@ -164,3 +164,73 @@ def test_logistic_dashboard_names_the_other_level(monkeypatch):
     monkeypatch.setattr(mm, "logit_dashboard", lambda *a, **k: seen.update(k) or real(*a, **k))
     m.plot("dashboard")
     assert seen["lev"] == "yes" and seen["other"] == "no"
+
+
+def _titanic_with_missing():
+    import polars as pl
+    from pathlib import Path
+
+    t = pl.read_parquet(Path(__file__).parents[1] / "examples/data/model/titanic.parquet")
+    # five missing ages: rows a model drops, so residuals must leave them empty
+    return t.with_columns(
+        pl.when(pl.int_range(pl.len()) < 5).then(None).otherwise(pl.col("age")).alias("age")
+    )
+
+
+def test_model_correlation_plot_is_the_basics_plot_with_every_variable(monkeypatch):
+    """Categorical explanatory variables are kept (Basics' categorical mode),
+    not silently dropped; all-numeric data stay Pearson."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import polars as pl
+    import pyrsm as rsm
+    import sys
+
+    import pyrsm.basics.correlation  # noqa: F401  (the module, for monkeypatch)
+
+    bc = sys.modules["pyrsm.basics.correlation"]
+    seen = []
+    real = bc.correlation
+    monkeypatch.setattr(bc, "correlation", lambda *a, **k: seen.append(k) or real(*a, **k))
+    t = _titanic_with_missing().drop_nulls("age")
+    rsm.model.logistic({"t": t}, rvar="survived", lev="Yes", evar=["pclass", "sex", "age"]).plot("corr")
+    assert seen[-1]["method"] == "polychoric"
+    assert seen[-1]["vars"] == ["survived", "pclass", "sex", "age"]
+    num = pl.DataFrame({"y": [1.0, 2.0, 4.0, 3.0, 5.0], "x": [1.0, 3.0, 2.0, 5.0, 4.0]})
+    rsm.model.regress({"d": num}, rvar="y", evar=["x"]).plot("corr")
+    assert seen[-1]["method"] == "pearson"
+
+
+def test_every_ml_model_has_a_dashboard_and_residuals_on_their_rows():
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import numpy as np
+    import pyrsm as rsm
+
+    t = _titanic_with_missing()
+    ev = ["pclass", "sex", "age"]
+    for est in (rsm.model.rforest, rsm.model.mlp, rsm.model.xgboost):
+        clf = est({"t": t}, rvar="survived", lev="Yes", evar=ev)
+        assert clf.plot("dashboard") is not None
+        r = clf.residuals
+        assert len(r) == t.height and r.null_count() == 5 and r[:5].null_count() == 5
+        # actual (1 = Yes) minus the predicted probability of Yes
+        assert float(np.nanmax(np.abs(r.drop_nulls().to_numpy()))) <= 1.0
+        reg = est({"t": t}, rvar="age", evar=["pclass", "sex"], mod_type="regression")
+        assert reg.plot("dashboard") is not None
+        assert len(reg.residuals) == t.height
+    tree = rsm.model.crtree({"t": t}, rvar="survived", lev="Yes", evar=ev)
+    assert tree.plot("dashboard") is not None
+    assert tree._kept_rows.sum() == len(tree.residuals) == t.height - 5
+
+
+def test_mnl_residuals_are_one_minus_the_probability_of_the_choice():
+    import pyrsm as rsm
+
+    t = _titanic_with_missing()
+    m = rsm.model.mnl({"t": t}, rvar="pclass", lev="1st", evar=["sex", "age"])
+    r = m.residuals
+    assert len(r) == t.height and r.null_count() == 5
+    assert 0.0 <= r.drop_nulls().min() and r.drop_nulls().max() <= 1.0

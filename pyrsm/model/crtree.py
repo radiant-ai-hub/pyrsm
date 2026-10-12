@@ -349,6 +349,10 @@ class crtree:
 
         cols = [rvar] + self.evar + ([wts] if wts else [])
         self.nobs_all = data.height
+        from pyrsm.model.model import kept_rows
+
+        # the rows estimated on, to put residuals back on their rows
+        self._kept_rows = kept_rows(data, cols)
         data = data.select(cols).drop_nulls()
         self.nobs = data.height
         self.nobs_dropped = self.nobs_all - self.nobs
@@ -1240,19 +1244,17 @@ class crtree:
                 grid_resolution=nnv, minq=minq, maxq=maxq, fix=fix, hline=hline,
             )
         if "dashboard" in plots:
-            if self.mod_type != "regression":
-                raise ValueError("The dashboard plot is only available for regression trees")
-            from types import SimpleNamespace
-
-            from pyrsm.model.model import reg_dashboard
+            from pyrsm.model.model import ml_dashboard
 
             fitted = self._predict_values(self.data.select(self.evar))
-            obj = SimpleNamespace(
-                fittedvalues=pl.Series(fitted),
-                resid=pl.Series(self.y - fitted),
-                model={"endog": self.y},
-            )
-            return reg_dashboard(obj, nobs=nobs)
+            if self.mod_type == "classification":
+                # y codes the levels 1, 2, ... with the chosen level first
+                other = self.ylevels[1] if len(self.ylevels) == 2 else None
+                return ml_dashboard(
+                    (self.y == 1).astype(float), fitted, "classification",
+                    lev=self.lev, other=other,
+                )
+            return ml_dashboard(self.y, fitted, "regression", nobs=nobs)
         raise ValueError(f"Unknown plot type(s): {', '.join(map(str, plots))}")
 
 

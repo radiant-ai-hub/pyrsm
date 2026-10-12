@@ -206,6 +206,10 @@ class mnl:
         if missing:
             raise ValueError(f"Variables not in the data: {', '.join(missing)}")
         self.nobs_all = data.height
+        from pyrsm.model.model import kept_rows
+
+        # the rows estimated on, to put residuals back on their rows
+        self._kept_rows = kept_rows(data, cols)
         data = data.select(cols).drop_nulls()
         self.nobs_dropped = self.nobs_all - data.height
 
@@ -728,6 +732,17 @@ class mnl:
         du.print_plain_tables(tab)
         print(f"\nMisclassification error: {100 * err:.{dec}f}%")
 
+    @property
+    def residuals(self) -> pl.Series:
+        """1 minus the predicted probability of the level each row chose (0 for
+        a perfect prediction), one value per row of the data the model was
+        given (empty where a value was missing)."""
+        from pyrsm.model.model import on_all_rows
+
+        probs = self.predict().select(self.levels).to_numpy()
+        chosen = probs[np.arange(len(self._y)), self._y]
+        return on_all_rows(1.0 - chosen, self._kept_rows)
+
     def predict(self, data=None, cmd=None, data_cmd=None, dec=None) -> pl.DataFrame:
         """
         Predicted probabilities of every response level
@@ -849,10 +864,10 @@ class mnl:
 
             return distr(self.data.select([self.rvar] + self.evar)).plot()
         if "corr" in plots:
-            from pyrsm.basics.correlation import correlation
+            from pyrsm.model.model import corr_plot
 
-            return correlation(self.data.select([self.rvar] + self.evar)).plot(
-                nobs=nobs, figsize=figsize
+            return corr_plot(
+                self.data.select([self.rvar] + self.evar), nobs=nobs, figsize=figsize
             )
         if "pip" in plots or "vimp" in plots:
             imp, p = self._pip_plot(rep)

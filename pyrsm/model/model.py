@@ -1265,6 +1265,113 @@ def _fit_line(method: str):
     return geom_smooth(method=method, se=False, color=REF, linetype="dashdot", size=0.75)
 
 
+def other_level(rv, lev) -> str | None:
+    """The response level that is not ``lev`` (``No`` for ``Yes``), when the
+    response has exactly two levels; else None."""
+    if rv is None or lev is None:
+        return None
+    levels = [str(v) for v in rv.drop_nulls().unique(maintain_order=True).to_list()]
+    rest = [v for v in levels if v != str(lev)]
+    return rest[0] if len(rest) == 1 else None
+
+
+def kept_rows(data: pl.DataFrame, columns: list[str]) -> np.ndarray:
+    """Which rows of ``data`` have no missing value in ``columns`` (the rows a
+    model is estimated on)."""
+    return (
+        data.select(columns)
+        .select(pl.all_horizontal(pl.all().is_not_null()))
+        .to_series()
+        .to_numpy()
+    )
+
+
+def on_all_rows(values, kept: np.ndarray | None) -> pl.Series:
+    """``values`` (one per estimation row) placed back on the rows of the data
+    the model was given; rows dropped for missing values stay empty."""
+    values = np.asarray(values, dtype=float)
+    if kept is None or len(kept) == len(values):
+        return pl.Series("residuals", values)
+    out = np.full(len(kept), np.nan)
+    out[kept] = values
+    return pl.Series("residuals", out).fill_nan(None)
+
+
+def ml_residuals(model) -> pl.Series:
+    """Actual minus predicted for a machine learning model, on its estimation
+    data: the response (1 for the chosen level, 0 otherwise, in
+    classification) minus the prediction (the probability of that level).
+    A random forest uses its out-of-bag predictions."""
+    actual = model.data.get_column(model.rvar).cast(pl.Float64).to_numpy()
+    pred = model.predict().get_column("prediction").cast(pl.Float64).to_numpy()
+    return on_all_rows(actual - pred, getattr(model, "_kept_rows", None))
+
+
+def ml_dashboard(
+    actual,
+    pred,
+    mod_type: str,
+    lev: str | None = None,
+    other: str | None = None,
+    nobs: int = 1000,
+    figsize=None,
+):
+    """
+    The diagnostics dashboard of a machine learning model: the logistic
+    regression dashboard (calibration, ROC, gains, predicted probabilities by
+    outcome) for classification, the linear regression dashboard for
+    regression.
+
+    Parameters
+    ----------
+    actual : the response on the estimation data (0/1 in classification)
+    pred : the model's predictions for those rows
+    mod_type : "classification" or "regression"
+    lev, other : labels of the two outcomes (classification)
+    nobs : rows sampled for the regression dashboard (-1 for all)
+    """
+    from types import SimpleNamespace
+
+    actual = np.asarray(actual, dtype=float)
+    pred = np.asarray(pred, dtype=float)
+    obj = SimpleNamespace(fittedvalues=pl.Series(pred), model={"endog": actual})
+    if mod_type == "classification":
+        return logit_dashboard(obj, lev=lev, other=other, figsize=figsize or (10, 9))
+    obj.resid = pl.Series(actual - pred)
+    return reg_dashboard(obj, nobs=nobs)
+
+
+def corr_plot(data: pl.DataFrame, nobs: int = 1000, figsize=None):
+    """
+    The correlation plot of a model's variables: ``rsm.basics.correlation``'s
+    plot, as the Basics > Correlation tool draws it
+
+    Every column is kept. With a categorical column the correlations are
+    heterogeneous (polychoric for two categorical variables, polyserial for a
+    numeric and a categorical one), as Basics > Correlation does with "Adjust
+    for categorical variables"; otherwise they are Pearson correlations.
+
+    Parameters
+    ----------
+    data : polars DataFrame with the response and explanatory variables
+    nobs : int
+        Number of rows sampled for the scatter plots (-1 for all).
+    figsize : tuple, optional
+    """
+    from pyrsm.basics.correlation import correlation
+
+    data = data.with_columns(
+        [pl.col(c).cast(pl.String) for c, t in data.schema.items() if t == pl.Boolean]
+    )
+    categorical = any(
+        t == pl.String or isinstance(t, (pl.Categorical, pl.Enum)) for t in data.dtypes
+    )
+    method = "polychoric" if categorical else "pearson"
+    return correlation(data, vars=list(data.columns), method=method).plot(
+        nobs=nobs, figsize=figsize
+    )
+
+
 def reg_dashboard(fitted, nobs: int = 1000, lines: list[str] | None = None):
     """
     Plot regression residual dashboard

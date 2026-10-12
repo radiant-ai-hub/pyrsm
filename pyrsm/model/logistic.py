@@ -47,14 +47,6 @@ def _get_visualize_plots():
     return distr, pred_plot_sm, pdp_sm, pip_plot_sm
 
 
-@lru_cache(maxsize=1)
-def _get_correlation():
-    """Lazy load correlation class."""
-    from pyrsm.basics.correlation import correlation
-
-    return correlation
-
-
 def _formula_model(formula: str, data: pl.DataFrame):
     """The design of ``formula`` (no fit), to read its explanatory variables."""
     return smf.glm(formula, data=data.to_pandas(), family=Binomial(link=Logit()))
@@ -528,6 +520,13 @@ class logistic:
         if test is not None and len(test) > 0:
             self.chisq_test(test=test, dec=dec)
 
+    def _with_response_levels(self, data: pl.DataFrame) -> pl.DataFrame:
+        """``data`` with the response as the student knows it (Yes / No), not
+        the 0/1 the model is estimated on."""
+        if self.rvar in data.columns and self.rv is not None and len(self.rv) == data.height:
+            return data.with_columns(self.rv.alias(self.rvar))
+        return data
+
     def collinearity_note(self) -> str:
         """R's perfect-multicollinearity message, naming the dropped columns
         (empty when nothing was dropped)."""
@@ -800,19 +799,11 @@ class logistic:
                 _,
                 _,
             ) = _get_visualize_plots()
-            # The response as the student knows it (Yes / No), not the 0/1
-            # the model is estimated on.
-            if (
-                self.rvar in data.columns
-                and self.rv is not None
-                and len(self.rv) == data.height
-            ):
-                data = data.with_columns(self.rv.alias(self.rvar))
-            return distr_plot(data).plot()
+            return distr_plot(self._with_response_levels(data)).plot()
         elif "corr" in plots:
-            correlation = _get_correlation()
-            cr = correlation(data)
-            return cr.plot(nobs=nobs, figsize=figsize)
+            from pyrsm.model.model import corr_plot
+
+            return corr_plot(self._with_response_levels(data), nobs=nobs, figsize=figsize)
         elif "or" in plots or "coef" in plots:
             return or_plot(
                 self.fitted_inference,
