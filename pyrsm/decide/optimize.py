@@ -49,6 +49,7 @@ from typing import Any, Literal
 import polars as pl
 
 import pyrsm.basics.display_utils as du
+from pyrsm.basics import display_utils as du
 
 Sense = Literal["L", "E", "G"]
 VarType = Literal["continuous", "integer", "binary"]
@@ -717,14 +718,22 @@ class optimize:
                 buf.write(f"  [{d.code}] {where}: {d.message}\n")
             buf.write("\n")
 
-    def summary(self, dec: int = 3) -> None:
+    def summary(self, dec: int = 3, plain: bool = True) -> None:
         """Print a Radiant-style summary of the model and its solution.
 
         Parameters
         ----------
         dec : int
             Number of decimal places to display.
+        plain : bool
+            If True (default), print plain text output. If False and running
+            in a notebook (or a rendered Quarto report), show the formatted
+            report Radiant shows.
         """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            return du.show_text_report(self, "optimize", dec=dec)
+
         buf = StringIO()
         buf.write("Linear/Integer programming optimization\n")
         buf.write(f"Problem    : {self.name}\n")
@@ -1044,8 +1053,15 @@ class RobustnessResult:
             {"metric": list(rows), "value": [round(v, dec) for v in rows.values()]}
         )
 
-    def summary(self, dec: int = 3) -> None:
-        """Print summary statistics for the robustness analysis."""
+    def summary(self, dec: int = 3, plain: bool = True) -> None:
+        """Print summary statistics for the robustness analysis.
+
+        ``plain=False`` in a notebook (or a rendered Quarto report) shows the formatted report Radiant shows.
+        """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            return du.show_text_report(self, "robustness", dec=dec)
+
         print("Robustness analysis (Monte Carlo)")
         if self.base_objective is not None:
             print(f"Deterministic objective: {self.base_objective:,.{dec}f}")

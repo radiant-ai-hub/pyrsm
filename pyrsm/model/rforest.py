@@ -18,6 +18,7 @@ from pyrsm.model.model import (
 from pyrsm.model.perf import auc
 from pyrsm.utils import check_dataframe, ifelse
 from pyrsm.data_scope import apply_scope, print_scope
+from pyrsm.basics import display_utils as du
 
 
 @lru_cache(maxsize=1)
@@ -184,7 +185,7 @@ class rforest:
             self.data_onehot.to_pandas(), self.data.get_column(self.rvar).to_pandas()
         )
 
-    def summary(self, dec=3) -> None:
+    def summary(self, dec=3, plain: bool = True) -> None:
         """
         Summarize output from a Random Forest model
 
@@ -192,7 +193,17 @@ class rforest:
         ----------
         dec : int, default 3
             Number of decimal places to round to.
+        plain : bool
+            If True (default), print plain text output. If False and running
+            in a notebook (or a rendered Quarto report), show the formatted
+            report Radiant shows.
         """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            from pyrsm.model.report import fit_metrics, fit_report
+
+            return du.show_text_report(self, lambda text: fit_report("rforest", text, fit_metrics(self), dec=dec), dec=dec)
+
         print("Random Forest")
         print(f"Data                 : {self.name}")
         print_scope(self, 21)

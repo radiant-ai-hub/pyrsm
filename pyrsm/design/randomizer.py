@@ -3,6 +3,7 @@ import polars as pl
 
 from pyrsm.data_scope import apply_scope, print_scope
 from pyrsm.utils import check_dataframe
+from pyrsm.basics import display_utils as du
 
 
 class randomizer:
@@ -133,8 +134,15 @@ class randomizer:
 
         self.data = pl.DataFrame({label: cond_assignments}).hstack(data)
 
-    def summary(self, dec: int = 3) -> None:
-        """Print summary of randomization results."""
+    def summary(self, dec: int = 3, plain: bool = True) -> None:
+        """Print summary of randomization results.
+
+        ``plain=False`` in a notebook (or a rendered Quarto report) shows the formatted report Radiant shows.
+        """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            return du.show_text_report(self, "randomizer", dec=dec)
+
         if self.blocks is None:
             print("Random assignment (simple random)")
         else:

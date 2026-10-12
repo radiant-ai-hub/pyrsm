@@ -26,6 +26,17 @@ def show_report(model, report, **summary_kwargs) -> None:
     display(report, text=capture(model.summary, plain=True, **summary_kwargs))
 
 
+def show_text_report(model, kind, **summary_kwargs) -> None:
+    """``summary(plain=False)`` in a notebook for a tool whose Radiant report is
+    built from its printed summary: ``kind`` names the report
+    (:func:`pyrsm.report.text_report`: the header lines and boxed tables), or is
+    a function of the printed text that builds it."""
+    from pyrsm.report import capture, display, text_report
+
+    text = capture(model.summary, plain=True, **summary_kwargs)
+    display(kind(text) if callable(kind) else text_report(kind, text), text=text)
+
+
 def has_great_tables() -> bool:
     """Styled tables need great_tables (``pip install pyrsm[tables]``); without
     it ``plain=False`` prints the plain text tables instead of failing."""

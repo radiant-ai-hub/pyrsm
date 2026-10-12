@@ -19,6 +19,7 @@ from typing import Any, Literal
 
 import pandas as pd
 import yaml
+from pyrsm.basics import display_utils as du
 
 NodeKind = Literal["decision", "chance", "terminal"]
 Severity = Literal["error", "warning"]
@@ -2192,14 +2193,20 @@ class dtree:
     # Public methods
     # ------------------------------------------------------------------
 
-    def summary(self, input: bool = True, output: bool = False, dec: int = 2) -> None:
+    def summary(self, input: bool = True, output: bool = False, dec: int = 2, plain: bool = True) -> None:
         """Print the decision tree as radiant.model's ``summary.dtree``.
 
         ``input`` prints the tree specification. ``output`` adds the
         resolved variable values and the initial and final trees as R
         prints them: one row per node with its probability, payoff, cost and
         the type of node it branches from.
+
+        ``plain=False`` in a notebook (or a rendered Quarto report) shows the formatted report Radiant shows.
         """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            return du.show_text_report(self, "dtree", input=input, output=output, dec=dec)
+
         buf = StringIO()
         if self.errors:
             buf.write("Decision tree errors:\n")

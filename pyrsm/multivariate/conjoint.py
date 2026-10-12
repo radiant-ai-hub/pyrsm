@@ -18,6 +18,7 @@ from pyrsm.utils import cat_levels
 from ._plotting import as_plot_result
 from ._utils import get_data, get_vars
 from pyrsm.data_scope import apply_scope, print_scope
+from pyrsm.basics import display_utils as du
 
 __all__ = ["conjoint", "store_predictions"]
 
@@ -359,7 +360,7 @@ class conjoint:
         return show, self.model_list[show]
 
     def summary(
-        self, show=None, mc_diag: bool = False, additional: bool = False, dec: int = 3
+        self, show=None, mc_diag: bool = False, additional: bool = False, dec: int = 3, plain: bool = True
     ) -> None:
         """
         Summarize the conjoint analysis.
@@ -374,8 +375,15 @@ class conjoint:
             Show standard errors, t-values, p-values and model fit statistics.
         dec : int, default 3
             Number of decimals.
+        plain : bool
+            If True (default), print plain text output. If False and running
+            in a notebook (or a rendered Quarto report), show the formatted
+            report Radiant shows.
         """
-        from pyrsm.basics import display_utils as du
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            return du.show_text_report(self, "conjoint", show=show, mc_diag=mc_diag, additional=additional, dec=dec)
+
         from pyrsm.model.model import model_fit, sig_stars
 
         from ._lm import collinearity_note

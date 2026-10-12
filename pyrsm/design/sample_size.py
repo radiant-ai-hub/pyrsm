@@ -3,6 +3,7 @@ import math
 from scipy.stats import norm
 
 from pyrsm.utils import format_nr
+from pyrsm.basics import display_utils as du
 
 
 class sample_size:
@@ -90,8 +91,15 @@ class sample_size:
         self.n = math.ceil(n)
         self.contact_attempts = math.ceil(self.n / incidence / response)
 
-    def summary(self, dec: int = 3) -> None:
-        """Print summary of sample size calculation."""
+    def summary(self, dec: int = 3, plain: bool = True) -> None:
+        """Print summary of sample size calculation.
+
+        ``plain=False`` in a notebook (or a rendered Quarto report) shows the formatted report Radiant shows.
+        """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            return du.show_text_report(self, "sample_size", dec=dec)
+
         print("Sample size calculation")
 
         if self.type == "mean":

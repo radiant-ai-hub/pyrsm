@@ -28,6 +28,7 @@ import polars as pl
 from pyrsm.data_scope import apply_scope
 from pyrsm.plot_style import FILL, LINE, REF, theme_pyrsm
 from pyrsm.utils import check_dataframe
+from pyrsm.basics import display_utils as du
 
 __all__ = ["evalreg", "evalbin", "confusion", "uplift", "auc", "rig", "xtile"]
 
@@ -381,8 +382,17 @@ class evalreg(_Evaluation):
                 })
         self.dat = pl.DataFrame(rows)
 
-    def summary(self, dec: int = 3) -> None:
-        """Print Radiant-style regression evaluation."""
+    def summary(self, dec: int = 3, plain: bool = True) -> None:
+        """Print Radiant-style regression evaluation.
+
+        ``plain=False`` in a notebook (or a rendered Quarto report) shows the formatted report Radiant shows.
+        """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            from pyrsm.model.report import evaluate_report
+
+            return du.show_text_report(self, lambda text: evaluate_report("evalreg", text, [(self.dat, "Regression performance")]), dec=dec)
+
         _header(self, "Evaluate predictions for regression models", [])
         _print_table(self.dat, dec)
 
@@ -478,8 +488,17 @@ class confusion(_Evaluation):
         )
         self.dataset = df.select(["Type", "Predictor", *CONFUSION_METRICS])
 
-    def summary(self, dec: int = 3) -> None:
-        """Print the confusion matrix counts and the metrics, as Radiant does."""
+    def summary(self, dec: int = 3, plain: bool = True) -> None:
+        """Print the confusion matrix counts and the metrics, as Radiant does.
+
+        ``plain=False`` in a notebook (or a rendered Quarto report) shows the formatted report Radiant shows.
+        """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            from pyrsm.model.report import evaluate_report
+
+            return du.show_text_report(self, lambda text: evaluate_report("evalbin.confusion", text, [(self.dataset, "Confusion matrix and metrics")]), dec=dec)
+
         _header(self, "Confusion matrix", [
             ("Level", f"{self.lev} in {self.rvar}"),
             ("Cost:Margin", f"{self.cost} : {self.margin}"),
@@ -604,8 +623,17 @@ class evalbin(_Evaluation):
                 ]))
         self.dataset = pl.concat(tables).with_columns(pl.col("bins").cast(pl.Int64))
 
-    def summary(self, prn: bool = True, dec: int = 3) -> None:
-        """Print the evaluation header and (when ``prn``) the per-bin table."""
+    def summary(self, prn: bool = True, dec: int = 3, plain: bool = True) -> None:
+        """Print the evaluation header and (when ``prn``) the per-bin table.
+
+        ``plain=False`` in a notebook (or a rendered Quarto report) shows the formatted report Radiant shows.
+        """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            from pyrsm.model.report import evaluate_report
+
+            return du.show_text_report(self, lambda text: evaluate_report("evalbin.evaluate", text, [(self.dataset, "Model performance by quantile")] if prn else []), prn=prn, dec=dec)
+
         _header(self, "Evaluate predictions for binary response models", [
             ("Level", f"{self.lev} in {self.rvar}"),
             ("Bins", f"{self.qnt}"),
@@ -766,8 +794,17 @@ class uplift(_Evaluation):
                 ]))
         self.dataset = pl.concat(tables).with_columns(pl.col("bins").cast(pl.Int64))
 
-    def summary(self, prn: bool = True, dec: int = 3) -> None:
-        """Print the uplift header and (when ``prn``) the per-bin table."""
+    def summary(self, prn: bool = True, dec: int = 3, plain: bool = True) -> None:
+        """Print the uplift header and (when ``prn``) the per-bin table.
+
+        ``plain=False`` in a notebook (or a rendered Quarto report) shows the formatted report Radiant shows.
+        """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            from pyrsm.model.report import evaluate_report
+
+            return du.show_text_report(self, lambda text: evaluate_report("evalbin.uplift", text, [(self.dataset, "Uplift by quantile")] if prn else []), prn=prn, dec=dec)
+
         _header(self, "Evaluate uplift for binary response models", [
             ("Level", f"{self.lev} in {self.rvar}"),
             ("Treatment", self.tvar),

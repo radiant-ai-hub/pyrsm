@@ -24,6 +24,7 @@ from ._plotting import as_plot_result
 from ._utils import does_vary, get_data, get_vars, is_categorical
 from pyrsm.data_scope import apply_scope, print_scope
 from ._utils import r_scale as _standardize
+from pyrsm.basics import display_utils as du
 
 __all__ = ["kclus"]
 
@@ -422,7 +423,12 @@ class kclus:
             )
         )
 
-    def summary(self, dec: int = 2) -> None:
+    def summary(self, dec: int = 2, plain: bool = True) -> None:
+        """Print the summary. ``plain=False`` in a notebook (or a rendered Quarto report) shows the formatted report Radiant shows."""
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            return du.show_text_report(self, "kclus", dec=dec)
+
         kind = "means" if self.fun == "kmeans" else "prototypes"
         print(f"K-{self.fun[1:]} cluster analysis")
         print(f"Data         : {self.name}")

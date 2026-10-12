@@ -6,6 +6,7 @@ from scipy.stats import norm
 from statsmodels.stats.power import TTestIndPower
 
 from pyrsm.utils import format_nr
+from pyrsm.basics import display_utils as du
 
 
 def _cohen_h(p1, p2):
@@ -366,8 +367,15 @@ class sample_size_comp:
         self.power = power
         self.conf = conf
 
-    def summary(self, dec: int = 3) -> None:
-        """Print summary of sample size comparison calculation."""
+    def summary(self, dec: int = 3, plain: bool = True) -> None:
+        """Print summary of sample size comparison calculation.
+
+        ``plain=False`` in a notebook (or a rendered Quarto report) shows the formatted report Radiant shows.
+        """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            return du.show_text_report(self, "sample_size_comp", dec=dec)
+
         if self.error:
             print(self.error)
             return

@@ -6,6 +6,7 @@ import polars as pl
 
 from pyrsm.multivariate._lm import r_qr_rank
 from pyrsm.utils import expand_grid, polychoric_matrix
+from pyrsm.basics import display_utils as du
 
 
 def _term_type(term: str) -> str:
@@ -553,6 +554,7 @@ class doe:
         full: bool = True,
         est: bool = False,
         dec: int = 3,
+        plain: bool = True,
     ) -> None:
         """Print summary of experimental design.
 
@@ -568,7 +570,15 @@ class doe:
             Print estimable effects
         dec : int
             Number of decimal places
+        plain : bool
+            If True (default), print plain text output. If False and running
+            in a notebook (or a rendered Quarto report), show the formatted
+            report Radiant shows.
         """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            return du.show_text_report(self, "doe", eff=eff, part=part, full=full, est=est, dec=dec)
+
         if self.error:
             print(self.error)
             return
