@@ -11,20 +11,38 @@ def _texts(p):
 
 
 @pytest.mark.parametrize(
-    "dist, kwargs, subtitle, labels",
+    "dist, kwargs, title, labels",
     [
-        ("norm", {"mean": 100, "sd": 8, "lb": 90, "ub": 110}, "mean = 100, sd = 8", [" lb = 90", "ub = 110 "]),
-        ("tdist", {"df": 101.286, "plb": 0.05}, "df = 101.286", [" plb = 0.05 (x = -1.66)"]),
-        ("binom", {"n": 1000, "p": 0.1, "pub": 0.05}, "n = 1000, p = 0.1", [" pub = 0.05 (x = 85)"]),
-        ("chisq", {"df": 1, "pub": 0.95}, "df = 1", [" pub = 0.95 (x = 3.841)"]),
-        ("disc", {"v": [1, 2, 3, 4], "p": [0.4, 0.3, 0.2, 0.1], "lb": 2}, "values = 1 2 3 4, probabilities = 0.4 0.3 0.2 0.1", [" lb = 2"]),
-        ("norm", {"mean": 0, "sd": 1}, "mean = 0, sd = 1", []),
+        ("norm", {"mean": 100, "sd": 8, "lb": 90, "ub": 110}, "Normal Distribution (mean: 100, sd: 8)", ["lb = 90 ", " ub = 110"]),
+        ("tdist", {"df": 101.286, "plb": 0.05}, "t Distribution (df: 101.286)", [" plb = 0.05 (x = -1.66)"]),
+        ("binom", {"n": 1000, "p": 0.1, "pub": 0.05}, "Binomial Distribution (n: 1000, p: 0.1)", [" pub = 0.05 (x = 85)"]),
+        ("chisq", {"df": 1, "pub": 0.95}, "Chi-square Distribution (df: 1)", [" pub = 0.95 (x = 3.841)"]),
+        ("disc", {"v": [1, 2, 3, 4], "p": [0.4, 0.3, 0.2, 0.1], "lb": 2}, "Discrete Distribution (values: 1 2 3 4, probabilities: 0.4 0.3 0.2 0.1)", [" lb = 2"]),
+        ("norm", {"mean": 0, "sd": 1}, "Normal Distribution (mean: 0, sd: 1)", []),
     ],
 )
-def test_prob_calc_plot_shows_parameters_and_bounds(dist, kwargs, subtitle, labels):
+def test_prob_calc_plot_shows_parameters_and_bounds(dist, kwargs, title, labels):
     p = rsm.basics.prob_calc(dist, **kwargs).plot()
-    assert p.labels.subtitle == subtitle
+    assert p.labels.title == title
+    assert p.labels.get("subtitle", None) is None
+    assert p.theme.themeables["plot_title"].properties["ha"] == "center"
     assert _texts(p) == labels
+    p.draw()
+
+
+@pytest.mark.parametrize(
+    "dist, kwargs",
+    [
+        ("norm", {"mean": 0, "sd": 1, "plb": 0.025, "pub": 0.975}),
+        ("norm", {"mean": 100, "sd": 8, "lb": 90, "ub": 110}),
+        ("binom", {"n": 10, "p": 0.3, "lb": 1, "ub": 3}),
+        ("tdist", {"df": 10, "lb": -0.5, "ub": 0.5}),
+    ],
+)
+def test_bound_labels_sit_at_one_height(dist, kwargs):
+    p = rsm.basics.prob_calc(dist, **kwargs).plot()
+    ys = {float(layer.geom.data["y"].iloc[0]) for layer in p.layers if isinstance(layer.geom, geom_text)}
+    assert len(ys) == 1
     p.draw()
 
 

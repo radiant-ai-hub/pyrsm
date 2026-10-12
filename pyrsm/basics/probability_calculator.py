@@ -1,5 +1,5 @@
 import numpy as np
-from plotnine import annotate, labs
+from plotnine import annotate, element_text, labs, theme
 
 import pyrsm.basics.display_utils as du
 from pyrsm.plot_style import REF
@@ -81,7 +81,7 @@ pc_defaults = {
 }
 
 
-#: Plot subtitle: (argument, label) per distribution, labelled as in the UI.
+#: Plot title: (argument, label) per distribution, labelled as in the UI.
 _SPEC = {
     "binom": [("n", "n"), ("p", "p")],
     "chisq": [("df", "df")],
@@ -278,7 +278,7 @@ class prob_calc:
         return self._annotate(plot_fn(self.dct, type=type), type)
 
     def spec(self) -> str:
-        """The distribution's parameters as one line, e.g. ``"mean = 0, sd = 1"``."""
+        """The distribution's parameters as one line, e.g. ``"mean: 0, sd: 1"``."""
         parts = []
         for arg, label in _SPEC.get(self.distribution, []):
             value = self.args.get(arg)
@@ -286,7 +286,7 @@ class prob_calc:
                 continue
             if isinstance(value, (list, tuple, np.ndarray)):
                 value = " ".join(_fmt(v) for v in value)
-            parts.append(f"{label} = {_fmt(value)}")
+            parts.append(f"{label}: {_fmt(value)}")
         text = ", ".join(parts)
         return text if len(text) <= 80 else text[:77] + "..."
 
@@ -310,9 +310,16 @@ class prob_calc:
         return out
 
     def _annotate(self, p, type: str):
-        """Show what was calculated: the parameters as the subtitle and a
-        label at each bound line (or highlighted bar)."""
-        p = p + labs(subtitle=self.spec())
+        """Show what was calculated: the parameters in the (centered) title,
+        e.g. "Normal Distribution (mean: 0, sd: 1)", and a label at each bound
+        line (or highlighted bar), all at the same height."""
+        spec = self.spec()
+        title = p.labels.get("title", None) or ""
+        p = (
+            p
+            + labs(title=f"{title} ({spec})" if title and spec else title or spec)
+            + theme(plot_title=element_text(ha="center"))
+        )
         bounds = self.thresholds(type)
         if not bounds:
             return p
@@ -323,15 +330,19 @@ class prob_calc:
         heights = heights[np.isfinite(heights)]
         top = float(heights.max()) * 1.08 if heights.size else 1.0
         xmin, xmax = float(data["x"].min()), float(data["x"].max())
-        mid = (xmin + xmax) / 2
-        for i, (_, x, label) in enumerate(bounds):
-            # Text runs away from the middle so it stays on the canvas; a
-            # second label sits a little lower so two bounds never overlap.
-            right = x < mid
+        sides = _label_sides(bounds, xmin, xmax)
+        # Two labels that would still overlap (both bounds close to one edge)
+        # are the one case where the second goes a little lower.
+        stack = sides is None
+        if stack:
+            mid = (xmin + xmax) / 2
+            sides = ["right" if x < mid else "left" for _, x, _ in bounds]
+        for i, ((_, x, label), side) in enumerate(zip(bounds, sides)):
+            right = side == "right"
             p = p + annotate(
                 "text",
                 x=x,
-                y=top * (1 - 0.07 * i),
+                y=top * (1 - 0.07 * i) if stack else top,
                 label=f" {label}" if right else f"{label} ",
                 ha="left" if right else "right",
                 va="bottom",
@@ -340,6 +351,44 @@ class prob_calc:
             )
         return p
 
+
+#: Plot width in points that the label room is measured against (plotnine's
+#: default 6.4 inch figure less the axis and margins), and the label size.
+_PANEL_PT = 400
+_LABEL_PT = 9
+
+
+def _label_width(label: str, xmin: float, xmax: float) -> float:
+    """A label's width in data units, measured with matplotlib's font."""
+    from matplotlib.font_manager import FontProperties
+    from matplotlib.textpath import TextPath
+
+    width_pt = TextPath((0, 0), f" {label}", size=_LABEL_PT, prop=FontProperties()).get_extents().width
+    # plotnine pads the x range by 5% on each side
+    return width_pt / _PANEL_PT * (xmax - xmin) * 1.1
+
+
+def _label_sides(bounds, xmin: float, xmax: float) -> list[str] | None:
+    """Which side of its line each label runs to, so all labels fit on the
+    canvas at one height: lb to the left and ub to the right (away from each
+    other) when there is room, otherwise toward the middle. ``None`` when two
+    labels would still overlap."""
+    lo, hi = xmin - 0.05 * (xmax - xmin), xmax + 0.05 * (xmax - xmin)
+    spans, sides = [], []
+    for i, (_, x, label) in enumerate(bounds):
+        w = _label_width(label, xmin, xmax)
+        room_left, room_right = x - w >= lo, x + w <= hi
+        if len(bounds) == 1:
+            side = "left" if room_left and (not room_right or x - lo > hi - x) else "right"
+        elif i == 0:
+            side = "left" if room_left or not room_right else "right"
+        else:
+            side = "right" if room_right or not room_left else "left"
+        sides.append(side)
+        spans.append((x - w, x) if side == "left" else (x, x + w))
+    if len(spans) == 2 and spans[0][1] > spans[1][0] and spans[1][1] > spans[0][0]:
+        return None
+    return sides
 
 if __name__ == "__main__":
     pc = prob_calc("binom", n=10, p=0.3, lb=1, ub=3)
