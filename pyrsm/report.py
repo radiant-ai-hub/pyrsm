@@ -794,19 +794,31 @@ def _table_md(t: Mapping[str, Any], with_title: bool = True) -> str:
     if with_title and t.get("title"):
         sub = f" -- {_md(t['subtitle'])}" if t.get("subtitle") else ""
         out.append(f"**{_md(t['title'])}**{sub}\n")
-    head = "| " + " | ".join(_md(c.get("label", "")) or " " for c in columns) + " |"
-    rule = "|" + "|".join(
-        ":---" if c.get("kind") in ("term", "tree", "stars") else "---:" for c in columns
-    ) + "|"
-    out += [head, rule]
+    rows = []
     for row in t.get("rows") or []:
         cells = []
         for c in columns:
             value = row.get(c.get("key", ""), "")
             if c.get("kind") == "tree":
                 value = f"{row.get('_guide', '')}{value}"
-            cells.append(_md(value) or " ")
-        out.append("| " + " | ".join(cells) + " |")
+            cells.append("" if value is None else str(value))
+        rows.append(cells)
+    labels = [str(c.get("label", "")) for c in columns]
+    # A wide table wraps to the page; pandoc sizes its columns by the dashes
+    # under the header. Numbers get their full width (never broken), while
+    # long labels ("AsstProf not equal to AssocProf") wrap instead.
+    rule = []
+    for j, c in enumerate(columns):
+        width = max([len(labels[j])] + [len(r[j]) for r in rows]) + 1
+        if c.get("kind") in ("term", "tree"):
+            rule.append(":" + "-" * max(3, min(width, 12)))
+        elif c.get("kind") == "stars":
+            rule.append(":" + "-" * 3)
+        else:
+            rule.append("-" * max(3, width) + ":")
+    out.append("| " + " | ".join(_md(x) or " " for x in labels) + " |")
+    out.append("|" + "|".join(rule) + "|")
+    out.extend("| " + " | ".join(_md(x) or " " for x in r) + " |" for r in rows)
     if t.get("note"):
         out.append(f"\n{_md(t['note'])}")
     return "\n".join(out) + "\n"

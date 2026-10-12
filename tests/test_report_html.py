@@ -12,19 +12,31 @@ import pytest
 
 import pyrsm as rsm
 import pyrsm.report as report
-from pyrsm.basics import display_utils as du
 
 DATA = Path(__file__).resolve().parent.parent / "examples" / "data"
 salary = pl.read_parquet(DATA / "basics" / "salary.parquet")
 titanic = pl.read_parquet(next(DATA.rglob("titanic.parquet")))
 
 
+class _Kernel:
+    """What ``du.is_notebook`` looks for: an IPython kernel app."""
+
+    config = {"IPKernelApp": {}}
+
+
 @pytest.fixture
 def shown(monkeypatch):
-    """Pretend to be a notebook and collect what would be displayed."""
+    """Pretend to be a notebook and collect what would be displayed.
+
+    Patched at the IPython level, so it holds even when another test has
+    re-imported pyrsm (test_import_performance clears it from sys.modules).
+    """
+    import IPython
+    import IPython.display
+
     out = []
-    monkeypatch.setattr(du, "is_notebook", lambda: True)
-    monkeypatch.setattr(report, "display", lambda data, text="": out.append(report.Report(data, text)))
+    monkeypatch.setattr(IPython, "get_ipython", lambda: _Kernel())
+    monkeypatch.setattr(IPython.display, "display", lambda *objs, **kw: out.extend(objs))
     return out
 
 
@@ -57,6 +69,7 @@ def test_summary_plain_false_shows_the_formatted_report(name, shown, capsys):
     assert capsys.readouterr().out == "", "the formatted report replaces the printed text"
     assert len(shown) == 1
     html = shown[0]._repr_html_()
+    assert "|" in shown[0]._repr_markdown_()
     assert html.startswith("<style>") and '<section class="pyrsm-report"' in html
     for text in expected:
         assert text in html, f"{name}: {text!r} missing"

@@ -48,6 +48,10 @@ FILL_ALT = "salmon"
 #: radiant.basics ("green" at alpha 0.5 on the gray ggplot panel).
 HIGHLIGHT = "#09E700"
 #: Transparency for filled areas that may overlap.
+# Standard-error bars drawn over a confidence interval (compare means / props,
+# as in Radiant: the interval black, the standard error blue).
+SE = "blue"
+
 ALPHA = 0.5
 
 
