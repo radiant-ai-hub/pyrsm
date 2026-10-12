@@ -70,7 +70,11 @@ def _assets() -> str:
     runner = (_WWW / "js" / "dtab.js").read_text(encoding="utf-8")
     return (
         f"<style>{theme}{_CSS}</style>"
-        f"<script>if(!window.Tabulator){{{tabulator}\n}}</script>"
+        # Quarto's HTML (and classic Jupyter) loads require.js; with an AMD
+        # ``define`` around, Tabulator registers as a module instead of
+        # ``window.Tabulator``, so hide it while the library loads.
+        "<script>if(!window.Tabulator){var __rsmDefine=window.define;window.define=undefined;"
+        f"try{{{tabulator}\n}}finally{{window.define=__rsmDefine;}}}}</script>"
         f"<script>{runner}</script>"
     )
 
