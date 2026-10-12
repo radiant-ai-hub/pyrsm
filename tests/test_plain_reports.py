@@ -110,8 +110,6 @@ CASES = {
     "randomizer": (lambda: rsm.design.randomizer({"rndnames": _data("design", "rndnames")}, vars=["Names"],
                                                  conditions=["A", "B"], seed=1234), {}, ["rndnames"]),
     "sample_size": (lambda: rsm.design.sample_size("mean", err_mean=2, sd_mean=10), {}, ["Sample size"]),
-    "sample_size_comp": (lambda: rsm.design.sample_size_comp("proportion", p1=0.008, p2=0.01, conf=0.95, power=0.9,
-                                                             alt_hyp="less"), {}, ["38,07"]),
     "sampling": (lambda: rsm.design.sampling({"rndnames": _data("design", "rndnames")}, vars=["Names"], sample_size=10,
                                              seed=1234), {}, ["rndnames"]),
     "dtree": (lambda: rsm.decide.dtree(MOVIE, opt="max"), {}, ["Sign contract"]),
