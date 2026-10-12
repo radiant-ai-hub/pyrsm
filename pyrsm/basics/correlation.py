@@ -137,8 +137,17 @@ class correlation:
                 cat = col.dtype == pl.String or isinstance(
                     col.dtype, (pl.Categorical, pl.Enum)
                 )
-                if cat:
-                    numeric = col.cast(pl.Categorical).to_physical().cast(pl.Float64)
+                if isinstance(col.dtype, pl.Enum):
+                    # the level order (I1 < SI2 < ... < IF), as R's factor codes
+                    numeric = col.to_physical().cast(pl.Float64)
+                elif cat:
+                    # no level order: alphabetical, as R's factor() would set it
+                    levels = sorted(col.drop_nulls().cast(pl.Utf8).unique().to_list())
+                    numeric = (
+                        col.cast(pl.Utf8)
+                        .replace_strict(levels, list(range(len(levels))), default=None)
+                        .cast(pl.Float64)
+                    )
                 else:
                     numeric = col.cast(pl.Float64)
                 codes.append(numeric.to_numpy())
@@ -221,7 +230,8 @@ class correlation:
             Number of decimal places to use in rounding
         plain : bool
             If True (default), print plain text output. If False and running
-            in a Jupyter notebook, use styled table output.
+            in a notebook (or a rendered Quarto report), show the formatted
+            report Radiant shows.
 
         Examples
         --------
@@ -230,6 +240,11 @@ class correlation:
         cr = rsm.correlation(salary.select(["salary", "yrs.since.phd", "yrs.service"]))
         cr.summary()
         """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            from pyrsm.basics.report import correlation_report
+
+            return du.show_report(self, correlation_report(self, cov=cov, cutoff=cutoff, dec=dec), cov=cov, cutoff=cutoff, dec=dec)
         self._summary_header()
         if len(self.vars) < 2:
             print("\n**Select two or more variables to calculate correlations**")
@@ -237,7 +252,7 @@ class correlation:
 
         self._print_hypothesis_info(cutoff)
 
-        if not plain and du.is_notebook():
+        if not plain and du.is_notebook() and du.has_great_tables():
             self._style_tables(cov=cov, cutoff=cutoff, dec=dec)
         else:
             self._summary_plain(cov=cov, cutoff=cutoff, dec=dec)

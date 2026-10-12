@@ -346,7 +346,7 @@ class conjoint_choice:
             du.format_pval_expr("p.value", dec),
             (pl.col("OR%").round(max(dec - 2, 0)).cast(pl.Utf8) + "%").alias("OR%"),
         )
-        if not plain and du.is_notebook():
+        if not plain and du.is_notebook() and du.has_great_tables():
             from IPython.display import display
 
             display(

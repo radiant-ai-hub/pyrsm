@@ -98,7 +98,7 @@ class regress:
         Initialize the regress class with the provided data and parameters.
     summary(main=True, fit=True, ci=False, ssq=False, rmse=False, vif=False, test=None, dec=3)
         Summarize the model output.
-    plot(plot_type, nobs=1000, incl=None, excl=None, incl_int=None, fix=True, hline=False, nnv=20, minq=0.025, maxq=0.975)
+    plot(plot_type, nobs=1000, incl=None, excl=None, incl_int=None, fix=True, hline=True, nnv=20, minq=0.025, maxq=0.975)
         Plots for the model.
     predict(data=None, cmd=None, data_cmd=None, ci=False, conf=0.95, interval="confidence")
         Generate predictions using the fitted model.
@@ -561,7 +561,7 @@ class regress:
             print(f"\n{line}\n{title} stepwise selection of variables\n{line}")
 
         self._summary_header()
-        if not plain and du.is_notebook():
+        if not plain and du.is_notebook() and du.has_great_tables():
             self._summary_styled(dec)
         else:
             self._summary_plain(dec)
@@ -816,7 +816,7 @@ class regress:
         incl_int=None,
         lines=None,
         fix=True,
-        hline=False,
+        hline=True,
         ice=False,
         ice_nobs=100,
         nnv=20,
@@ -849,8 +849,10 @@ class regress:
             keeps the default linear fit lines.
         fix : bool, default True
             Fix the y-axis limits. Relevant for prediction plots (pred).
-        hline : bool, default False
-            Add a horizontal line to the plot at the mean of the response variable. Relevant for prediction plots (pred).
+        hline : bool, default True
+            Add a horizontal line at the mean of the response variable (the
+            average response). Relevant for prediction plots (pred) and partial
+            dependence plots (pdp), as for every other model.
         ice : bool, default False
             Show Individual Conditional Expectation (ICE) lines behind the PDP.
             ICE lines show the prediction for each observation as the feature varies.
@@ -900,10 +902,9 @@ class regress:
             distr_plot, _, _, _ = _get_visualize_plots()
             return distr_plot(data).plot()
         if "corr" in plots:
-            from pyrsm.basics.correlation import correlation
+            from pyrsm.model.model import corr_plot
 
-            cr = correlation(data)
-            return cr.plot(nobs=nobs, figsize=figsize)
+            return corr_plot(data, nobs=nobs, figsize=figsize)
         if "scatter" in plots:
             return model_utils.scatter_plot(
                 self.fitted, data, nobs=nobs, figsize=figsize, lines=lines
@@ -1003,7 +1004,8 @@ class regress:
         r_label = _model_utils().r_label
         print(f"\nModel 1: {r_label(formula)}")
         print(f"Model 2: {r_label(self.formula)}")
-        print(f"R-squared, Model 1 vs 2: {r2_sub:.3f} vs {full.rsquared:.3f}")
+        # + 0.0: an intercept-only model's R-squared rounds to 0.000, not -0.000
+        print(f"R-squared, Model 1 vs 2: {round(r2_sub, 3) + 0.0:.3f} vs {full.rsquared:.3f}")
         print(
             f"F-statistic: {round(fvalue, dec)} df ({df_num:.0f}, {full.df_resid:.0f}), p.value {pvalue}"
         )
@@ -1076,7 +1078,7 @@ class regress:
         ) / (self.fitted.nobs - self.fitted.df_model - 1)
 
         pvalue = du.format_pval(fpval, dec)
-        print(f"R-squared, Model 1 vs 2: {r2_sub:.3f} vs {self.fitted.rsquared:.3f}")
+        print(f"R-squared, Model 1 vs 2: {round(r2_sub, 3) + 0.0:.3f} vs {self.fitted.rsquared:.3f}")
         print(
             f"F-statistic: {round(fvalue, dec)} df ({df_num:.0f}, {df_denom:.0f}), p.value {pvalue}"
         )

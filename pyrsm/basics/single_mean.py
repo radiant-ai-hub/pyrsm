@@ -197,8 +197,14 @@ class single_mean:
             The number of decimal places to display (default is 3).
         plain : bool
             If True (default), print plain text output. If False and running
-            in a Jupyter notebook, use styled table output.
+            in a notebook (or a rendered Quarto report), show the formatted
+            report Radiant shows.
         """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            from pyrsm.basics.report import single_mean_report
+
+            return du.show_report(self, single_mean_report(self, dec=dec), dec=dec)
         display = du.SummaryDisplay(
             header_func=self._summary_header,
             plain_func=lambda extra, d: self._summary_plain(d),

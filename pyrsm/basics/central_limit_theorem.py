@@ -11,6 +11,7 @@ from plotnine import (
 )
 from scipy import stats
 
+import pyrsm.basics.display_utils as du
 from pyrsm.plot_style import ALPHA, FILL, REF, theme_pyrsm
 from pyrsm.plot_utils import compose_plots
 
@@ -199,7 +200,7 @@ class clt:
             "clt": {"mean": float(clt_mean), "sd": float(clt_sd)},
         }
 
-    def summary(self, stat: str = "sum", dec: int = 3) -> None:
+    def summary(self, stat: str = "sum", dec: int = 3, plain: bool = True) -> None:
         """
         Print the simulation setup and compare the simulated sample sums (or
         means) to what the Central Limit Theorem predicts.
@@ -210,7 +211,16 @@ class clt:
             ``"sum"`` or ``"mean"``.
         dec : int
             Number of decimals to show.
+        plain : bool
+            If True (default), print plain text output. If False and running
+            in a notebook (or a rendered Quarto report), show the formatted
+            report Radiant shows.
         """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            from pyrsm.basics.report import clt_report
+
+            return du.show_report(self, clt_report(self, stat=stat, dec=dec), stat=stat, dec=dec)
         st = self.stats(stat)
         clt_mean, clt_sd = st["clt"]["mean"], st["clt"]["sd"]
         label = "sums" if stat == "sum" else "means"

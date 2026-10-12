@@ -52,6 +52,10 @@ HIGHLIGHT = "#09E700"
 #: blue as in radiant.basics.
 SE = "blue"
 #: Transparency for filled areas that may overlap.
+# Standard-error bars drawn over a confidence interval (compare means / props,
+# as in Radiant: the interval black, the standard error blue).
+SE = "blue"
+
 ALPHA = 0.5
 
 

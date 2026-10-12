@@ -10,7 +10,7 @@ import pyrsm.basics.utils as bu
 from pyrsm.utils import cat_levels, check_dataframe, ifelse
 from pyrsm.data_scope import apply_scope, print_scope
 from pyrsm.plot_utils import plot_each
-from pyrsm.plot_style import SE, ALPHA, FILL, REF, theme_pyrsm
+from pyrsm.plot_style import ALPHA, FILL, REF, SE, theme_pyrsm
 
 
 @lru_cache(maxsize=1)
@@ -468,8 +468,14 @@ class compare_means:
             The number of decimal places to display (default is 3).
         plain : bool
             If True (default), print plain text output. If False and running
-            in a Jupyter notebook, use styled table output.
+            in a notebook (or a rendered Quarto report), show the formatted
+            report Radiant shows.
         """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            from pyrsm.basics.report import compare_means_report
+
+            return du.show_report(self, compare_means_report(self, extra=extra, dec=dec), extra=extra, dec=dec)
         display = du.SummaryDisplay(
             header_func=self._summary_header,
             plain_func=self._summary_plain,

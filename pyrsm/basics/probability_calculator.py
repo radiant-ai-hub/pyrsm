@@ -1,6 +1,7 @@
 import numpy as np
 from plotnine import annotate, labs
 
+import pyrsm.basics.display_utils as du
 from pyrsm.plot_style import REF
 
 from .prob_calc import (
@@ -164,7 +165,7 @@ class prob_calc:
         else:
             raise ValueError(f"Distribution must be one of {list(pc_dist.keys())}")
 
-    def summary(self, dec=3, ret=False):
+    def summary(self, dec=3, ret=False, plain: bool = True):
         """
         Print or return a formatted summary of probabilities.
 
@@ -174,12 +175,21 @@ class prob_calc:
             Number of decimals for printed values.
         ret : bool
             If True, return the summary dict instead of printing.
+        plain : bool
+            If True (default), print plain text output. If False and running
+            in a notebook (or a rendered Quarto report), show the formatted
+            report Radiant shows.
 
         Returns
         -------
         dict | None
             Summary dictionary if ``ret=True``; otherwise None.
         """
+        if not plain and not ret and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            from pyrsm.basics.report import prob_calc_report
+
+            return du.show_report(self, prob_calc_report(self, dec=dec), dec=dec)
         type = "probs" if ("plb" in self.args) or ("pub" in self.args) else "values"
         if self.distribution == "binom":
             pdict = summary_prob_binom(self.dct, type=type, dec=dec, ret=True)

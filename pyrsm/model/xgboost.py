@@ -10,8 +10,8 @@ from pyrsm.model.model import (
     conditional_get_dummies,
     convert_to_list,
     evalreg,
+    kept_rows,
     nobs_dropped,
-    reg_dashboard,
     sim_prediction,
 )
 from pyrsm.model.perf import auc
@@ -128,6 +128,11 @@ class xgboost:
         self.cv = cv
         self.kwargs = kwargs
         self.nobs_all = self.data.height
+
+        # The response as the student knows it (Yes / No), and the rows kept
+        # after dropping missing values, for the dashboard and the residuals
+        self.rv = self.data.get_column(self.rvar) if self.rvar in self.data.columns else None
+        self._kept_rows = kept_rows(self.data, [self.rvar] + self.evar)
 
         # Apply binary conversion on polars DataFrame
         if self.mod_type == "classification":
@@ -262,6 +267,14 @@ class xgboost:
             print(f"Extra arguments      : {', '.join(kwargs_list)}")
         print("\nEstimation data      :")
         print(self.data_onehot.head())
+
+    @property
+    def residuals(self) -> pl.Series:
+        """Actual minus predicted on the estimation data, one value per row of
+        the data the model was given (empty where a value was missing)."""
+        from pyrsm.model.model import ml_residuals
+
+        return ml_residuals(self)
 
     def predict(self, data=None, cmd=None, data_cmd=None, dec=None) -> pl.DataFrame:
         """
@@ -468,11 +481,14 @@ class xgboost:
             else:
                 return p
 
-        if "dashboard" in plots and self.mod_type == "regression":
-            rvar_series = self.data.get_column(self.rvar)
-            model = self.fitted
-            pred_df = self.predict()
-            model.fittedvalues = pred_df["prediction"]
-            model.resid = rvar_series - model.fittedvalues
-            model.model = pl.DataFrame({"endog": rvar_series})
-            return reg_dashboard(model, nobs=nobs)
+        if "dashboard" in plots:
+            from pyrsm.model.model import ml_dashboard, other_level
+
+            return ml_dashboard(
+                self.data.get_column(self.rvar),
+                self.predict().get_column("prediction"),
+                self.mod_type,
+                lev=self.lev,
+                other=other_level(self.rv, self.lev),
+                nobs=nobs,
+            )

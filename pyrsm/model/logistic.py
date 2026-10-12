@@ -53,14 +53,6 @@ def _get_visualize_plots():
     return distr, pred_plot_sm, pdp_sm, pip_plot_sm
 
 
-@lru_cache(maxsize=1)
-def _get_correlation():
-    """Lazy load correlation class."""
-    from pyrsm.basics.correlation import correlation
-
-    return correlation
-
-
 def _formula_model(formula: str, data: pl.DataFrame):
     """The design of ``formula`` (no fit), to read its explanatory variables."""
     return smf.glm(formula, data=to_model_pandas(data), family=Binomial(link=Logit()))
@@ -429,12 +421,19 @@ class logistic:
         """Coefficient confidence intervals (``ci_type``), as radiant.model."""
         from pyrsm.model.model import profile_ci
 
-        alpha = 1 - conf
-        if self.ci_type == "profile":
-            return profile_ci(self.fitted, alpha=alpha)
-        ci = self.fitted_inference.conf_int(alpha=alpha)
-        ci = pd.DataFrame(np.asarray(ci), index=self.fitted.params.index)
-        return ci
+        # Profile intervals refit the model for every coefficient bound, so the
+        # summary, a report and a later VIF or odds request share one computation.
+        cache = self.__dict__.setdefault("_conf_int_cache", {})
+        key = (round(float(conf), 10), self.ci_type)
+        if key not in cache:
+            alpha = 1 - conf
+            if self.ci_type == "profile":
+                ci = profile_ci(self.fitted, alpha=alpha)
+            else:
+                ci = self.fitted_inference.conf_int(alpha=alpha)
+                ci = pd.DataFrame(np.asarray(ci), index=self.fitted.params.index)
+            cache[key] = ci
+        return cache[key].copy()
 
     def summary_data(
         self,
@@ -569,7 +568,7 @@ class logistic:
             print(f"\n{line}\n{title} stepwise selection of variables\n{line}")
 
         self._summary_header()
-        if not plain and du.is_notebook():
+        if not plain and du.is_notebook() and du.has_great_tables():
             self._summary_styled(dec)
         else:
             self._summary_plain(dec)
@@ -627,6 +626,13 @@ class logistic:
 
         if test is not None and len(test) > 0:
             self.chisq_test(test=test, dec=dec)
+
+    def _with_response_levels(self, data: pl.DataFrame) -> pl.DataFrame:
+        """``data`` with the response as the student knows it (Yes / No), not
+        the 0/1 the model is estimated on."""
+        if self.rvar in data.columns and self.rv is not None and len(self.rv) == data.height:
+            return data.with_columns(self.rv.alias(self.rvar))
+        return data
 
     def collinearity_note(self) -> str:
         """R's perfect-multicollinearity message, naming the dropped columns
@@ -870,7 +876,15 @@ class logistic:
         if "dashboard" in plots:
             from pyrsm.model.model import logit_dashboard
 
-            return logit_dashboard(self.fitted, lev=self.lev, figsize=figsize or (10, 9))
+            # The other level by name (No), when the response has two levels
+            other = None
+            if self.rv is not None:
+                levels = [str(v) for v in self.rv.drop_nulls().unique().to_list()]
+                rest = [v for v in levels if v != str(self.lev)]
+                other = rest[0] if len(rest) == 1 else None
+            return logit_dashboard(
+                self.fitted, lev=self.lev, figsize=figsize or (10, 9), other=other
+            )
 
         if "influence" in plots:
             from pyrsm.model.model import influence_plot
@@ -891,11 +905,11 @@ class logistic:
                 _,
                 _,
             ) = _get_visualize_plots()
-            return distr_plot(data).plot()
+            return distr_plot(self._with_response_levels(data)).plot()
         elif "corr" in plots:
-            correlation = _get_correlation()
-            cr = correlation(data)
-            return cr.plot(nobs=nobs, figsize=figsize)
+            from pyrsm.model.model import corr_plot
+
+            return corr_plot(self._with_response_levels(data), nobs=nobs, figsize=figsize)
         elif "or" in plots or "coef" in plots:
             return or_plot(
                 self.fitted_inference,
@@ -1013,7 +1027,7 @@ class logistic:
         pr2_full = 1 - self.fitted.llf / self.fitted.llnull
         pr2_sub = 1 - sub_fitted.llf / sub_fitted.llnull
 
-        print(f"Pseudo R-squared, Model 1 vs 2: {pr2_sub:.3f} vs {pr2_full:.3f}")
+        print(f"Pseudo R-squared, Model 1 vs 2: {round(pr2_sub, 3) + 0.0:.3f} vs {pr2_full:.3f}")
         pvalue = du.format_pval(pvalue, dec)
         print(f"Chi-squared: {round(lrtest, dec)} df ({df:.0f}), p.value {pvalue}")
 
