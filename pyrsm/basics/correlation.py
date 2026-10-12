@@ -252,10 +252,7 @@ class correlation:
 
         self._print_hypothesis_info(cutoff)
 
-        if not plain and du.is_notebook() and du.has_great_tables():
-            self._style_tables(cov=cov, cutoff=cutoff, dec=dec)
-        else:
-            self._summary_plain(cov=cov, cutoff=cutoff, dec=dec)
+        self._summary_plain(cov=cov, cutoff=cutoff, dec=dec)
 
     def _summary_header(self) -> None:
         """Print the summary header."""
@@ -352,46 +349,6 @@ class correlation:
                     "correlations are estimated from latent variables, so a "
                     "covariance matrix on the original scale is not defined."
                 )
-
-    def _style_tables(self, cov: bool = False, cutoff: float = 0, dec: int = 2) -> None:
-        """Display styled tables using great_tables in Jupyter."""
-        from IPython.display import display
-
-        crs_display, cps_display, cvs_display = self._build_matrix_displays(cutoff, dec)
-
-        gt1 = du.style_table(
-            crs_display,
-            title="Correlation Matrix",
-            subtitle=f"Method: {self.method}",
-        )
-        display(gt1)
-
-        if self.method != "polychoric" or self.hcor_se:
-            gt2 = du.style_table(
-                cps_display,
-                title="P-values",
-                subtitle="",
-            )
-            display(gt2)
-
-        if cov and self.method != "polychoric":
-            gt3 = du.style_table(
-                cvs_display,
-                title="Covariance Matrix",
-                subtitle="",
-            )
-            display(gt3)
-        elif cov:
-            from IPython.display import Markdown
-
-            display(
-                Markdown(
-                    "**Covariance Matrix:** Not available for the polychoric "
-                    "method. Heterogeneous correlations are estimated from "
-                    "latent variables, so a covariance matrix on the original "
-                    "scale is not defined."
-                )
-            )
 
     def cor2df(self, labels: tuple[str, str] = ("label1", "label2")) -> pl.DataFrame:
         """

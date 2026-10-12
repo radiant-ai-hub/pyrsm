@@ -188,10 +188,7 @@ class goodness:
         output = ifelse(isinstance(output, str), [output], output)
         self._validate_and_print_header()
 
-        if not plain and du.is_notebook() and du.has_great_tables():
-            self._style_tables(output=output, dec=dec)
-        else:
-            self._summary_plain(output=output, dec=dec)
+        self._summary_plain(output=output, dec=dec)
 
         self._summary_footer(dec=dec)
 
@@ -246,38 +243,6 @@ class goodness:
                     "\nDeviation standardized: (observed - expected) / sqrt(expected)\n"
                 )
                 print(self.stdev)
-
-    def _style_tables(self, output: list[str], dec: int = 3) -> None:
-        """Display styled tables using great_tables in Jupyter."""
-        from IPython.display import display
-
-        if "observed" in output:
-            gt = du.style_table(
-                self.observed, title="Observed Frequencies", subtitle=""
-            )
-            display(gt)
-
-        if "expected" in output:
-            gt = du.style_table(
-                self.expected, title="Expected Frequencies", subtitle="total × p"
-            )
-            display(gt)
-
-        if "chisq" in output:
-            gt = du.style_table(
-                self.chisq,
-                title="Chi-squared Contributions",
-                subtitle="(observed - expected)² / expected",
-            )
-            display(gt)
-
-        if "dev_std" in output:
-            gt = du.style_table(
-                self.stdev,
-                title="Standardized Deviations",
-                subtitle="(observed - expected) / √expected",
-            )
-            display(gt)
 
     def _summary_footer(self, dec: int = 3) -> None:
         """Print chi-squared test results."""

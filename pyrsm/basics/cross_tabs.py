@@ -310,10 +310,7 @@ class cross_tabs:
         output = ifelse(isinstance(output, str), [output], output)
         self._summary_header()
 
-        if not plain and du.is_notebook() and du.has_great_tables():
-            self._style_tables(output=output, dec=dec)
-        else:
-            self._summary_plain(output=output, dec=dec)
+        self._summary_plain(output=output, dec=dec)
 
         self._summary_footer(dec=dec)
 
@@ -422,100 +419,6 @@ Chi-squared: {round(self.chisq_test[0], dec)} df({int(self.chisq_test[2])}), p.v
                     ]
                 )
                 print(perc_pct)
-
-    def _style_tables(self, output: list[str], dec: int = 2) -> None:
-        """Display styled tables using great_tables in Jupyter."""
-        from IPython.display import display
-
-        if "observed" in output:
-            gt = du.style_table(
-                self.observed, title="Observed Frequencies", subtitle=""
-            )
-            display(gt)
-
-        if "expected" in output:
-            exp_rounded = self.expected.select(
-                [
-                    pl.col(self.var1),
-                    *[
-                        pl.col(c).cast(pl.Float64).round(dec)
-                        for c in self._var2_levels + ["Total"]
-                    ],
-                ]
-            )
-            gt = du.style_table(
-                exp_rounded,
-                title="Expected Frequencies",
-                subtitle="(row total x column total) / total",
-            )
-            display(gt)
-
-        if "chisq" in output:
-            chisq_rounded = self.chisq.select(
-                [
-                    pl.col(self.var1),
-                    *[
-                        pl.col(c).cast(pl.Float64).round(dec)
-                        for c in self._var2_levels + ["Total"]
-                    ],
-                ]
-            )
-            gt = du.style_table(
-                chisq_rounded,
-                title="Chi-squared Contributions",
-                subtitle="(o - e)² / e",
-            )
-            display(gt)
-
-        if "dev_std" in output:
-            dev_rounded = self.dev_std.select(
-                [pl.col(self.var1), *[pl.col(c).round(dec) for c in self._var2_levels]]
-            )
-            gt = du.style_table(
-                dev_rounded,
-                title="Standardized Deviations",
-                subtitle="(o - e) / √e",
-            )
-            display(gt)
-
-        if "perc_row" in output:
-            perc_row_pct = self.perc_row.select(
-                [
-                    pl.col(self.var1),
-                    *[
-                        (pl.col(c) * 100).round(dec).cast(pl.Utf8) + "%"
-                        for c in self._var2_levels + ["Total"]
-                    ],
-                ]
-            )
-            gt = du.style_table(perc_row_pct, title="Row Percentages", subtitle="")
-            display(gt)
-
-        if "perc_col" in output:
-            perc_col_pct = self.perc_col.select(
-                [
-                    pl.col(self.var1),
-                    *[
-                        (pl.col(c) * 100).round(dec).cast(pl.Utf8) + "%"
-                        for c in self._var2_levels + ["Total"]
-                    ],
-                ]
-            )
-            gt = du.style_table(perc_col_pct, title="Column Percentages", subtitle="")
-            display(gt)
-
-        if "perc" in output:
-            perc_pct = self.perc.select(
-                [
-                    pl.col(self.var1),
-                    *[
-                        (pl.col(c) * 100).round(dec).cast(pl.Utf8) + "%"
-                        for c in self._var2_levels + ["Total"]
-                    ],
-                ]
-            )
-            gt = du.style_table(perc_pct, title="Percentages", subtitle="")
-            display(gt)
 
     def plot(self, plots: list[str] = "perc_col", **kwargs):
         """

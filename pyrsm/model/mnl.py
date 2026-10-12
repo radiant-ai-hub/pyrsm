@@ -540,8 +540,18 @@ class mnl:
         dec : int, default 3
             Number of decimals.
         plain : bool, default True
-            Plain text output (styled tables in a notebook with ``False``).
+            If True (default), print plain text output. If False and running
+            in a notebook (or a rendered Quarto report), show the formatted
+            report Radiant shows (the header, coefficients and fit, with the
+            sections selected here).
         """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            from pyrsm.model.report import mnl_report
+
+            opts = dict(ci=ci, rrr=rrr, confusion=confusion, test=test, conf=conf, dec=dec)
+            return du.show_report(self, mnl_report(self, **opts), main=main, fit=fit, **opts)
+
         if main:
             if self.stepwise:
                 print(self.step_trace)
@@ -625,20 +635,7 @@ class mnl:
             .otherwise(pl.col("p.value").round(dec).cast(pl.Utf8))
             .alias("p.value"),
         )
-        if not plain and du.is_notebook() and du.has_great_tables():
-            from IPython.display import display
-
-            display(
-                du.style_table(
-                    df,
-                    title="Coefficient Estimates",
-                    subtitle=f"Response: {self.rvar} (base level: {self.lev})",
-                    number_cols=["coefficient", "std.error", "z.value"],
-                    dec=dec,
-                )
-            )
-        else:
-            du.print_plain_tables(df)
+        du.print_plain_tables(df)
 
     def _fit_text(self, dec: int = 3) -> str:
         fs = self.fit_stats

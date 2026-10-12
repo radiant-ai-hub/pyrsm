@@ -326,8 +326,14 @@ class conjoint_choice:
         dec : int, default 3
             Number of decimal places to round to.
         plain : bool, default True
-            Plain text tables; set to False for styled tables in a notebook.
+            If True (default), print plain text output. If False and running
+            in a notebook (or a rendered Quarto report), show the formatted
+            report Radiant shows.
         """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            return du.show_text_report(self, "conjoint_choice", dec=dec)
+
         print("Conjoint choice model (conditional logit)")
         print(f"Data                 : {self.name}")
         print_scope(self, 21)
@@ -346,24 +352,11 @@ class conjoint_choice:
             du.format_pval_expr("p.value", dec),
             (pl.col("OR%").round(max(dec - 2, 0)).cast(pl.Utf8) + "%").alias("OR%"),
         )
-        if not plain and du.is_notebook() and du.has_great_tables():
-            from IPython.display import display
-
-            display(
-                du.style_table(
-                    df,
-                    title="Coefficient Estimates",
-                    subtitle=f"Response: {self.rvar} (level: {self.lev})",
-                    number_cols=["OR", "coefficient", "std.error", "z.value"],
-                    dec=dec,
-                )
+        du.print_plain_tables(
+            df.with_columns(
+                [pl.col(c).round(dec) for c in ("OR", "coefficient", "std.error", "z.value")]
             )
-        else:
-            du.print_plain_tables(
-                df.with_columns(
-                    [pl.col(c).round(dec) for c in ("OR", "coefficient", "std.error", "z.value")]
-                )
-            )
+        )
         du.print_sig_codes()
 
         fs = self.fit_stats

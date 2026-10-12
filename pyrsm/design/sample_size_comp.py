@@ -5,6 +5,7 @@ from scipy.optimize import brentq
 from scipy.stats import nct, norm
 from scipy.stats import t as t_dist
 
+from pyrsm.basics import display_utils as du
 from pyrsm.utils import format_nr
 
 
@@ -406,8 +407,15 @@ class sample_size_comp:
         self.power = float(power)
         self.conf = float(conf)
 
-    def summary(self, dec: int = 3) -> None:
-        """Print summary of sample size comparison calculation."""
+    def summary(self, dec: int = 3, plain: bool = True) -> None:
+        """Print summary of sample size comparison calculation.
+
+        ``plain=False`` in a notebook (or a rendered Quarto report) shows the formatted report Radiant shows.
+        """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            return du.show_text_report(self, "sample_size_comp", dec=dec)
+
         if self.error:
             print(self.error)
             return
