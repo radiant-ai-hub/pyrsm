@@ -102,18 +102,23 @@ class sample_size:
 
         print("Sample size calculation")
 
+        def num(x):
+            # 10.0 -> "10", 60.95 -> "60.95"
+            x = round(float(x), dec)
+            return str(int(x)) if x.is_integer() else str(x)
+
         if self.type == "mean":
             print("Calculation type     : Mean")
-            print(f"Acceptable Error     : {self.err_mean}")
-            print(f"Standard deviation   : {self.sd_mean}")
+            print(f"Acceptable error     : {num(self.err_mean)}")
+            print(f"Standard deviation   : {num(self.sd_mean)}")
         else:
             print("Calculation type     : Proportion")
-            print(f"Acceptable Error     : {self.err_prop}")
-            print(f"Proportion           : {self.p_prop}")
+            print(f"Acceptable error     : {num(self.err_prop)}")
+            print(f"Proportion           : {num(self.p_prop)}")
 
-        print(f"Confidence level     : {self.conf}")
-        print(f"Incidence rate       : {self.incidence}")
-        print(f"Response rate        : {self.response}")
+        print(f"Confidence level     : {num(self.conf)}")
+        print(f"Incidence rate       : {num(self.incidence)}")
+        print(f"Response rate        : {num(self.response)}")
 
         if not self.pop_correction:
             print("Population correction: None")

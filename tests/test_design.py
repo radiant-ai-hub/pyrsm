@@ -1,3 +1,5 @@
+import contextlib
+import io
 import math
 
 import polars as pl
@@ -56,6 +58,17 @@ class TestSampleSize:
     def test_summary_proportion_runs(self):
         ss = sample_size("proportion", err_prop=0.1, p_prop=0.5)
         ss.summary()
+
+    def test_summary_numbers_are_not_floats(self):
+        """Inputs arrive as floats from the app: 10.0 shows as 10."""
+        ss = sample_size("mean", err_mean=10.0, sd_mean=60.95, incidence=1.0)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            ss.summary()
+        text = out.getvalue()
+        assert "Acceptable error     : 10\n" in text
+        assert "Incidence rate       : 1\n" in text
+        assert "Standard deviation   : 60.95\n" in text
 
     def test_summary_pop_correction_runs(self):
         ss = sample_size(
@@ -221,6 +234,124 @@ class TestSampleSizeComp:
     def test_summary_runs(self):
         ssc = sample_size_comp("proportion", p1=0.1, p2=0.15, conf=0.95, power=0.8)
         ssc.summary()  # Should not raise
+
+    # Values below are R's radiant.design::sample_size_comp (pwr package)
+    @pytest.mark.parametrize(
+        "kwargs, field, expected",
+        [
+            (dict(delta=2, sd=10, conf=0.95, power=0.8), "n1", 394),
+            (dict(n1=200, n2=200, delta=2, sd=10, conf=0.95), "power", 0.5141),
+            (dict(n1=200, n2=200, delta=2, sd=10, power=0.8), "conf", 0.7538),
+            (dict(n1=200, n2=200, sd=10, conf=0.95, power=0.8), "delta", 2.8083),
+            (dict(n1=200, n2=200, delta=2, conf=0.95, power=0.8), "sd", 7.1216),
+            (dict(n1=300, delta=2, sd=10, conf=0.95, power=0.8), "n2", 571),
+            (dict(n2=300, delta=2, sd=10, conf=0.95, power=0.8), "n1", 571),
+            (dict(n1=200, n2=600, delta=2, sd=10, conf=0.95), "power", 0.6867),
+            (
+                dict(delta=2, sd=10, conf=0.95, power=0.8, alt_hyp="greater"),
+                "n1",
+                310,
+            ),
+        ],
+    )
+    def test_mean_matches_r(self, kwargs, field, expected):
+        ssc = sample_size_comp("mean", **kwargs)
+        assert ssc.error is None
+        value = getattr(ssc, field)
+        if isinstance(expected, int):
+            assert math.ceil(value) == expected
+        else:
+            assert value == pytest.approx(expected, abs=2e-4)
+
+    def test_mean_one_sided_less_is_the_same_test(self):
+        """Delta is the size of the difference, so 'less' sizes like 'greater'
+        (R returns an error for 'less')."""
+        less = sample_size_comp(
+            "mean", delta=2, sd=10, conf=0.95, power=0.8, alt_hyp="less"
+        )
+        assert math.ceil(less.n1) == 310
+
+    def test_mean_large_n_has_no_nan(self):
+        """scipy's noncentral t is nan far in a tail; power stays defined."""
+        ssc = sample_size_comp("mean", delta=0.1, sd=10, conf=0.95, power=0.8)
+        assert math.ceil(ssc.n1) == 156979  # R: 156978.2
+
+    @pytest.mark.parametrize(
+        "kwargs, field, expected",
+        [
+            (dict(p1=0.1, p2=0.15, conf=0.95, power=0.8), "n1", 681),
+            (dict(n1=500, n2=500, p1=0.1, p2=0.15, conf=0.95), "power", 0.6707),
+            (dict(n1=500, n2=500, p1=0.1, p2=0.15, power=0.8), "conf", 0.8813),
+            (dict(n1=2000, p1=0.1, p2=0.15, conf=0.95, power=0.8), "n2", 410),
+            (dict(n2=2000, p1=0.1, p2=0.15, conf=0.95, power=0.8), "n1", 410),
+            (dict(n1=500, n2=1500, p1=0.1, p2=0.15, conf=0.95), "power", 0.8368),
+            (
+                dict(p1=0.1, p2=0.15, conf=0.95, power=0.8, alt_hyp="less"),
+                "n1",
+                536,
+            ),
+        ],
+    )
+    def test_proportion_matches_r(self, kwargs, field, expected):
+        ssc = sample_size_comp("proportion", **kwargs)
+        assert ssc.error is None
+        value = getattr(ssc, field)
+        if isinstance(expected, int):
+            assert math.ceil(value) == expected
+        else:
+            assert value == pytest.approx(expected, abs=2e-4)
+
+    def test_proportion_solve_p_two_sided_gives_both(self):
+        """R: p1 = 0.2184 or 0.0925 for p2 = 0.15 and n1 = n2 = 500."""
+        ssc = sample_size_comp(
+            "proportion", n1=500, n2=500, p2=0.15, conf=0.95, power=0.8
+        )
+        assert ssc.p1 == pytest.approx([0.2184, 0.0925], abs=2e-4)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            ssc.summary()
+        assert "Proportion 1     : 0.218, 0.093" in out.getvalue()
+
+    def test_proportion_solve_p2_less(self):
+        """R: p2 = 0.1519 for p1 = 0.1, 'less' (used to fail in brentq)."""
+        ssc = sample_size_comp(
+            "proportion",
+            n1=500,
+            n2=500,
+            p1=0.1,
+            conf=0.95,
+            power=0.8,
+            alt_hyp="less",
+        )
+        assert ssc.error is None
+        assert ssc.p2 == pytest.approx(0.1519, abs=2e-4)
+
+    @pytest.mark.parametrize("type_", ["mean", "proportion"])
+    def test_ratio_is_n1_over_n2(self, type_):
+        """ratio=3: group 1 is three times group 2 and power is as requested
+        (checked with R's pwr.t2n.test / pwr.2p2n.test)."""
+        kwargs = (
+            dict(delta=2, sd=10) if type_ == "mean" else dict(p1=0.1, p2=0.15)
+        )
+        ssc = sample_size_comp(type_, conf=0.95, power=0.8, ratio=3, **kwargs)
+        assert ssc.n1 == pytest.approx(3 * ssc.n2)
+        assert (math.ceil(ssc.n1), math.ceil(ssc.n2)) == (
+            (787, 263) if type_ == "mean" else (1361, 454)
+        )
+
+    def test_no_solution_is_an_error_not_an_exception(self):
+        ssc = sample_size_comp("mean", delta=200, sd=10, conf=0.95, power=0.8)
+        assert ssc.error is not None
+        assert "no solution" in ssc.error.lower() or "not have a solution" in ssc.error
+
+    def test_summary_rounds_solved_values(self):
+        ssc = sample_size_comp("mean", n1=200, n2=200, sd=10, conf=0.95, power=0.8)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            ssc.summary(dec=3)
+        text = out.getvalue()
+        assert "Delta            : 2.808" in text
+        assert "Std. deviation   : 10\n" in text
 
 
 # ============================================================
