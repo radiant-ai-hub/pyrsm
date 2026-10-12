@@ -780,8 +780,72 @@ def render_html(report: Mapping[str, Any], *, style: bool = True) -> str:
     return "".join(out)
 
 
+def _md(value: Any) -> str:
+    """Text safe inside Markdown (and a pipe-table cell)."""
+    text = "" if value is None else str(value)
+    return re.sub(r"([\\`*_\[\]<>|#])", r"\\\1", text)
+
+
+def _table_md(t: Mapping[str, Any], with_title: bool = True) -> str:
+    columns = list(t.get("columns") or [])
+    if not columns:
+        return ""
+    out = []
+    if with_title and t.get("title"):
+        sub = f" -- {_md(t['subtitle'])}" if t.get("subtitle") else ""
+        out.append(f"**{_md(t['title'])}**{sub}\n")
+    head = "| " + " | ".join(_md(c.get("label", "")) or " " for c in columns) + " |"
+    rule = "|" + "|".join(
+        ":---" if c.get("kind") in ("term", "tree", "stars") else "---:" for c in columns
+    ) + "|"
+    out += [head, rule]
+    for row in t.get("rows") or []:
+        cells = []
+        for c in columns:
+            value = row.get(c.get("key", ""), "")
+            if c.get("kind") == "tree":
+                value = f"{row.get('_guide', '')}{value}"
+            cells.append(_md(value) or " ")
+        out.append("| " + " | ".join(cells) + " |")
+    if t.get("note"):
+        out.append(f"\n{_md(t['note'])}")
+    return "\n".join(out) + "\n"
+
+
+def render_markdown(report: Mapping[str, Any]) -> str:
+    """The report as Markdown: what a PDF or Word render of a Quarto report shows.
+
+    Quarto uses a result's HTML for HTML output and its Markdown for PDF and
+    Word, where pandoc turns the pipe tables into native tables that fit the page.
+    """
+    out = []
+    if report.get("title"):
+        out.append(f"**{_md(report['title'])}**\n")
+    lines = [f"{_md(m.get('label'))}: {_md(m.get('value'))}" if m.get("label") else _md(m.get("value"))
+             for m in report.get("meta") or []]
+    lines += [f"{_md(h.get('label'))}: *{_md(h.get('value'))}*" for h in report.get("hypotheses") or []]
+    if lines:
+        out.append("\\\n".join(lines) + "\n")
+    for t in report.get("tables") or []:
+        out.append(_table_md(t))
+    if report.get("fit"):
+        out.append("\\\n".join(_md(line) for line in report["fit"]) + "\n")
+    for section in report.get("sections") or []:
+        out.append(f"**{_md(section.get('title'))}**\n")
+        if isinstance(section.get("table"), Mapping):
+            out.append(_table_md(section["table"], with_title=False))
+        if section.get("lines") and section.get("preformatted"):
+            out.append("```\n" + "\n".join(section["lines"]) + "\n```\n")
+        elif section.get("lines"):
+            out.append("\\\n".join(_md(x) for x in section["lines"]) + "\n")
+        for t in section.get("tables") or []:
+            out.append(_table_md(t))
+    return "\n".join(out)
+
+
 class Report:
-    """A report to display: Radiant's HTML in a notebook, pyrsm's text elsewhere.
+    """A report to display: Radiant's HTML in a notebook, Markdown for a PDF or
+    Word render of a Quarto report, pyrsm's text elsewhere.
 
     ``summary(plain=False)`` displays one in a notebook (and so in a rendered
     Quarto report). ``data`` is the report dict; ``text`` the plain summary.
@@ -793,6 +857,9 @@ class Report:
 
     def _repr_html_(self) -> str:
         return render_html(self.data)
+
+    def _repr_markdown_(self) -> str:
+        return render_markdown(self.data)
 
     def _repr_pretty_(self, printer: Any, cycle: bool) -> None:
         printer.text(self.text or str(self.data.get("title", "")))
