@@ -105,7 +105,29 @@ class correlation:
                 col for col, dtype in self.data.schema.items() if dtype.is_numeric()
             ]
 
+        # Listwise deletion, as radiant.basics (get_data(na.rm = TRUE) runs
+        # na.omit() before psych::corr.test): a row missing any selected
+        # variable is dropped for every pair, so all correlations, p-values and
+        # covariances describe the same rows. Pairwise deletion gave different
+        # numbers for pairs without missing values.
+        nobs_all = self.data.height
         self.data = self.data.select(self.vars)
+        floats = [col for col, dtype in self.data.schema.items() if dtype.is_float()]
+        if floats:
+            self.data = self.data.with_columns(pl.col(floats).fill_nan(None))
+        self.data = self.data.drop_nulls()
+        self.nobs = self.data.height
+        self.nobs_dropped = nobs_all - self.nobs
+        # radiant.basics refuses variables without variation (does_vary); after
+        # listwise deletion that can be a variable that varies in the full data
+        # (e.g., purchase y/n once only buyers have a spend amount)
+        not_vary = [col for col in self.vars if self.data[col].n_unique() < 2]
+        if not_vary:
+            after = " after dropping rows with missing values" if self.nobs_dropped else ""
+            raise ValueError(
+                f"The following variable(s) show no variation{after}: "
+                f"{', '.join(not_vary)}. Please select other variables."
+            )
         self.method = method
         self.hcor_se = bool(hcor_se) and method == "polychoric"
 
@@ -261,6 +283,11 @@ class correlation:
         for line in scope_lines(self, 9):
             prn += f"{line}\n"
         prn += f"Method   : {self.method}"
+        if self.nobs_dropped > 0:
+            prn += (
+                f"\nDropped  : {self.nobs_dropped:,} of {self.nobs + self.nobs_dropped:,}"
+                " rows (missing values)"
+            )
         print(prn)
 
     def _print_hypothesis_info(self, cutoff: float) -> None:
