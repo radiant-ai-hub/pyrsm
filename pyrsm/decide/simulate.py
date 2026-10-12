@@ -954,7 +954,7 @@ def _generate_python_code(spec: SimulationSpec, data_name: str = "") -> str:
     lines += [
         "",
         f"sim = rsm.decide.simulate(spec{data_arg})",
-        "sim.summary()",
+        "sim.summary(plain=False)",
         "sim.plot()",
         "simdat = sim.data",
     ]
@@ -1197,7 +1197,7 @@ def _repeat_code(rep: RepeatResult, kwargs: dict[str, Any], data_name: str) -> s
             "    spec,",
             *args,
             ")",
-            "rep.summary()",
+            "rep.summary(plain=False)",
             "rep.plot()",
             "repdat = rep.data",
         ]

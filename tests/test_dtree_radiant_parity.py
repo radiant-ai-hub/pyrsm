@@ -122,7 +122,7 @@ def test_python_code_includes_the_referenced_trees():
     code = tree.python_code
     assert "trees = {" in code and "'popup':" in code and "subtree_library=trees" in code
     ns: dict = {}
-    exec(code.replace("tree.summary(input=True, output=True)", "").replace("print(tree.to_mermaid(final=True))", ""), ns)
+    exec(code.replace("tree.summary(input=True, output=True, plain=False)", "").replace("print(tree.to_mermaid(final=True))", ""), ns)
     assert ns["tree"].payoff == pytest.approx(820000)
 
 

@@ -356,7 +356,7 @@ def test_generated_python_code_runs_and_matches():
     )
     result = simulate(spec)
     namespace: dict = {}
-    code = result.python_code.replace("sim.summary()", "").replace("sim.plot()", "")
+    code = result.python_code.replace("sim.summary(plain=False)", "").replace("sim.plot()", "")
     exec(code, namespace)  # noqa: S102 - controlled generated code
     df = namespace["simdat"]
     assert isinstance(df, pl.DataFrame)

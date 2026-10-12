@@ -272,7 +272,7 @@ class TestSerialization:
     def test_python_code_is_valid_and_reproduces(self, production_mix):
         opt = optimize(production_mix)
         ns: dict = {}
-        exec(opt.python_code.replace("opt.summary()", "RESULT = opt"), ns)
+        exec(opt.python_code.replace("opt.summary(plain=False)", "RESULT = opt"), ns)
         assert math.isclose(ns["RESULT"].objective_value, 10000.0, abs_tol=1e-6)
 
     def test_dataframes(self, production_mix):

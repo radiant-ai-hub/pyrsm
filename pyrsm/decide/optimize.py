@@ -1000,7 +1000,7 @@ class optimize:
             f"model = {model_repr}",
             "",
             "opt = rsm.decide.optimize(model)",
-            "opt.summary()",
+            "opt.summary(plain=False)",
         ]
         return "\n".join(lines)
 

@@ -2184,7 +2184,7 @@ class dtree:
             "'''",
             "",
             f"tree = rsm.decide.dtree(yaml_text, opt={self.opt!r}{library})",
-            "tree.summary(input=True, output=True)",
+            "tree.summary(input=True, output=True, plain=False)",
             "print(tree.to_mermaid(final=True))",
         ]
         return "\n".join(lines)
