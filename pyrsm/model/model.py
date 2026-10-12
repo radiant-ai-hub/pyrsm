@@ -1449,7 +1449,9 @@ def logit_dashboard_data(fitted, qnt: int = 10) -> dict[str, pl.DataFrame | floa
     }
 
 
-def logit_dashboard(fitted, lev: str | None = None, qnt: int = 10, figsize=(10, 9)):
+def logit_dashboard(
+    fitted, lev: str | None = None, qnt: int = 10, figsize=(10, 9), other: str | None = None
+):
     """
     Diagnostic dashboard for a binary classifier (logistic regression)
 
@@ -1468,9 +1470,12 @@ def logit_dashboard(fitted, lev: str | None = None, qnt: int = 10, figsize=(10, 
         Number of predicted-probability bins for the calibration and gains views.
     figsize : tuple
         Figure size of the composed dashboard.
+    other : str, optional
+        Label for the other outcome (e.g. ``No``); ``not <lev>`` when not given.
     """
     d = logit_dashboard_data(fitted, qnt=qnt)
     positive = str(lev) if lev is not None else "1"
+    negative = str(other) if other is not None else f"not {positive}"
     unit = scale_x_continuous(limits=(0, 1))
     unit_y = scale_y_continuous(limits=(0, 1))
 
@@ -1509,7 +1514,8 @@ def logit_dashboard(fitted, lev: str | None = None, qnt: int = 10, figsize=(10, 
     preds = d["predictions"].with_columns(
         pl.when(pl.col("actual") == 1)
         .then(pl.lit(positive))
-        .otherwise(pl.lit(f"not {positive}"))
+        .otherwise(pl.lit(negative))
+        .cast(pl.Enum([positive, negative]))
         .alias("outcome")
     )
     p4 = (

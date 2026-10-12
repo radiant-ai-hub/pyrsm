@@ -771,7 +771,15 @@ class logistic:
         if "dashboard" in plots:
             from pyrsm.model.model import logit_dashboard
 
-            return logit_dashboard(self.fitted, lev=self.lev, figsize=figsize or (10, 9))
+            # The other level by name (No), when the response has two levels
+            other = None
+            if self.rv is not None:
+                levels = [str(v) for v in self.rv.drop_nulls().unique().to_list()]
+                rest = [v for v in levels if v != str(self.lev)]
+                other = rest[0] if len(rest) == 1 else None
+            return logit_dashboard(
+                self.fitted, lev=self.lev, figsize=figsize or (10, 9), other=other
+            )
 
         if "influence" in plots:
             from pyrsm.model.model import influence_plot

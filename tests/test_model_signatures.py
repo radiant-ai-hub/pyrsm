@@ -146,3 +146,21 @@ def test_logistic_distribution_plot_shows_the_response_levels():
     fig = getattr(fig, "draw", lambda: fig)() if not hasattr(fig, "axes") else fig
     labels = {t.get_text() for ax in fig.axes for t in ax.get_xticklabels()}
     assert {"yes", "no"} <= labels and "0" not in labels
+
+
+def test_logistic_dashboard_names_the_other_level(monkeypatch):
+    """The dashboard legend reads Yes / No, not Yes / not Yes."""
+    import polars as pl
+    import pyrsm as rsm
+    import pyrsm.model.model as mm
+
+    d = pl.DataFrame(
+        {"y": pl.Series(["yes", "no", "no", "yes", "no", "yes", "no", "no"], dtype=pl.Enum(["yes", "no"])),
+         "x": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]}
+    )
+    m = rsm.model.logistic({"d": d}, rvar="y", lev="yes", evar=["x"])
+    seen = {}
+    real = mm.logit_dashboard
+    monkeypatch.setattr(mm, "logit_dashboard", lambda *a, **k: seen.update(k) or real(*a, **k))
+    m.plot("dashboard")
+    assert seen["lev"] == "yes" and seen["other"] == "no"
