@@ -185,7 +185,7 @@ class DTab:
         from pyrsm.report import _table_md, column
 
         spec = self.spec
-        nr = 100
+        nr = 20  # a printed page, not the whole table
         rows = spec["rows"][:nr] + ([spec["totals"]] if spec.get("totals") else [])
         labels = set(spec["labelColumns"])
         table = {
@@ -196,9 +196,9 @@ class DTab:
         }
         if self.caption:
             table["title"] = self.caption
-        more = len(spec["rows"]) - nr
-        if more > 0:
-            table["note"] = f"The first {nr} of {len(spec['rows']):,} rows."
+        total = max(len(spec["rows"]), spec.get("totalRows") or 0)
+        if total > nr:
+            table["note"] = f"The first {nr} of {total:,} rows."
         return _table_md(table)
 
     def __repr__(self) -> str:
