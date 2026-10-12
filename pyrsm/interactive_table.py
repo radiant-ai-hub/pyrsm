@@ -46,7 +46,7 @@ _CSS = """
 .rsm-result-table__mount .tabulator-header-filter select { font-size: 0.75rem; padding: 0.1rem 0.25rem; }
 .rsm-result-table__mount .tabulator-header-filter input::placeholder { color: var(--bs-secondary-color, #6c757d);
   opacity: 0.7; }
-.rsm-result-table__mount .tabulator-cell.rsm-rt-label { background: var(--bs-secondary-bg, #e9ecef);
+.rsm-result-table__mount .tabulator-cell.rsm-rt-label { background: #212529; color: #fff;
   font-weight: 600; }
 .rsm-result-table__mount .tabulator-cell.rsm-rt-bold,
 .rsm-result-table__mount .tabulator-calcs-bottom .tabulator-cell { font-weight: 700; }
@@ -57,7 +57,7 @@ _CSS = """
   white-space: nowrap; background: transparent; }
 .rsm-dtab-static thead th { border-bottom: 2px solid #495057; }
 .rsm-dtab-static .rsm-num { text-align: right; }
-.rsm-dtab-static .rsm-rt-label { background: #e9ecef; font-weight: 600; }
+.rsm-dtab-static .rsm-rt-label { background: #212529; color: #fff; font-weight: 600; }
 .rsm-dtab-static .rsm-rt-bold, .rsm-dtab-static tfoot td { font-weight: 700; }
 """
 
@@ -233,7 +233,8 @@ def dtab(
     page_length : int
         Rows per page (5, 10, 25, 50 or all can be picked in the table).
     label_columns : list of str, optional
-        Row-label columns, shaded (an Explore or Pivot table's grouping variables).
+        Row-label columns, dark with white text (an Explore or Pivot table's grouping
+        variables).
     span : str or dict, optional
         A header over the value columns: a title (spanning every column that is
         not a label or "Total"), or ``{"title": ..., "columns": [...]}``.

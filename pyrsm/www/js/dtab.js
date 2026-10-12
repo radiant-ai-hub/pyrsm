@@ -6,7 +6,7 @@
  * (numbers take the Data > View shorthand 5..10, ..5, >5; text matches
  * anywhere; a column with a few distinct values gets a pick list), sorting that
  * starts descending, 10 rows a page (5 / 10 / 25 / 50 / All) and no pager for a
- * short table, label columns shaded, a totals row kept at the bottom outside
+ * short table, label columns dark with white text, a totals row kept at the bottom outside
  * sorting and filtering, a bold Total column, Pivot's color bars or heat map,
  * a row count, "Clear filters" and "Download CSV".
  *
