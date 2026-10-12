@@ -360,10 +360,9 @@ _LABEL_PT = 9
 
 def _label_width(label: str, xmin: float, xmax: float) -> float:
     """A label's width in data units, measured with matplotlib's font."""
-    from matplotlib.font_manager import FontProperties
-    from matplotlib.textpath import TextPath
+    from pyrsm.multivariate._label_layout import text_width_pt
 
-    width_pt = TextPath((0, 0), f" {label}", size=_LABEL_PT, prop=FontProperties()).get_extents().width
+    width_pt = text_width_pt(f" {label}", _LABEL_PT)
     # plotnine pads the x range by 5% on each side
     return width_pt / _PANEL_PT * (xmax - xmin) * 1.1
 

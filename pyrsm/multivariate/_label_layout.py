@@ -60,6 +60,15 @@ class LabelLayout:
         return ex, ey
 
 
+def text_width_pt(label: str, size: float) -> float:
+    """A label's width in points at font ``size``, from matplotlib's default
+    font, without drawing anything."""
+    from matplotlib.font_manager import FontProperties
+    from matplotlib.textpath import TextPath
+
+    return TextPath((0, 0), label, size=size, prop=FontProperties()).get_extents().width
+
+
 def measure_labels(base, labels, size: float):
     """Draw ``base`` with the labels added and measure panel and text in inches.
 
