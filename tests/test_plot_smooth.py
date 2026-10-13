@@ -25,7 +25,8 @@ def sparse():
     """1,000 households; spending recorded for about 1 in 6."""
     rng = np.random.default_rng(7)
     n = 1000
-    size = rng.integers(3, 10, n)
+    # most households have 3 or 4 members: loess at x = 3 sees only 3 and 4
+    size = rng.choice(np.arange(3, 10), n, p=[0.3, 0.4, 0.15, 0.07, 0.04, 0.03, 0.01])
     age = rng.integers(18, 66, n)
     spend = 2 + 0.4 * size**2 + 0.1 * age + rng.normal(0, 3, n)
     spend = np.where(rng.random(n) < 1 / 6, spend, np.nan)
@@ -71,7 +72,10 @@ def test_loess_unchanged_when_it_fits():
 @pytest.mark.parametrize("lines", [["loess"], ["line", "loess"], []])
 def test_regression_plots_with_missing_values(sparse, plot, lines):
     reg = regress({"sparse": sparse}, rvar="spend", evar=["size", "age"])
-    _draw(reg.plot(plot, lines=lines))
+    caught = _draw(reg.plot(plot, lines=lines))
+    # loess on size fails at span 0.75 (dashboard fits on fitted values)
+    fallback = any("too few distinct values" in w for w in caught)
+    assert fallback == ("loess" in lines and plot != "dashboard")
 
 
 def test_regression_scatter_shows_the_estimation_rows(sparse):
