@@ -25,7 +25,7 @@ from pyrsm.utils import format_nr
 
 from ._plotting import as_plot_result
 from ._utils import apply_filter, get_data, get_vars
-from pyrsm.data_scope import apply_scope, print_scope
+from pyrsm.data_scope import apply_scope, print_dropped, print_scope
 from pyrsm._logit import clogit_fit as _mnl_fit
 from pyrsm._logit import segment_probs as _segment_probs
 from pyrsm.basics import display_utils as du
@@ -111,6 +111,8 @@ class cbc:
 
         sel = [rvar, id] + self.evar + ([alt] if alt != "none" else [])
         sub = self.data.select(sel).drop_nulls()
+        # rows with a missing value in any selected variable (listwise, as R)
+        self.nobs_dropped = self.data.height - sub.height
         self.nobs = sub.height
         self.ntasks = sub[id].n_unique()
 
@@ -239,7 +241,9 @@ class cbc:
         print(f"Choice-task id       : {self.id}")
         print(f"Explanatory variables: {', '.join(self.evar)}")
         print(f"Choice tasks         : {format_nr(self.ntasks, dec=0)}")
-        print(f"Observations         : {format_nr(self.nobs, dec=0)}\n")
+        print(f"Observations         : {format_nr(self.nobs, dec=0)}")
+        print_dropped(self, 21)
+        print()
 
         print("Conjoint part-worths:")
         print(self.PW.with_columns(pl.col("PW").round(dec)))

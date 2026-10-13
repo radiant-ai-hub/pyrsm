@@ -19,7 +19,7 @@ from pyrsm.utils import format_nr
 
 from ._plotting import as_plot_result
 from ._utils import get_data, get_vars, gower_dist, is_categorical
-from pyrsm.data_scope import apply_scope, print_scope
+from pyrsm.data_scope import apply_scope, print_dropped, print_scope
 from ._utils import r_scale as _standardize
 from pyrsm.basics import display_utils as du
 
@@ -294,6 +294,8 @@ class hclus:
 
         sel = self.vars if labels == "none" else [labels] + self.vars
         sub = self.data.select(sel).drop_nulls()
+        # rows with a missing value in any selected variable (listwise, as R)
+        self.nobs_dropped = self.data.height - sub.height
         if sub.height > max_cases:
             raise ValueError(
                 f"The number of cases to cluster ({sub.height}) exceeds max_cases "
@@ -385,6 +387,7 @@ class hclus:
         print(f"Distance    : {self.distance}")
         print(f"Standardize : {self.standardize}")
         print(f"Observations: {format_nr(self.nobs, dec=0)}")
+        print_dropped(self, 12)
 
     def plot(self, plots="dendro", dec: int = 2, cutoff: float = 0.05):
         """Cluster plots (plotnine, pyrsm plot style).
