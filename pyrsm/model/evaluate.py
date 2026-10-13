@@ -504,7 +504,7 @@ class confusion(_Evaluation):
             Fscore=2 * (pl.col("precision") * pl.col("TPR")) / (pl.col("precision") + pl.col("TPR")),
             index=pl.col("profit") / pl.col("profit").max().over("Type"),
         )
-        self.dataset = df.select(["Type", "Predictor", *CONFUSION_METRICS])
+        self.dataset = _whole(df.select(["Type", "Predictor", *CONFUSION_METRICS]), ["profit"])
 
     def summary(self, dec: int = 3, plain: bool = True) -> None:
         """Print the confusion matrix counts and the metrics, as Radiant does.

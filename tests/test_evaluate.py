@@ -212,6 +212,7 @@ def test_evalbin_counts_are_integers(dvd):
     ev = evalbin({"dvd": dvd}, ["pred_logit"], "buy", lev="yes", cost=1, margin=6)
     for c in ("nr_obs", "nr_resp", "profit", "cum_resp"):
         assert ev.dataset[c].dtype == pl.Int64
+    assert confusion({"dvd": dvd}, ["pred_logit"], "buy", lev="yes", cost=1, margin=6).dataset["profit"].dtype == pl.Int64
     fractional = evalbin({"dvd": dvd}, ["pred_logit"], "buy", lev="yes", cost=0.5, margin=6, scale=1.5)
     assert fractional.dataset["profit"].dtype == pl.Float64
 
