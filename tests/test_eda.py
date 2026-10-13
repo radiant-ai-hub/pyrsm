@@ -615,6 +615,40 @@ class TestPivot:
         assert abs(cell(res, "West", "desktop") - 0.30) < 1e-9   # 3/10
         assert abs(cell(res, "Total", "desktop") - 0.60) < 1e-9  # 6/10
 
+    def test_pivot_totals_apply_the_agg_not_a_sum(self):
+        """Regression: totals of a mean summed the cell means (radiant.data
+        applies the function to each margin and to the whole data)."""
+        df = pl.DataFrame(
+            {
+                "g": ["a", "a", "a", "b", "b", None],
+                "h": ["x", "y", "y", "x", None, "y"],
+                "k": ["p", "p", "q", "q", "q", "p"],
+                "v": [1.0, 2.0, 6.0, 10.0, 20.0, 4.0],
+            }
+        )
+
+        def cell(res, row, col):
+            return res.filter(pl.col("g") == row)[col].to_list()[0]
+
+        res = pivot(df, rows="g", cols="h", values="v", totals=True)
+        assert abs(cell(res, "a", "Total") - 3.0) < 1e-9  # mean(1, 2, 6)
+        assert abs(cell(res, "b", "Total") - 15.0) < 1e-9  # includes the missing h
+        assert abs(cell(res, "Total", "y") - 4.0) < 1e-9  # mean(2, 6, 4)
+        assert abs(cell(res, "Total", "Total") - 43 / 6) < 1e-9
+
+        res = pivot(df, rows="g", values="v", totals=True)
+        assert abs(cell(res, "Total", "v_mean") - 43 / 6) < 1e-9
+
+        res = pivot(df, rows=["g", "k"], cols="h", values="v", agg="max", totals=True)
+        row = res.filter((pl.col("g") == "a") & (pl.col("k") == "p"))
+        assert row["Total"].to_list() == [2.0]
+        assert cell(res, "Total", "Total") == 20.0
+
+        # counts and sums are unchanged: the totals are still the cell sums
+        res = pivot(df, rows="g", cols="h", values="v", agg="sum", totals=True)
+        assert cell(res, "a", "Total") == 9.0
+        assert cell(res, "Total", "Total") == 43.0
+
     # ---- ``perc`` is opt-in, like the Radiant checkbox ---------------
 
     def test_pivot_normalize_is_proportion_not_percentage(self):

@@ -236,11 +236,13 @@ def pivot(
                 if col not in rows_list:
                     pivoted = pivoted.with_columns(pl.col(col).cast(pl.Float64))
 
-            # Compute totals
+            # Compute totals: the aggregate over all rows (a mean of the
+            # whole data, not the sum of the group means); shares add to 1.
             total_vals = {row_col: "Total" for row_col in rows_list}
             for col in pivoted.columns:
                 if col not in rows_list:
                     total_vals[col] = float(pivoted[col].sum())
+            total_vals[value_col] = float(lf.select(agg_expr).collect().item())
 
             total_row = pl.DataFrame([total_vals])
             pivoted = pl.concat([pivoted, total_row])
@@ -290,13 +292,31 @@ def pivot(
     for col in data_cols:
         pivoted = pivoted.with_columns(pl.col(col).cast(pl.Float64))
 
-    # Marginals, computed from the DATA CELLS ONLY, before any totals row or
-    # column is attached. Normalizing after the totals are in place would
-    # count every observation twice (once in its own cell, once in the totals
-    # row), halving every column- and total-normalized percentage.
-    raw_row_totals = pivoted.select(pl.sum_horizontal(data_cols)).to_series()
-    raw_col_totals = {col: float(pivoted[col].sum()) for col in data_cols}
-    grand_total = float(sum(raw_col_totals.values()))
+    # Marginals: the same aggregate as the cells, applied to each row group,
+    # each column level and the whole data (radiant.data). For a count (or a
+    # sum) that is the sum of the cells; for a mean it is the mean of the
+    # group, not the sum of the cell means. Computed before any totals row or
+    # column is attached, so normalizing never counts an observation twice.
+    row_marg = (
+        lf.group_by(rows_list).agg(agg_expr).collect()
+        .with_columns(pl.col(c).cast(pivoted[c].dtype) for c in rows_list)
+    )
+    raw_row_totals = (
+        pivoted.select(rows_list)
+        .join(row_marg, on=rows_list, how="left", nulls_equal=True, maintain_order="left")
+        .get_column("value")
+        .cast(pl.Float64)
+    )
+    col_marg = lf.group_by(cols).agg(agg_expr).collect()
+    col_marg_map = {
+        ("null" if k is None else str(k)): v
+        for k, v in zip(col_marg[cols].to_list(), col_marg["value"].to_list())
+    }
+    raw_col_totals = {
+        col: float(col_marg_map[col]) if col_marg_map.get(col) is not None else float("nan")
+        for col in data_cols
+    }
+    grand_total = float(lf.select(agg_expr).collect().item())
 
     # Normalize the data cells. The result is a proportion (0-1), as in
     # radiant.data; ``perc`` below is the opt-in that renders percentages.
