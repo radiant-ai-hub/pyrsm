@@ -170,6 +170,31 @@ def test_plot_predictions(diamonds, tmp_path):
         plot_predictions(pred, xvar="cut")
 
 
+def _strips(p):
+    """Facet strip labels of a drawn plot, in panel order."""
+    import matplotlib.pyplot as plt
+    from matplotlib.text import Text
+
+    fig = p.draw()
+    texts = [t.get_text() for ax in fig.axes for t in ax.findobj(Text)]
+    texts += [t.get_text() for t in fig.findobj(Text) if t.get_text()]
+    plt.close(fig)
+    return texts
+
+
+def test_plot_predictions_facets_show_the_value(diamonds):
+    # radiant.model labels a facet "3", not "size: 3"; integers in their order
+    df = diamonds.with_columns(size=(pl.col("carat") * 5).round().cast(pl.Int64) + 1)
+    reg = regress({"diamonds": df}, rvar="price", evar=["carat", "size", "clarity"])
+    pred = reg.predict(cmd={"carat": [0.5, 1, 2], "size": [3, 10, 4], "clarity": ["IF", "SI1"]})
+    row = _strips(plot_predictions(pred, xvar="carat", facet_row="size"))
+    assert not [t for t in row if t.startswith("size")]
+    assert [t for t in row if t in {"3", "4", "10"}] == ["3", "4", "10"]
+    col = _strips(plot_predictions(pred, xvar="carat", facet_col="clarity"))
+    assert not [t for t in col if t.startswith("clarity:")]
+    assert [t for t in col if t in {"SI1", "IF"}] == ["SI1", "IF"]  # level order
+
+
 REFERENCE = Path(__file__).parent / "reference" / "regress_step"
 
 

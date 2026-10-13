@@ -1813,10 +1813,15 @@ def plot_predictions(
     bounds = ["__lower__", "__upper__"][: len(bounds)]
     is_numeric_x = df.schema[xvar].is_numeric()
 
-    # Categorical aesthetics read as discrete groups, never as gradients
-    for v in [color, facet_row, facet_col]:
-        if v and df.schema[v] != pl.Utf8:
-            df = df.with_columns(pl.col(v).cast(pl.Utf8))
+    # Categorical aesthetics read as discrete groups, never as gradients, in
+    # their own order (household size 3, 4, ..., 10 -- not "10", "3", "4")
+    for v in dict.fromkeys(x for x in [color, facet_row, facet_col] if x):
+        if isinstance(df.schema[v], pl.Enum | pl.Categorical):
+            present = set(df[v].cast(pl.Utf8).to_list())
+            levels = [lv for lv in df[v].cat.get_categories().to_list() if lv in present]
+        else:
+            levels = [str(x) for x in df[v].unique().drop_nulls().sort().to_list()]
+        df = df.with_columns(pl.col(v).cast(pl.Utf8).cast(pl.Enum(levels)))
     if not is_numeric_x:
         df = df.with_columns(pl.col(xvar).cast(pl.Utf8))
 
@@ -1841,8 +1846,9 @@ def plot_predictions(
     elif not shaded:
         p = p + geom_point(size=1.5)
     p = p + (geom_line() if color else geom_line(color=LINE))
+    # Facet strips show the value ("3"), as in Radiant, not "householdsize: 3"
     if facet_row:
-        p = p + facet_grid(rows=facet_row, cols=facet_col or None, labeller="label_both")
+        p = p + facet_grid(rows=facet_row, cols=facet_col or None)
     elif facet_col:
-        p = p + facet_wrap(facet_col, labeller="label_both")
+        p = p + facet_wrap(facet_col)
     return p + labs(x=xvar, y="Prediction") + theme_pyrsm()
