@@ -8,7 +8,7 @@ same CSS, so ``summary(plain=False)`` in a notebook or a rendered Quarto report
 shows the tables a student saw in Radiant.
 
 * :func:`table` formats row dicts -- fixed decimals, integers as integers,
-  ``< 0.001`` p-values, significance stars, ``Inf`` for an open interval;
+  ``< .001`` p-values, significance stars, ``Inf`` for an open interval;
 * :func:`frame_table` does the same for a polars frame;
 * :func:`text_header` / :func:`model_header` read the header pyrsm prints, and
   :func:`text_lines` picks lines such as a test's ``Chi-squared: ...`` result;
@@ -30,7 +30,7 @@ SIG_CODES = "0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1"
 #: Footer for a table that carries significance stars.
 SIG_NOTE = f"Signif. codes:  {SIG_CODES}"
 
-#: Column keys that hold p-values (formatted ``< 0.001``) and stars.
+#: Column keys that hold p-values (formatted ``< .001``) and stars.
 P_VALUE_KEYS = frozenset({"p.value", "p.values", "p_value", "pvalue"})
 STARS_KEYS = frozenset({"", " ", "  ", "stars", "sig"})
 
@@ -45,18 +45,18 @@ def capture(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> str:
 def format_p_value(value: Any, dec: int = 3) -> str:
     """The one styled p-value shown by every report view (Chat card and Summary tab).
 
-    Below ``10**-dec`` it reads ``< 0.001`` (at the default three decimals; an
+    Below ``10**-dec`` it reads ``< .001`` (at the default three decimals; an
     underflowed 0 included -- never a convincing "0.000"); otherwise fixed
     decimals, so the boundary 0.001 reads ``0.001``. Missing, non-finite or
     out-of-range values read ``n/a``. A string pyrsm already formatted (its
-    ``< .001``) is mapped to the same presentation. Presentation only: the
+    ``< .001``, or ``< 0.001``) is mapped to the same presentation. Presentation only: the
     numbers, pyrsm's captured raw text and the generated code are untouched.
     """
     threshold = 10.0 ** -dec
     if isinstance(value, str):
         text = value.strip()
         if re.fullmatch(r"<\s*0?\.0*1", text):
-            return f"< {threshold:.{dec}f}"
+            return "< " + f"{threshold:.{dec}f}".lstrip("0")
         try:
             value = float(text)
         except ValueError:
@@ -70,7 +70,7 @@ def format_p_value(value: Any, dec: int = 3) -> str:
     if not math.isfinite(p) or p < 0 or p > 1:
         return "n/a"
     if p < threshold:
-        return f"< {threshold:.{dec}f}"
+        return "< " + f"{threshold:.{dec}f}".lstrip("0")
     return f"{p:.{dec}f}"
 
 
@@ -231,12 +231,12 @@ def frame_table(
 def text_lines(summary_text: str, *starts: str, contains: Sequence[str] = ()) -> list[str]:
     """Lines of pyrsm's text that start with ``starts`` (or contain ``contains``),
     e.g. a test's closing ``Chi-squared: ... p.value < .001`` line, with the
-    p-value spelled as in the tables (``< 0.001``)."""
+    p-value spelled as in the tables (``< .001``)."""
     out = []
     for line in (summary_text or "").splitlines():
         stripped = line.strip()
         if stripped and (stripped.startswith(starts) or any(c in stripped for c in contains)):
-            out.append(re.sub(r"<\s*\.(0*1)\b", r"< 0.\1", stripped))
+            out.append(re.sub(r"<\s*0?\.(0*1)\b", r"< .\1", stripped))
     return out
 
 
@@ -368,7 +368,7 @@ def text_tables(summary_text: str) -> tuple[list[dict[str, Any]], list[str]]:
             if title:
                 other.append(title)
                 title = ""
-            other.append(re.sub(r"<\s*\.(0*1)\b", r"< 0.\1", stripped))
+            other.append(re.sub(r"<\s*0?\.(0*1)\b", r"< .\1", stripped))
         i += 1
     if title:
         other.append(title)

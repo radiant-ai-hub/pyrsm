@@ -89,9 +89,16 @@ def test_compare_means_extra_adds_columns(shown):
 
 
 def test_p_values_read_like_radiant():
-    assert report.format_p_value(0.00001) == "< 0.001"
+    # one spelling everywhere: "< .001"
+    assert report.format_p_value(0.00001) == "< .001"
+    assert report.format_p_value(0) == "< .001"
     assert report.format_p_value(0.0456) == "0.046"
-    assert report.format_p_value("< .001") == "< 0.001"
+    assert report.format_p_value("< .001") == "< .001"
+    assert report.format_p_value("< 0.001") == "< .001"
+    assert report.format_p_value(0.00001, dec=4) == "< .0001"
+    assert report.text_lines("Chi-squared: 187.783 df(1), p.value < 0.001", "Chi-squared:") == [
+        "Chi-squared: 187.783 df(1), p.value < .001"
+    ]
 
 
 def test_outside_a_notebook_plain_false_prints_text(capsys):

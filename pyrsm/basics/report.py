@@ -204,7 +204,7 @@ def correlation_report(cr: Any, cov: bool = False, cutoff: float = 0, dec: int =
         return table(id, rows, columns=cols, title=title, subtitle=subtitle, dec=dec)
 
     # Same cells as pyrsm's p-value display (lower triangle, cutoff applied),
-    # styled like every other report: "< 0.001" rather than a rounded 0.0.
+    # styled like every other report: "< .001" rather than a rounded 0.0.
     p_rows = []
     for i, row in enumerate(_pvals.iter_rows(named=True)):
         out = {"": row[""]}
