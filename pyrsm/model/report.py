@@ -47,7 +47,8 @@ def _regression_fit(y_true, y_pred, scale: float = 1.0) -> dict[str, float]:
     ss_res = float(np.sum((y_true - y_pred) ** 2))
     ss_tot = float(np.sum((y_true - y_true.mean()) ** 2))
     mse = float(np.mean((y_true - y_pred) ** 2)) * scale**2
-    return {"r2": 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0, "mse": mse, "rmse": float(np.sqrt(mse))}
+    mae = float(np.mean(np.abs(y_true - y_pred))) * scale
+    return {"r2": 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0, "mse": mse, "rmse": float(np.sqrt(mse)), "mae": mae}
 
 
 def _auc(y, prob) -> float | None:
@@ -105,6 +106,32 @@ def fit_metrics(model: Any) -> dict[str, Any]:
     if kind == "xgboost":
         metrics.setdefault("fit_kind", "in_sample")
     return metrics
+
+
+def print_fit(model: Any, dec: int = 3) -> None:
+    """The fit lines of the plain-text ``summary()`` of a random forest, XGBoost
+    or neural network: the same numbers as the "Model fit" table of
+    :func:`fit_report` (out-of-bag for a random forest, in the response's units
+    for a neural network), with how they were measured."""
+    import polars as pl
+
+    metrics = fit_metrics(model)
+    how = str(metrics.get("auc_kind") or metrics.get("fit_kind") or "in_sample")
+    tag = "out-of-bag (OOB)" if how == "oob" else "estimation data"
+    if model.mod_type == "classification":
+        auc = metrics.get("auc")
+        print(f"AUC                  : {'NA' if auc is None else round(auc, dec)} ({'OOB' if how == 'oob' else tag})")
+        return
+    print(f"Model fit            : {tag}")
+    row = {"n": [metrics["nobs"]]}
+    for key in ("r2", "rmse", "mse", "mae"):
+        row[key] = [round(metrics[key], dec)]
+    pl.DataFrame(row).show(
+        tbl_formatting="NOTHING",
+        tbl_hide_dataframe_shape=True,
+        tbl_hide_column_data_types=True,
+        tbl_hide_dtype_separator=True,
+    )
 
 
 def fit_report(kind: str, summary_text: str, metrics: dict[str, Any], *, dec: int = 3) -> dict[str, Any]:

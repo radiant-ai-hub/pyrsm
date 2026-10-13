@@ -10,13 +10,11 @@ from sklearn.neural_network import MLPClassifier, MLPRegressor
 from pyrsm.model.model import (
     check_binary,
     convert_to_list,
-    evalreg,
     get_dummies,
     kept_rows,
     nobs_dropped,
     sim_prediction,
 )
-from pyrsm.model.perf import auc
 from pyrsm.stats import scale_df
 from pyrsm.utils import check_dataframe, ifelse
 from pyrsm.data_scope import apply_scope, print_scope
@@ -384,28 +382,9 @@ class mlp:
         print(f"Learning rate        : {self.learning_rate_init}")
         print(f"Maximum iterations   : {self.max_iter}")
         print(f"random_state         : {self.random_state}")
-        if self.mod_type == "classification":
-            print(
-                f"AUC                  : {round(auc(self.data[self.rvar], self.fitted.predict_proba(self.data_onehot.to_pandas())[:, -1]), dec)}"
-            )
-        else:
-            print("Model fit            :")
-            evalreg(
-                pl.DataFrame(
-                    {
-                        "rvar": self.data_std.get_column(self.rvar),
-                        "prediction": self.fitted.predict(self.data_onehot.to_pandas()),
-                    }
-                ),
-                "rvar",
-                "prediction",
-                dec=dec,
-            ).drop(["Type", "predictor"]).show(
-                tbl_formatting="NOTHING",
-                tbl_hide_dataframe_shape=True,
-                tbl_hide_column_data_types=True,
-                tbl_hide_dtype_separator=True,
-            )
+        from pyrsm.model.report import print_fit
+
+        print_fit(self, dec=dec)
 
         if len(self.kwargs) > 0:
             kwargs_list = [f"{k}={v}" for k, v in self.kwargs.items()]
