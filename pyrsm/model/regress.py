@@ -5,7 +5,7 @@ import pandas as pd
 import polars as pl
 
 from pyrsm.basics import display_utils as du
-from pyrsm.utils import check_dataframe, format_nr, ifelse, setdiff
+from pyrsm.utils import check_dataframe, complete_rows, format_nr, ifelse, setdiff
 from pyrsm.data_scope import apply_scope, print_scope
 
 
@@ -874,6 +874,9 @@ class regress:
             data = data.select([self.rvar] + self.evar)
         else:
             data = data.select(self.evar)
+        # The rows the model was estimated on: a row missing any model
+        # variable has no fitted value or residual
+        data = data.filter(complete_rows(data, data.columns))
 
         # Apply stored Enum types to ensure consistent categorical levels
         if self._enum_types:

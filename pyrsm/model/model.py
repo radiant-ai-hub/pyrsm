@@ -33,6 +33,7 @@ from plotnine import (
 )
 from scipy import stats
 
+from pyrsm.plot_smooth import smooth_method
 from pyrsm.plot_style import ALPHA, FILL, LINE, REF, theme_pyrsm
 from scipy.special import expit
 from sklearn import metrics
@@ -47,7 +48,7 @@ from statsmodels.stats.outliers_influence import variance_inflation_factor
 from pyrsm.notebook import load_state, save_state
 from pyrsm.stats import weighted_mean, weighted_sd
 from pyrsm.basics.display_utils import format_pval, format_pvals
-from pyrsm.utils import cat_levels, check_dataframe, expand_grid, ifelse
+from pyrsm.utils import cat_levels, check_dataframe, complete_rows, expand_grid, ifelse
 
 from .perf import auc
 
@@ -1392,7 +1393,9 @@ def evalreg(df, rvar: str, pred: str, dec: int = 3):
 
 def _fit_line(method: str):
     """A dashed fit line (``method`` is "lm" or "loess") in the reference color."""
-    return geom_smooth(method=method, se=False, color=REF, linetype="dashdot", size=0.75)
+    return geom_smooth(
+        method=smooth_method(method), se=False, color=REF, linetype="dashdot", size=0.75
+    )
 
 
 def other_level(rv, lev) -> str | None:
@@ -1406,14 +1409,9 @@ def other_level(rv, lev) -> str | None:
 
 
 def kept_rows(data: pl.DataFrame, columns: list[str]) -> np.ndarray:
-    """Which rows of ``data`` have no missing value in ``columns`` (the rows a
-    model is estimated on)."""
-    return (
-        data.select(columns)
-        .select(pl.all_horizontal(pl.all().is_not_null()))
-        .to_series()
-        .to_numpy()
-    )
+    """Which rows of ``data`` have no missing value (null or NaN) in
+    ``columns`` (the rows a model is estimated on)."""
+    return data.select(complete_rows(data, columns)).to_series().to_numpy()
 
 
 def on_all_rows(values, kept: np.ndarray | None) -> pl.Series:

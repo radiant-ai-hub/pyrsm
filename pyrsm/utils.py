@@ -509,6 +509,18 @@ def odir(obj, private: bool = False) -> dict:
     return {"methods": mth, "attributes": attr}
 
 
+def complete_rows(df: pl.DataFrame, columns: list[str]) -> pl.Expr:
+    """Rows with a value -- not null and not NaN -- in every one of ``columns``
+    (the rows a model is estimated on, the points a scatter plot draws)."""
+    keep = [
+        pl.col(c).is_not_null() & ~pl.col(c).is_nan()
+        if df.schema[c].is_float()
+        else pl.col(c).is_not_null()
+        for c in dict.fromkeys(columns)
+    ]
+    return pl.all_horizontal(keep) if keep else pl.lit(True)
+
+
 def check_dataframe(df):
     """Convert input to polars DataFrame."""
     if isinstance(df, pl.DataFrame):

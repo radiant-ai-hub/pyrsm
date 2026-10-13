@@ -2,8 +2,10 @@
 
 import polars as pl
 
+from pyrsm.plot_smooth import loess
 from pyrsm.plot_style import ALPHA, FILL, LINE, REF, theme_pyrsm
 from pyrsm.plot_utils import compose_plots
+from pyrsm.utils import complete_rows
 
 # Geom configurations: required aesthetics and defaults
 GEOM_CONFIG = {
@@ -519,6 +521,11 @@ def _visualize_one(
     if fill and fill not in df.columns:
         geom_kwargs["fill"] = fill
 
+    # A point needs x and y: drop rows missing either before sampling, so a
+    # sample of nobs rows draws nobs points and the axes span the points drawn
+    if geom == "scatter" and y:
+        df = df.filter(complete_rows(df, [x, y]))
+
     # Sample data for scatter plots if needed
     nobs_caption = None
     if geom == "scatter" and nobs != -1 and len(df) > nobs:
@@ -560,9 +567,11 @@ def _visualize_one(
             if smooth == "lm":
                 p = p + geom_smooth(method="lm", se=True, alpha=0.2, **smooth_kw)
             elif smooth == "loess":
-                p = p + geom_smooth(method="loess", se=True, alpha=0.2, **smooth_kw)
+                p = p + geom_smooth(method=loess, se=True, alpha=0.2, **smooth_kw)
             elif smooth in ("true", "True", True):
-                p = p + geom_smooth(se=True, alpha=0.2, **smooth_kw)
+                # plotnine's "auto": loess below 1,000 rows
+                auto = loess if len(df) < 1000 else "auto"
+                p = p + geom_smooth(method=auto, se=True, alpha=0.2, **smooth_kw)
 
         # Add aggregation line for categorical x
         if agg and _is_categorical(df, x):
