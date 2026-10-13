@@ -218,7 +218,9 @@ class compare_means:
                     on=cols,
                     variable_name="variable",
                     value_name="value",
-                )
+                ).with_columns(pl.col("variable").cast(pl.Enum(cols)))
+                # levels in the order selected, as radiant.basics
+                # (factor(levels = vars))
                 self.var1 = "variable"
                 self.var2 = "value"
         else:
@@ -228,9 +230,12 @@ class compare_means:
         if var1_series.dtype == pl.Enum:
             self.levels = var1_series.dtype.categories
         else:
-            self.levels = sorted(self.data[self.var1].unique().to_list())
+            # Enum categories must be strings: a numeric grouping variable
+            # (e.g., 0/1) gets its levels in numeric order, as text ("0", "1")
+            values = var1_series.drop_nulls().unique().sort()
+            self.levels = values.cast(pl.Utf8).to_list()
             self.data = self.data.with_columns(
-                pl.col(self.var1).cast(pl.Enum(self.levels))
+                pl.col(self.var1).cast(pl.Utf8).cast(pl.Enum(self.levels))
             )
 
         if len(comb) == 0:
@@ -267,8 +272,11 @@ class compare_means:
             tscore = _get_scipy_stats().t.ppf((1 + self.conf) / 2, n - 1)
             return (tscore * se).real
 
+        # One row per level, in level order (as R's factor levels); rows
+        # without a group are not a group
         descriptive_stats = (
-            self.data.group_by(self.var1, maintain_order=True)
+            self.data.filter(pl.col(self.var1).is_not_null())
+            .group_by(self.var1)
             .agg(
                 pl.col(self.var2).mean().alias("mean"),
                 pl.len().alias("n_total"),
@@ -291,7 +299,7 @@ class compare_means:
             )
         )
 
-        self.descriptive_stats = descriptive_stats.select(
+        self.descriptive_stats = descriptive_stats.sort(self.var1).select(
             [self.var1, "mean", "n", "n_missing", "sd", "se", "me"]
         )
 
