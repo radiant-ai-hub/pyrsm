@@ -22,7 +22,7 @@ from pyrsm.utils import cat_levels, format_nr
 
 from ._plotting import as_plot_result
 from ._utils import does_vary, get_data, get_vars, is_categorical
-from pyrsm.data_scope import apply_scope, print_scope
+from pyrsm.data_scope import apply_scope, print_dropped, print_scope
 from ._utils import r_scale as _standardize
 from pyrsm.basics import display_utils as du
 
@@ -135,6 +135,8 @@ class kclus:
         self.lambda_ = lambda_
 
         sub = self.data.select(self.vars).drop_nulls()
+        # rows with a missing value in any selected variable (listwise, as R)
+        self.nobs_dropped = self.data.height - sub.height
         cat_flags = {v: is_categorical(sub[v]) for v in self.vars}
         any_cat = any(cat_flags.values())
 
@@ -440,6 +442,7 @@ class kclus:
             print(f"HC distance  : {self.distance}")
         print(f"Standardize  : {self.standardize}")
         print(f"Observations : {format_nr(self.nobs, dec=0)}")
+        print_dropped(self, 13)
         print(
             f"Generated    : {self.nr_clus} clusters of sizes "
             + " | ".join(str(int(x)) for x in self.sizes)

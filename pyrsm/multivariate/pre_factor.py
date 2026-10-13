@@ -17,7 +17,7 @@ from pyrsm.utils import format_nr
 from ._correlation import heterogeneous_corr
 from ._plotting import as_plot_result
 from ._utils import apply_filter, does_vary, get_data, get_vars, is_categorical
-from pyrsm.data_scope import apply_scope, print_scope
+from pyrsm.data_scope import apply_scope, print_dropped, print_scope
 from pyrsm.basics import display_utils as du
 
 __all__ = ["pre_factor", "kmo"]
@@ -100,6 +100,8 @@ class pre_factor:
         self.hcor = hcor
 
         sub = self.data.select(self.vars).drop_nulls()
+        # rows with a missing value in any selected variable (listwise, as R)
+        self.nobs_dropped = self.data.height - sub.height
         self.nobs = sub.height
         p = len(self.vars)
 
@@ -155,6 +157,7 @@ class pre_factor:
         print_scope(self, 12)
         print(f"Variables   : {', '.join(self.vars)}")
         print(f"Observations: {format_nr(self.nobs, dec=0)}")
+        print_dropped(self, 12)
         if self.hcor and self.any_categorical:
             print("Correlation : Heterogeneous correlations using polychoric/polyserial")
             print("** Categorical variables are treated as ordinal **\n")

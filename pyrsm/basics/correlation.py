@@ -5,7 +5,7 @@ import polars as pl
 
 import pyrsm.basics.display_utils as du
 from pyrsm.utils import check_dataframe, sig_stars
-from pyrsm.data_scope import apply_scope, scope_lines
+from pyrsm.data_scope import apply_scope, dropped_lines, scope_lines
 
 
 @lru_cache(maxsize=1)
@@ -112,9 +112,6 @@ class correlation:
         # numbers for pairs without missing values.
         nobs_all = self.data.height
         self.data = self.data.select(self.vars)
-        floats = [col for col, dtype in self.data.schema.items() if dtype.is_float()]
-        if floats:
-            self.data = self.data.with_columns(pl.col(floats).fill_nan(None))
         self.data = self.data.drop_nulls()
         self.nobs = self.data.height
         self.nobs_dropped = nobs_all - self.nobs
@@ -283,11 +280,8 @@ class correlation:
         for line in scope_lines(self, 9):
             prn += f"{line}\n"
         prn += f"Method   : {self.method}"
-        if self.nobs_dropped > 0:
-            prn += (
-                f"\nDropped  : {self.nobs_dropped:,} of {self.nobs + self.nobs_dropped:,}"
-                " rows (missing values)"
-            )
+        for line in dropped_lines(self, 9):
+            prn += f"\n{line}"
         print(prn)
 
     def _print_hypothesis_info(self, cutoff: float) -> None:

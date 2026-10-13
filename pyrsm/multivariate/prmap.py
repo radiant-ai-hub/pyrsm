@@ -26,7 +26,7 @@ from ._utils import (
     principal,
     standardize,
 )
-from pyrsm.data_scope import apply_scope, print_scope
+from pyrsm.data_scope import apply_scope, print_dropped, print_scope
 from pyrsm.basics import display_utils as du
 
 __all__ = ["prmap"]
@@ -107,6 +107,8 @@ class prmap:
         work = apply_scope(
             unscoped.with_row_index("__row_idx__"), data_filter, sort, slice
         ).select(["__row_idx__", *sel]).drop_nulls()
+        # rows with a missing value in any selected variable (listwise, as R)
+        self.nobs_dropped = self.data.height - work.height
         self._orig_height = unscoped.height
         self._row_idx = work["__row_idx__"].to_numpy()
         sub = work.select(sel)
@@ -195,6 +197,7 @@ class prmap:
         print(f"Dimensions  : {self.nr_dim}")
         print("Rotation    : varimax")
         print(f"Observations: {format_nr(self.nobs, dec=0)}")
+        print_dropped(self, 12)
         corr = "Heterogeneous" if (self.hcor and self.any_categorical) else "Pearson"
         print(f"Correlation : {corr}\n")
 

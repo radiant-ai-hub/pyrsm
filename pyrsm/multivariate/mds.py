@@ -21,7 +21,7 @@ from pyrsm.utils import format_nr
 from ._label_layout import layout_labels
 from ._plotting import as_plot_result, symmetric_limit
 from ._utils import apply_filter, get_data
-from pyrsm.data_scope import apply_scope, print_scope
+from pyrsm.data_scope import apply_scope, print_dropped, print_scope
 from pyrsm.basics import display_utils as du
 
 __all__ = ["mds"]
@@ -129,6 +129,8 @@ class mds:
         self.seed = seed
 
         sub = self.data.select([id1, id2, dis]).drop_nulls()
+        # rows with a missing value in any selected variable (listwise, as R)
+        self.nobs_dropped = self.data.height - sub.height
         D, self.labels = _build_dist_matrix(
             sub[id1].cast(pl.Utf8).to_list(),
             sub[id2].cast(pl.Utf8).to_list(),
@@ -240,6 +242,7 @@ class mds:
         print(f"Dimensions  : {self.nr_dim}")
         print(f"Method      : {'Non-metric' if self.method == 'non-metric' else 'Metric'}")
         print(f"Observations: {format_nr(self.nobs, dec=0)}")
+        print_dropped(self, 12)
 
         print("\nOriginal distance data:")
         print(self._labeled_matrix(self.dis_mat, dec))

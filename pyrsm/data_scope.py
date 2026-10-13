@@ -573,6 +573,37 @@ def slice_code(spec: str, frame: str = "data") -> str:
 # ---------------------------------------------------------------------------
 
 
+def nan_to_null(df: pl.DataFrame) -> pl.DataFrame:
+    """NaN is a missing value, as R's NA, not a number.
+
+    polars keeps NaN apart from null: ``drop_nulls`` keeps it, ``null_count``
+    does not count it, a mean that includes it is NaN, and ``NaN > 0`` is true
+    in a filter. One NaN (e.g., from ``0 / 0``) would then break an analysis
+    instead of dropping a row.
+    """
+    floats = [col for col, dtype in df.schema.items() if dtype.is_float()]
+    if not floats:
+        return df
+    return df.with_columns(pl.col(floats).fill_nan(None))
+
+
+def dropped_lines(obj, width: int = 21) -> list[str]:
+    """The line a summary prints when rows with missing values were dropped
+    (``obj.nobs_dropped`` of ``obj.nobs + obj.nobs_dropped``), padded to that
+    summary's label width. Nothing when no rows were dropped."""
+    dropped = getattr(obj, "nobs_dropped", 0) or 0
+    if dropped <= 0:
+        return []
+    total = obj.nobs + dropped
+    return [f"{'Dropped'.ljust(width)}: {dropped:,} of {total:,} rows (missing values)"]
+
+
+def print_dropped(obj, width: int = 21) -> None:
+    """Print the dropped-rows line, if rows were dropped."""
+    for line in dropped_lines(obj, width):
+        print(line)
+
+
 def apply_scope(
     df: pl.DataFrame,
     data_filter: str = "",
@@ -584,8 +615,11 @@ def apply_scope(
     The order is the one thing about a scope that cannot be left to taste: a
     slice of unsorted rows and a slice of sorted rows are different rows, and
     a reader has to know which they got without running it.
+
+    NaN becomes null first, so a filter, a sort and every analysis treat it as
+    missing.
     """
-    out = df
+    out = nan_to_null(df)
     predicate = filter_expr(data_filter, dict(df.schema))
     if predicate is not None:
         try:
