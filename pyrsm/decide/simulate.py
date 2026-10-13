@@ -47,6 +47,7 @@ from pyrsm.decide.simlang import (
     formula_list,
     split_formulas,
 )
+from pyrsm.basics import display_utils as du
 
 #: Variable types, in the order radiant.model lists them
 KINDS = (
@@ -813,8 +814,15 @@ class SimulationResult:
         out.write(sim_summary(self.summary_rows, dec))
         return out.getvalue().rstrip()
 
-    def summary(self, dec: int = 4) -> None:
-        """Print the summary (radiant.model's ``summary.simulater``)."""
+    def summary(self, dec: int = 4, plain: bool = True) -> None:
+        """Print the summary (radiant.model's ``summary.simulater``).
+
+        ``plain=False`` in a notebook (or a rendered Quarto report) shows the formatted report Radiant shows.
+        """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            return du.show_text_report(self, "simulate", dec=dec)
+
         print(self.summary_text(dec))
 
     def plot(self, bins: int = 20):
@@ -946,7 +954,7 @@ def _generate_python_code(spec: SimulationSpec, data_name: str = "") -> str:
     lines += [
         "",
         f"sim = rsm.decide.simulate(spec{data_arg})",
-        "sim.summary()",
+        "sim.summary(plain=False)",
         "sim.plot()",
         "simdat = sim.data",
     ]
@@ -1131,8 +1139,15 @@ class RepeatResult:
         out.write(sim_summary(self.summary_rows, dec))
         return out.getvalue().rstrip()
 
-    def summary(self, dec: int = 4) -> None:
-        """Print the summary (radiant.model's ``summary.repeater``)."""
+    def summary(self, dec: int = 4, plain: bool = True) -> None:
+        """Print the summary (radiant.model's ``summary.repeater``).
+
+        ``plain=False`` in a notebook (or a rendered Quarto report) shows the formatted report Radiant shows.
+        """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            return du.show_text_report(self, "repeat", dec=dec)
+
         print(self.summary_text(dec))
 
     def plot(self, bins: int = 20):
@@ -1182,7 +1197,7 @@ def _repeat_code(rep: RepeatResult, kwargs: dict[str, Any], data_name: str) -> s
             "    spec,",
             *args,
             ")",
-            "rep.summary()",
+            "rep.summary(plain=False)",
             "rep.plot()",
             "repdat = rep.data",
         ]

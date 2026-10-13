@@ -22,6 +22,7 @@ from ._label_layout import layout_labels
 from ._plotting import as_plot_result, symmetric_limit
 from ._utils import apply_filter, get_data
 from pyrsm.data_scope import apply_scope, print_scope
+from pyrsm.basics import display_utils as du
 
 __all__ = ["mds"]
 
@@ -226,7 +227,12 @@ class mds:
         }
         return pl.DataFrame({"label": self.labels, **cols})
 
-    def summary(self, dec: int = 2) -> None:
+    def summary(self, dec: int = 2, plain: bool = True) -> None:
+        """Print the summary. ``plain=False`` in a notebook (or a rendered Quarto report) shows the formatted report Radiant shows."""
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            return du.show_text_report(self, "mds", dec=dec)
+
         print("(Dis)similarity based brand map (MDS)")
         print(f"Data        : {self.name}")
         print_scope(self, 12)
@@ -244,9 +250,20 @@ class mds:
         print(f"\nStress: {round(self.stress, dec + 1)}")
 
     def _labeled_matrix(self, M, dec):
-        return pl.DataFrame(
-            {"label": self.labels, **{self.labels[j]: [round(float(x), dec) for x in M[:, j]] for j in range(len(self.labels))}}
-        )
+        """Lower triangle of a distance matrix, as R prints a ``dist`` object.
+
+        Rows are the 2nd to the last item, columns the 1st to the next-to-last
+        item; cells above the diagonal are blank.
+        """
+        labels = self.labels
+        n = len(labels)
+        cols = {
+            labels[j]: [
+                str(round(float(M[i, j]), dec)) if i > j else "" for i in range(1, n)
+            ]
+            for j in range(n - 1)
+        }
+        return pl.DataFrame({"label": labels[1:], **cols})
 
     def plot(
         self,
@@ -269,6 +286,8 @@ class mds:
                 rev_dim = [rev_dim]
             for d in rev_dim:
                 pts[:, d - 1] *= -1
+        # reversed axes say so in their title
+        rev = {int(d) for d in rev_dim or []}
 
         lim = symmetric_limit(pts, pad=1.05)
         out = []
@@ -278,10 +297,10 @@ class mds:
             for j in range(i + 1, self.nr_dim)
         ]
         for i, j in pairs:
-            out.append(self._plot_pair(pts, i, j, lim, fontsz, seed))
+            out.append(self._plot_pair(pts, i, j, lim, fontsz, seed, rev))
         return as_plot_result(out)
 
-    def _plot_pair(self, pts, i, j, lim, fontsz, seed):
+    def _plot_pair(self, pts, i, j, lim, fontsz, seed, rev=()):
         from plotnine import (
             aes,
             geom_point,
@@ -298,11 +317,14 @@ class mds:
         x, y = pts[:, i], pts[:, j]
         dat = pl.DataFrame({"x": x, "y": y}).to_pandas()
 
+        def axis_title(k):
+            return f"Dimension {k + 1}" + (" (reversed)" if k + 1 in rev else "")
+
         def base(lim_):
             g = ggplot(dat) + geom_point(aes(x="x", y="y"), color=LINE)
             g = add_square_axes(g, lim_)
             return g + labs(
-                title="Brand map", x=f"Dimension {i + 1}", y=f"Dimension {j + 1}"
+                title="Brand map", x=axis_title(i), y=axis_title(j)
             ) + theme_pyrsm()
 
         lay = layout_labels(base, x, y, self.labels, size=fontsz * 2, lim=lim, seed=seed)

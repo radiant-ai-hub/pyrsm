@@ -100,7 +100,9 @@ def model_header(model: Any) -> dict[str, Any]:
 
 
 def number(value: Any, dec: int = 3) -> str:
-    """One formatted cell: ints as ints, floats with ``dec`` fixed decimals.
+    """One formatted cell: ints as ints, floats with ``dec`` fixed decimals,
+    both with a comma as the thousands separator (1,234,567.891); a number
+    pyrsm already printed as text gets the separator too.
 
     Non-finite numbers read as R prints them (``Inf``, ``-Inf``, ``NaN``), and
     so do the strings JSON stores them as (``"Inf"``, ``"NaN"``).
@@ -111,7 +113,7 @@ def number(value: Any, dec: int = 3) -> str:
     if isinstance(value, bool):
         return str(value)
     if isinstance(value, int):
-        return str(value)
+        return f"{value:,}"
     if isinstance(value, float) or hasattr(value, "dtype"):
         try:
             x = float(value)
@@ -122,9 +124,19 @@ def number(value: Any, dec: int = 3) -> str:
         if math.isinf(x):
             return "Inf" if x > 0 else "-Inf"
         if hasattr(value, "dtype") and x.is_integer() and "int" in str(value.dtype):
-            return str(int(x))
-        return f"{round(x, dec) + 0.0:.{dec}f}"  # never "-0.000"
-    return str(value).strip()
+            return f"{int(x):,}"
+        return f"{round(x, dec) + 0.0:,.{dec}f}"  # never "-0.000"
+    return _thousands(str(value).strip())
+
+
+#: A plain number as text: sign, 4+ integer digits, optional decimals or %.
+_PLAIN_NUMBER = re.compile(r"^(-?)([1-9]\d{3,})((?:\.\d+)?%?)$")
+
+
+def _thousands(text: str) -> str:
+    """``"1234567.5"`` -> ``"1,234,567.5"``; anything else unchanged."""
+    m = _PLAIN_NUMBER.match(text)
+    return f"{m.group(1)}{int(m.group(2)):,}{m.group(3)}" if m else text
 
 
 def column(key: str, label: str | None = None, kind: str = "number") -> dict[str, str]:

@@ -544,9 +544,18 @@ class regress:
             Confidence level for the coefficient confidence intervals.
         dec : int, default 3
             Number of decimal places to round to.
-        plain : bool, default False
-            Force plain text output (useful for non-notebook environments like Shiny).
+        plain : bool, default True
+            If True (default), print plain text output. If False and running
+            in a notebook (or a rendered Quarto report), show the formatted
+            report Radiant shows.
         """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            from pyrsm.model.report import linear_report
+
+            opts = dict(vif=vif, ssq=ssq, rmse=rmse, test=test, ci=ci, conf=conf, dec=dec)
+            return du.show_report(self, linear_report(self, **opts), **opts)
+
         model_utils = _model_utils()
 
         if self.stepwise:
@@ -561,10 +570,7 @@ class regress:
             print(f"\n{line}\n{title} stepwise selection of variables\n{line}")
 
         self._summary_header()
-        if not plain and du.is_notebook() and du.has_great_tables():
-            self._summary_styled(dec)
-        else:
-            self._summary_plain(dec)
+        self._summary_plain(dec)
         du.print_sig_codes()
 
         print(f"\n{model_utils.model_fit(self.fitted, dec=dec)}")
@@ -674,29 +680,6 @@ class regress:
 
         # pl.col("index").str.replace("[T.", "[", literal=True),
         du.print_plain_tables(df)
-
-    def _summary_styled(self, dec: int = 3) -> None:
-        """Display styled coefficient table in notebooks."""
-        from IPython.display import display
-
-        df = self.coef.clone()
-        df = df.with_columns(
-            [
-                pl.col("index"),
-                pl.col("p.value").map_elements(
-                    lambda p: du.format_pval(p, dec), return_dtype=pl.Utf8
-                ),
-            ]
-        )
-
-        gt = du.style_table(
-            df,
-            title="Coefficient Estimates",
-            subtitle=f"Response: {self.rvar}",
-            number_cols=["coefficient", "std.error", "t.value"],
-            dec=dec,
-        )
-        display(gt)
 
     def predict(
         self, data=None, cmd=None, data_cmd=None, ci=False, conf=0.95, dec=None,

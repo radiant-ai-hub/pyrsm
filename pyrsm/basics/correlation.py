@@ -105,7 +105,29 @@ class correlation:
                 col for col, dtype in self.data.schema.items() if dtype.is_numeric()
             ]
 
+        # Listwise deletion, as radiant.basics (get_data(na.rm = TRUE) runs
+        # na.omit() before psych::corr.test): a row missing any selected
+        # variable is dropped for every pair, so all correlations, p-values and
+        # covariances describe the same rows. Pairwise deletion gave different
+        # numbers for pairs without missing values.
+        nobs_all = self.data.height
         self.data = self.data.select(self.vars)
+        floats = [col for col, dtype in self.data.schema.items() if dtype.is_float()]
+        if floats:
+            self.data = self.data.with_columns(pl.col(floats).fill_nan(None))
+        self.data = self.data.drop_nulls()
+        self.nobs = self.data.height
+        self.nobs_dropped = nobs_all - self.nobs
+        # radiant.basics refuses variables without variation (does_vary); after
+        # listwise deletion that can be a variable that varies in the full data
+        # (e.g., purchase y/n once only buyers have a spend amount)
+        not_vary = [col for col in self.vars if self.data[col].n_unique() < 2]
+        if not_vary:
+            after = " after dropping rows with missing values" if self.nobs_dropped else ""
+            raise ValueError(
+                f"The following variable(s) show no variation{after}: "
+                f"{', '.join(not_vary)}. Please select other variables."
+            )
         self.method = method
         self.hcor_se = bool(hcor_se) and method == "polychoric"
 
@@ -252,10 +274,7 @@ class correlation:
 
         self._print_hypothesis_info(cutoff)
 
-        if not plain and du.is_notebook() and du.has_great_tables():
-            self._style_tables(cov=cov, cutoff=cutoff, dec=dec)
-        else:
-            self._summary_plain(cov=cov, cutoff=cutoff, dec=dec)
+        self._summary_plain(cov=cov, cutoff=cutoff, dec=dec)
 
     def _summary_header(self) -> None:
         """Print the summary header."""
@@ -264,6 +283,11 @@ class correlation:
         for line in scope_lines(self, 9):
             prn += f"{line}\n"
         prn += f"Method   : {self.method}"
+        if self.nobs_dropped > 0:
+            prn += (
+                f"\nDropped  : {self.nobs_dropped:,} of {self.nobs + self.nobs_dropped:,}"
+                " rows (missing values)"
+            )
         print(prn)
 
     def _print_hypothesis_info(self, cutoff: float) -> None:
@@ -355,46 +379,6 @@ class correlation:
                     "correlations are estimated from latent variables, so a "
                     "covariance matrix on the original scale is not defined."
                 )
-
-    def _style_tables(self, cov: bool = False, cutoff: float = 0, dec: int = 2) -> None:
-        """Display styled tables using great_tables in Jupyter."""
-        from IPython.display import display
-
-        crs_display, cps_display, cvs_display = self._build_matrix_displays(cutoff, dec)
-
-        gt1 = du.style_table(
-            crs_display,
-            title="Correlation Matrix",
-            subtitle=f"Method: {self.method}",
-        )
-        display(gt1)
-
-        if self.method != "polychoric" or self.hcor_se:
-            gt2 = du.style_table(
-                cps_display,
-                title="P-values",
-                subtitle="",
-            )
-            display(gt2)
-
-        if cov and self.method != "polychoric":
-            gt3 = du.style_table(
-                cvs_display,
-                title="Covariance Matrix",
-                subtitle="",
-            )
-            display(gt3)
-        elif cov:
-            from IPython.display import Markdown
-
-            display(
-                Markdown(
-                    "**Covariance Matrix:** Not available for the polychoric "
-                    "method. Heterogeneous correlations are estimated from "
-                    "latent variables, so a covariance matrix on the original "
-                    "scale is not defined."
-                )
-            )
 
     def cor2df(self, labels: tuple[str, str] = ("label1", "label2")) -> pl.DataFrame:
         """

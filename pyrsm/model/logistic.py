@@ -551,9 +551,18 @@ class logistic:
             Confidence level for ``ci`` and ``odds``.
         dec : int, default 3
             Number of decimal places to round to.
-        plain : bool, default False
-            Force plain text output (useful for non-notebook environments like Shiny).
+        plain : bool, default True
+            If True (default), print plain text output. If False and running
+            in a notebook (or a rendered Quarto report), show the formatted
+            report Radiant shows.
         """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            from pyrsm.model.report import logistic_report
+
+            opts = dict(vif=vif, test=test, ci=ci, odds=odds, conf=conf, dec=dec)
+            return du.show_report(self, logistic_report(self, **opts), **opts)
+
         from pyrsm.model.model import gvif, r_label
 
         if self.stepwise:
@@ -568,10 +577,7 @@ class logistic:
             print(f"\n{line}\n{title} stepwise selection of variables\n{line}")
 
         self._summary_header()
-        if not plain and du.is_notebook() and du.has_great_tables():
-            self._summary_styled(dec)
-        else:
-            self._summary_plain(dec)
+        self._summary_plain(dec)
         du.print_sig_codes()
 
         print(f"\n{model_fit(self.fitted, dec=dec)}")
@@ -694,30 +700,6 @@ class logistic:
             ]
         )
         du.print_plain_tables(df)
-
-    def _summary_styled(self, dec: int = 3) -> None:
-        """Display styled coefficient table in notebooks."""
-        from IPython.display import display
-
-        df = self.coef.clone()
-        df = df.with_columns(
-            [
-                pl.col("index"),
-                pl.col("p.value").map_elements(
-                    lambda p: du.format_pval(p, dec), return_dtype=pl.Utf8
-                ),
-                (pl.col("OR%").round(max(dec - 2, 0)).cast(pl.Utf8) + "%").alias("OR%"),
-            ]
-        )
-
-        gt = du.style_table(
-            df,
-            title="Coefficient Estimates",
-            subtitle=f"Response: {self.rvar} (level: {self.lev})",
-            number_cols=["OR", "coefficient", "std.error", "z.value"],
-            dec=dec,
-        )
-        display(gt)
 
     def predict(
         self, data=None, cmd=None, data_cmd=None, ci=False, conf=0.95, dec=None,

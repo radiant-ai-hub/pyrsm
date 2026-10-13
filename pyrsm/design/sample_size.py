@@ -3,6 +3,7 @@ import math
 from scipy.stats import norm
 
 from pyrsm.utils import format_nr
+from pyrsm.basics import display_utils as du
 
 
 class sample_size:
@@ -90,22 +91,34 @@ class sample_size:
         self.n = math.ceil(n)
         self.contact_attempts = math.ceil(self.n / incidence / response)
 
-    def summary(self, dec: int = 3) -> None:
-        """Print summary of sample size calculation."""
+    def summary(self, dec: int = 3, plain: bool = True) -> None:
+        """Print summary of sample size calculation.
+
+        ``plain=False`` in a notebook (or a rendered Quarto report) shows the formatted report Radiant shows.
+        """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            return du.show_text_report(self, "sample_size", dec=dec)
+
         print("Sample size calculation")
+
+        def num(x):
+            # 10.0 -> "10", 60.95 -> "60.95"
+            x = round(float(x), dec)
+            return str(int(x)) if x.is_integer() else str(x)
 
         if self.type == "mean":
             print("Calculation type     : Mean")
-            print(f"Acceptable Error     : {self.err_mean}")
-            print(f"Standard deviation   : {self.sd_mean}")
+            print(f"Acceptable error     : {num(self.err_mean)}")
+            print(f"Standard deviation   : {num(self.sd_mean)}")
         else:
             print("Calculation type     : Proportion")
-            print(f"Acceptable Error     : {self.err_prop}")
-            print(f"Proportion           : {self.p_prop}")
+            print(f"Acceptable error     : {num(self.err_prop)}")
+            print(f"Proportion           : {num(self.p_prop)}")
 
-        print(f"Confidence level     : {self.conf}")
-        print(f"Incidence rate       : {self.incidence}")
-        print(f"Response rate        : {self.response}")
+        print(f"Confidence level     : {num(self.conf)}")
+        print(f"Incidence rate       : {num(self.incidence)}")
+        print(f"Response rate        : {num(self.response)}")
 
         if not self.pop_correction:
             print("Population correction: None")

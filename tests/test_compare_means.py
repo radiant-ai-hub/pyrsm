@@ -215,3 +215,22 @@ def test_compare_means_plot_outputs(load_basics_dataset, basics_plot_dir):
             p.save(str(out_file), verbose=False)
             assert out_file.exists()
             assert out_file.stat().st_size > 0
+
+
+@pytest.mark.parametrize(
+    "groups, levels",
+    [
+        ([0, 1, 0, 1, 0, 1, None], ["0", "1"]),
+        ([2.0, 10.0, 2.0, 10.0, 2.0, 10.0, 2.0], ["2.0", "10.0"]),
+        ([True, False, True, False, True, False, True], ["false", "true"]),
+    ],
+)
+def test_numeric_or_boolean_grouping_variable(groups, levels):
+    """A 0/1 (or boolean) grouping variable: Enum levels must be strings, in
+    numeric order (was TypeError: Enum categories must be strings)."""
+    df = pl.DataFrame({"buyer": groups, "income": [40.0, 55.0, 38.0, 61.0, 45.0, 52.0, 47.0]})
+    cm = compare_means(df, var1="buyer", var2="income")
+    assert cm.levels == levels
+    assert cm.descriptive_stats["buyer"].cast(pl.Utf8).to_list() == levels
+    assert cm.comb == [f"{levels[0]}:{levels[1]}"]
+    assert cm.descriptive_stats["n"].sum() == df.drop_nulls().height

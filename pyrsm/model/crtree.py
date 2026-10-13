@@ -37,6 +37,7 @@ from pyrsm.model._rpart import (
 )
 from pyrsm.model.model import convert_to_list, nobs_dropped, sim_prediction
 from pyrsm.utils import cat_levels, check_dataframe
+from pyrsm.basics import display_utils as du
 
 __all__ = ["crtree", "cv_crtree"]
 
@@ -632,7 +633,7 @@ class crtree:
             )
         return "\n".join(lines)
 
-    def summary(self, prn: bool = True, splits: bool = False, cptab: bool = False) -> None:
+    def summary(self, prn: bool = True, splits: bool = False, cptab: bool = False, plain: bool = True) -> None:
         """
         Summarize a classification or regression tree.
 
@@ -644,7 +645,17 @@ class crtree:
             Print the splits table (primary, competing and surrogate splits).
         cptab : bool, default False
             Print the complexity parameter table.
+        plain : bool
+            If True (default), print plain text output. If False and running
+            in a notebook (or a rendered Quarto report), show the formatted
+            report Radiant shows.
         """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            from pyrsm.model.report import crtree_report
+
+            return du.show_text_report(self, lambda text: crtree_report(self, text), prn=prn, splits=splits, cptab=cptab)
+
         print("Classification tree" if self.mod_type == "classification" else "Regression tree")
         print(f"Data                 : {self.name}")
         print_scope(self, 21)

@@ -43,7 +43,8 @@ def _group_levels(s: "pl.Series") -> list:
     levels that a filter removed."""
     if isinstance(s.dtype, (pl.Enum, pl.Categorical)) or s.dtype in (pl.Utf8, pl.String):
         return [str(x) for x in cat_levels(s, drop_unused=True)]
-    return [str(x) for x in sorted(s.drop_nulls().unique().to_list())]
+    # numeric order, as the text the column is cast to below ("0", "2.0", "true")
+    return s.drop_nulls().unique().sort().cast(pl.Utf8).to_list()
 
 class compare_means:
     """
@@ -227,7 +228,9 @@ class compare_means:
                     on=cols,
                     variable_name="variable",
                     value_name="value",
-                )
+                ).with_columns(pl.col("variable").cast(pl.Enum(cols)))
+                # levels in the order selected, as radiant.basics
+                # (factor(levels = vars))
                 self.var1 = "variable"
                 self.var2 = "value"
         else:
@@ -272,8 +275,11 @@ class compare_means:
             tscore = _get_scipy_stats().t.ppf((1 + self.conf) / 2, n - 1)
             return (tscore * se).real
 
+        # One row per level, in level order (as R's factor levels); rows
+        # without a group are not a group
         descriptive_stats = (
-            self.data.group_by(self.var1)
+            self.data.filter(pl.col(self.var1).is_not_null())
+            .group_by(self.var1)
             .agg(
                 pl.col(self.var2).mean().alias("mean"),
                 pl.len().alias("n_total"),
@@ -298,7 +304,7 @@ class compare_means:
             .sort(self.var1, nulls_last=True)
         )
 
-        self.descriptive_stats = descriptive_stats.select(
+        self.descriptive_stats = descriptive_stats.sort(self.var1).select(
             [self.var1, "mean", "n", "n_missing", "sd", "se", "me"]
         )
 

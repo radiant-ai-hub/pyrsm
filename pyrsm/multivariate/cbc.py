@@ -28,6 +28,7 @@ from ._utils import apply_filter, get_data, get_vars
 from pyrsm.data_scope import apply_scope, print_scope
 from pyrsm._logit import clogit_fit as _mnl_fit
 from pyrsm._logit import segment_probs as _segment_probs
+from pyrsm.basics import display_utils as du
 
 __all__ = ["cbc"]
 
@@ -223,7 +224,12 @@ class cbc:
 
     # -- output ---------------------------------------------------------------
 
-    def summary(self, dec: int = 3) -> None:
+    def summary(self, dec: int = 3, plain: bool = True) -> None:
+        """Print the summary. ``plain=False`` in a notebook (or a rendered Quarto report) shows the formatted report Radiant shows."""
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            return du.show_text_report(self, "cbc", dec=dec)
+
         print("Choice-based conjoint analysis")
         print(f"Data                 : {self.name}")
         print_scope(self, 21)

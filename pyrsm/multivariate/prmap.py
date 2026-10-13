@@ -27,6 +27,7 @@ from ._utils import (
     standardize,
 )
 from pyrsm.data_scope import apply_scope, print_scope
+from pyrsm.basics import display_utils as du
 
 __all__ = ["prmap"]
 
@@ -179,7 +180,12 @@ class prmap:
                     pc[a, b] = np.corrcoef(p_data[:, a], row_scores[:, b])[0, 1]
         return pc
 
-    def summary(self, cutoff: float = 0.0, dec: int = 2) -> None:
+    def summary(self, cutoff: float = 0.0, dec: int = 2, plain: bool = True) -> None:
+        """Print the summary. ``plain=False`` in a notebook (or a rendered Quarto report) shows the formatted report Radiant shows."""
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            return du.show_text_report(self, "prmap", cutoff=cutoff, dec=dec)
+
         print("Attribute based brand map")
         print(f"Data        : {self.name}")
         print_scope(self, 12)

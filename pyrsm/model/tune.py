@@ -40,6 +40,7 @@ import polars as pl
 from sklearn.base import clone
 from sklearn.metrics import accuracy_score, r2_score, roc_auc_score
 from sklearn.model_selection import KFold, StratifiedKFold
+from pyrsm.basics import display_utils as du
 
 METHODS = ("grid", "random", "halving", "refine")
 
@@ -309,7 +310,12 @@ class TuneResult:
         """As sklearn's search objects: models take ``cv=tuned`` to use them."""
         return dict(self.best_params)
 
-    def summary(self, dec: int = 4) -> None:
+    def summary(self, dec: int = 4, plain: bool = True) -> None:
+        """Print the summary. ``plain=False`` in a notebook (or a rendered Quarto report) shows the formatted report Radiant shows."""
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            return du.show_text_report(self, "tune", dec=dec)
+
         print(self.summary_text(dec))
 
     def summary_text(self, dec: int = 4) -> str:

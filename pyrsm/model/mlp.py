@@ -20,6 +20,7 @@ from pyrsm.model.perf import auc
 from pyrsm.stats import scale_df
 from pyrsm.utils import check_dataframe, ifelse
 from pyrsm.data_scope import apply_scope, print_scope
+from pyrsm.basics import display_utils as du
 
 
 class _FoldScaled:
@@ -339,7 +340,7 @@ class mlp:
             weight_matrix.size for weight_matrix in self.fitted.coefs_
         ) + sum([len(i) for i in self.fitted.intercepts_])
 
-    def summary(self, dec=3) -> None:
+    def summary(self, dec=3, plain: bool = True) -> None:
         """
         Summarize the output from a Multi-layer Perceptron (NN) model.
 
@@ -347,11 +348,21 @@ class mlp:
         ----------
         dec : int, default=3
             Number of decimal places to display in the summary.
+        plain : bool
+            If True (default), print plain text output. If False and running
+            in a notebook (or a rendered Quarto report), show the formatted
+            report Radiant shows.
 
         Examples
         --------
         >>> nn.summary()
         """
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            from pyrsm.model.report import fit_metrics, fit_report
+
+            return du.show_text_report(self, lambda text: fit_report("mlp", text, fit_metrics(self), dec=dec), dec=dec)
+
         print("Multi-layer Perceptron (NN)")
         print(f"Data                 : {self.name}")
         print_scope(self, 21)

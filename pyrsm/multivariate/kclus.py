@@ -24,6 +24,7 @@ from ._plotting import as_plot_result
 from ._utils import does_vary, get_data, get_vars, is_categorical
 from pyrsm.data_scope import apply_scope, print_scope
 from ._utils import r_scale as _standardize
+from pyrsm.basics import display_utils as du
 
 __all__ = ["kclus"]
 
@@ -420,7 +421,12 @@ class kclus:
             )
         )
 
-    def summary(self, dec: int = 2) -> None:
+    def summary(self, dec: int = 2, plain: bool = True) -> None:
+        """Print the summary. ``plain=False`` in a notebook (or a rendered Quarto report) shows the formatted report Radiant shows."""
+        if not plain and du.is_notebook():
+            # Radiant's formatted report (pyrsm.report), as its Summary tab shows it
+            return du.show_text_report(self, "kclus", dec=dec)
+
         kind = "means" if self.fun == "kmeans" else "prototypes"
         print(f"K-{self.fun[1:]} cluster analysis")
         print(f"Data         : {self.name}")
@@ -463,12 +469,22 @@ class kclus:
             f"heterogeneity in the data (higher is better)"
         )
 
-    def plot(self, plots="density", dec: int = 2, custom: bool = False):
+    def plot(
+        self,
+        plots="density",
+        dec: int = 2,
+        adjust: float = 2.5,
+        jitter: bool = False,
+        custom: bool = False,
+    ):
         """Cluster plots: ``"density"``, ``"bar"``, or ``"scatter"``.
 
-        Numeric variables use density/bar(mean±ME)/jitter-scatter by cluster;
+        Numeric variables use density/bar(mean±ME)/scatter by cluster;
         categorical variables fall back to a proportional stacked bar (matching
-        Radiant). Returns a single plotnine object or a list.
+        Radiant). ``adjust`` scales the density bandwidth (Radiant uses 2.5;
+        larger is smoother). The scatter plot draws a line at each cluster's
+        mean; ``jitter=True`` spreads the points horizontally. Returns a single
+        plotnine object or a list.
         """
         if isinstance(plots, str):
             plots = [plots]
@@ -482,11 +498,11 @@ class kclus:
                 if self._cat_flags[v]:
                     out.append(self._fct_plot(df, v))
                 elif ptype == "density":
-                    out.append(self._density_plot(df, v))
+                    out.append(self._density_plot(df, v, adjust))
                 elif ptype == "bar":
                     out.append(self._bar_plot(df, v, dec))
                 elif ptype == "scatter":
-                    out.append(self._scatter_plot(df, v))
+                    out.append(self._scatter_plot(df, v, jitter))
         return as_plot_result(out)
 
     def _fct_plot(self, df, var):
@@ -504,12 +520,12 @@ class kclus:
             + theme_pyrsm()
         )
 
-    def _density_plot(self, df, var):
+    def _density_plot(self, df, var, adjust=2.5):
         from plotnine import aes, geom_density, ggplot, labs
 
         return (
             ggplot(df, aes(x=var, fill="Cluster"))
-            + geom_density(alpha=0.3)
+            + geom_density(adjust=adjust, alpha=0.3)
             + labs(y="", x=var)
             + theme_pyrsm()
         )
@@ -538,17 +554,29 @@ class kclus:
             + theme_pyrsm()
         )
 
-    def _scatter_plot(self, df, var):
+    def _scatter_plot(self, df, var, jitter=False):
         from plotnine import (
             aes,
+            geom_errorbar,
             geom_jitter,
+            geom_point,
             ggplot,
             labs,
         )
 
+        means = df.groupby("Cluster", as_index=False)[var].mean()
+        points = (
+            geom_jitter(width=0.2, height=0, color=FILL, alpha=ALPHA, random_state=1234)
+            if jitter
+            else geom_point(color=FILL, alpha=ALPHA)
+        )
         return (
             ggplot(df, aes(x="Cluster", y=var))
-            + geom_jitter(width=0.2, color=FILL, alpha=ALPHA)
-            + labs(x="Cluster", y=var)
+            + points
+            # a horizontal line at each cluster's mean
+            + geom_errorbar(
+                means, aes(x="Cluster", ymin=var, ymax=var), width=0.5, size=1, color=REF
+            )
+            + labs(x="Cluster", y=f"{var} (mean)")
             + theme_pyrsm()
         )

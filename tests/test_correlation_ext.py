@@ -2,6 +2,7 @@ import warnings
 
 import numpy as np
 import polars as pl
+import pytest
 
 from pyrsm.basics.correlation import correlation
 
@@ -101,6 +102,53 @@ def test_correlation_polars_pairwise_missing():
     assert np.isclose(c.cr[1, 0], -0.4472, atol=1e-3)
     assert c.cp[1, 0] <= 1
     assert np.isfinite(c.cv).all()
+
+
+def test_correlation_drops_rows_with_missing_values_as_radiant_basics():
+    """Listwise deletion, as radiant.basics (get_data(na.rm = TRUE)): a row
+    missing c is dropped for a-b too. Values from radiant.basics::correlation."""
+    import io
+    from contextlib import redirect_stdout
+
+    df = pl.DataFrame(
+        {
+            "a": [1, 2, 3, 4, 5, 6, 7, 8],
+            "b": [2, 1, 4, 3, 6, 5, 8, 9],
+            "c": [None, 3, 1, None, 2, 5, 4, 8],
+        }
+    )
+    c = correlation(df)
+    assert c.nobs == 6 and c.nobs_dropped == 2
+    assert np.allclose(c.cr[[1, 2, 2], [0, 0, 1]], [0.9439504386, 0.7706422917, 0.6010411026])
+    assert np.allclose(c.cp[[1, 2, 2], [0, 0, 1]], [0.004624288651, 0.072874761204, 0.20700151756])
+    assert np.allclose(c.cv, [[5.366666667, 6.3, 4.433333333], [6.3, 8.3, 4.3], [4.433333333, 4.3, 6.166666667]])
+
+    out = io.StringIO()
+    with redirect_stdout(out):
+        c.summary()
+    assert "Dropped  : 2 of 8 rows (missing values)" in out.getvalue()
+
+    out = io.StringIO()
+    with redirect_stdout(out):
+        correlation(df.drop_nulls()).summary()
+    assert "Dropped" not in out.getvalue()
+
+
+def test_correlation_drops_nan_as_missing():
+    """R's na.omit drops NaN too."""
+    df = pl.DataFrame({"a": [1.0, 2.0, 3.0, 4.0, 5.0], "b": [2.0, float("nan"), 3.0, 5.0, 4.0], "c": [1.0, 2.0, 2.0, 3.0, 1.0]})
+    c = correlation(df)
+    assert c.nobs_dropped == 1 and np.isfinite(c.cr).all()
+
+
+def test_correlation_refuses_variables_without_variation():
+    """As radiant.basics: a variable that is constant once incomplete rows are
+    dropped is named, not reported as NaN correlations."""
+    df = pl.DataFrame({"spend": [None, None, 3.0, 5.0, 4.0], "buyer": [0, 0, 1, 1, 1], "age": [30, 40, 35, 50, 45]})
+    with pytest.raises(ValueError, match="no variation after dropping rows with missing values: buyer"):
+        correlation(df)
+    with pytest.raises(ValueError, match=r"no variation: k\."):
+        correlation(pl.DataFrame({"k": [1, 1, 1], "x": [1, 2, 3]}))
 
 
 def test_correlation_spearman_monotonic():

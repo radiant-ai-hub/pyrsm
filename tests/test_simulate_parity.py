@@ -358,7 +358,7 @@ def test_examples_run_and_their_code_reproduces_them(example):
         data = simulate(rsm.decide.simulate_example(ex["requires"][0])["spec"]).data
     sim = simulate(ex["spec"], data=data)
     assert not sim.has_errors, sim.diagnostics
-    code = sim.python_code.replace("sim.summary()", "").replace("sim.plot()", "")
+    code = sim.python_code.replace("sim.summary(plain=False)", "").replace("sim.plot()", "")
     if data is not None:
         code = code.replace("spec = {", "import polars as pl\nimport pyrsm as rsm\nreturns = rsm.decide.simulate(rsm.decide.simulate_example('stock-returns')['spec']).data\nspec = {", 1)
     ns = _run_code(code)
@@ -387,7 +387,7 @@ def test_repeat_functions_of_their_own():
     # the functions are written as Python functions and passed by name
     assert "def big(v, k=1):" in rep.python_code and "functions=[big]" in rep.python_code
     assert '"functions": [sq]' in rep.python_code
-    ns = _run_code(rep.python_code.replace("rep.summary()", "").replace("rep.plot()", ""))
+    ns = _run_code(rep.python_code.replace("rep.summary(plain=False)", "").replace("rep.plot()", ""))
     assert ns["repdat"].equals(rep.data)
     bad = repeat_simulate(spec, reps=2, vars=["x"], functions="import os")
     assert bad.has_errors and "repeat functions" in bad.diagnostics[0].message
