@@ -36,7 +36,8 @@ _LOADER = """
   window.__pyrsmMermaid.then(function (mermaid) {
     // tooltips use "click <id> callback" as in Radiant; the callback is a no-op
     window.callback = window.callback || function () {};
-    mermaid.initialize({ startOnLoad: false, securityLevel: "loose" });
+    // a forest's tree can be larger than mermaid's default 50,000 characters
+    mermaid.initialize({ startOnLoad: false, securityLevel: "loose", maxTextSize: 500000, maxEdges: 2000 });
     mermaid.run({ nodes: el.querySelectorAll("pre.mermaid") });
   });
 })();

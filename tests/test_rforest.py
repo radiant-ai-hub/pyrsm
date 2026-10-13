@@ -356,6 +356,48 @@ class TestRforestTreePlot:
                 assert float(cut).is_integer()
 
 
+class TestTreeBoxes:
+    """A large tree is drawn to fewer levels: at most MAX_BOXES boxes."""
+
+    @pytest.fixture(scope="class")
+    def big(self):
+        d = pl.read_parquet(os.path.join(os.path.dirname(__file__), "..", "examples", "data", "model", "diamonds.parquet"))
+        return rforest(
+            {"diamonds": d}, rvar="price", evar=["carat", "clarity", "cut", "color"],
+            mod_type="regression", n_estimators=3,
+        )
+
+    def test_boxes_count_levels(self, big):
+        from pyrsm.model._sktree import boxes_drawn, node_levels
+
+        est = big.fitted.estimators_[0]
+        assert boxes_drawn(est, 1) == 3
+        assert boxes_drawn(est, None) == est.tree_.node_count
+        assert node_levels(est).max() == est.get_depth()
+
+    def test_deep_tree_is_cut(self, big, capsys):
+        from pyrsm.model._sktree import MAX_BOXES, boxes_drawn
+
+        est = big.fitted.estimators_[0]
+        assert boxes_drawn(est, 10) > MAX_BOXES  # diamonds at 10 levels is too big
+        shown = big.tree_depth(1, 10)
+        assert 1 <= shown < 10
+        assert boxes_drawn(est, shown) <= MAX_BOXES < boxes_drawn(est, shown + 1)
+        assert big.tree_depth(1, None) == shown
+        big.plot("tree", tree=1, depth=10)
+        assert f"Showing {shown} levels of tree 1: 10 levels would draw" in capsys.readouterr().out
+
+    def test_small_tree_is_not_cut(self, titanic_polars, capsys):
+        rf = rforest(
+            {"titanic": titanic_polars}, rvar="survived", lev="Yes",
+            evar=["pclass", "sex", "age"], mod_type="classification", n_estimators=3,
+        )
+        assert rf.tree_depth(1, 10) == 10
+        assert rf.tree_depth(1, 10, max_boxes=20) < 10
+        rf.plot("tree", tree=1, depth=10)
+        assert capsys.readouterr().out == ""
+
+
 class TestFitLines:
     """The plain summary prints the numbers the formatted report shows."""
 

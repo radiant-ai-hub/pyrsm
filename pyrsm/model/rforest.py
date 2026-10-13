@@ -27,6 +27,23 @@ def _get_visualize_plots():
     return pred_plot_sk, pdp_sk, pip_plot_sk, pip_plot_sklearn
 
 
+def tree_depth_note(model, tree: int, depth: int | None, shown: int | None) -> str:
+    """Why a "tree" plot draws fewer levels than asked for ("" when it does not)."""
+    from pyrsm.model._sktree import MAX_BOXES, boxes_drawn
+
+    asked = None if depth is None or depth < 1 else int(depth)
+    if shown == asked:
+        return ""
+    est = model.fitted.estimators_[int(tree) - 1]
+    want = "the whole tree" if asked is None else f"{asked} levels"
+    return (
+        f"Showing {shown} levels of tree {tree}: {want} would draw "
+        f"{boxes_drawn(est, asked):,} boxes, more than the {MAX_BOXES} a browser draws "
+        f"quickly (and too many to read). Grey dashed boxes mark where the tree "
+        f"continues, with the number of splits below them."
+    )
+
+
 class rforest:
     """
     Initialize random forest model
@@ -323,6 +340,21 @@ class rforest:
             )
         return pred
 
+    def tree_depth(self, tree: int = 1, depth: int | None = 3, max_boxes: int | None = None) -> int | None:
+        """The number of levels a "tree" plot of ``tree`` draws.
+
+        ``depth`` (None = all), lowered when that would draw more than
+        ``max_boxes`` boxes (default 500): a whole tree of a forest estimated
+        on a few thousand rows has thousands, which a browser takes many
+        seconds to draw and nobody can read.
+        """
+        from pyrsm.model._sktree import MAX_BOXES, fit_depth
+
+        trees = self.fitted.estimators_
+        if not 1 <= int(tree) <= len(trees):
+            raise ValueError(f"tree must be between 1 and {len(trees)}, got {tree}")
+        return fit_depth(trees[int(tree) - 1], depth, MAX_BOXES if max_boxes is None else max_boxes)
+
     def to_mermaid(self, tree: int = 1, depth: int | None = 3, orient: str = "LR", dec: int = 2) -> str:
         """Mermaid source for one tree of the forest, drawn as ``crtree.plot("tree")``.
 
@@ -427,6 +459,7 @@ class rforest:
             Which tree to draw for a "tree" plot, from 1 to ``n_estimators``.
         depth : int, optional
             Number of split levels a "tree" plot draws (default 3; None = all).
+            Lowered, with a note, when it would draw more than 500 boxes.
         orient : {"LR", "TD", "RL", "BT"}, default "LR"
             Direction of a "tree" plot.
         width : str, default "900px"
@@ -439,7 +472,10 @@ class rforest:
         if "tree" in plots:
             from pyrsm.model._mermaid import MermaidDiagram
 
-            return MermaidDiagram(self.to_mermaid(tree=tree, depth=depth, orient=orient), width=width)
+            shown = self.tree_depth(tree, depth)
+            if shown != (None if depth is None or depth < 1 else depth):
+                print(tree_depth_note(self, tree, depth, shown))
+            return MermaidDiagram(self.to_mermaid(tree=tree, depth=shown, orient=orient), width=width)
         excl = convert_to_list(excl)
         incl = ifelse(incl is None, None, convert_to_list(incl))
         incl_int = convert_to_list(incl_int)

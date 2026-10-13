@@ -13,6 +13,9 @@ Forest trees are deep (``min_samples_leaf=1`` grows them until the leaves are
 pure), so ``depth`` limits how many levels are drawn. A split below that depth
 is shown as a grey box with its n, its prediction and the number of splits not
 drawn.
+A whole forest tree on a few thousand rows has thousands of nodes, which a
+browser takes many seconds to lay out and nobody can read, so ``fit_depth``
+lowers the depth until at most ``MAX_BOXES`` boxes are drawn.
 """
 
 from __future__ import annotations
@@ -28,6 +31,44 @@ _STYLE = (
     "      classDef leaf fill:#9ACD32,stroke:#333,stroke-width:1px;\n"
     "      classDef more fill:#E9ECEF,stroke:#333,stroke-width:1px,stroke-dasharray:4,4;"
 )
+
+
+# Boxes drawn before a tree diagram is cut to fewer levels: mermaid lays out
+# about 300 boxes a second, and a diagram with more cannot be read anyway.
+MAX_BOXES = 500
+
+
+def node_levels(estimator) -> np.ndarray:
+    """The level of every node of a fitted sklearn tree (the root is 0)."""
+    t = estimator.tree_
+    level = np.zeros(t.node_count, dtype=int)
+    for node in range(t.node_count):  # sklearn numbers a child after its parent
+        for child in (t.children_left[node], t.children_right[node]):
+            if child != -1:
+                level[child] = level[node] + 1
+    return level
+
+
+def boxes_drawn(estimator, depth: int | None = None) -> int:
+    """Number of boxes a diagram of ``depth`` split levels draws (None = all)."""
+    level = node_levels(estimator)
+    return int(level.size if depth is None or depth < 1 else (level <= depth).sum())
+
+
+def fit_depth(estimator, depth: int | None = None, max_boxes: int | None = MAX_BOXES) -> int | None:
+    """``depth``, or the deepest level whose diagram has at most ``max_boxes`` boxes.
+
+    None (or 0) means the whole tree. ``max_boxes=None`` never lowers it.
+    """
+    depth = None if depth is None or depth < 1 else int(depth)
+    if max_boxes is None:
+        return depth
+    level = node_levels(estimator)
+    if (level.size if depth is None else (level <= depth).sum()) <= max_boxes:
+        return depth
+    deepest = int(level.max()) if depth is None else depth
+    fits = [d for d in range(1, deepest) if (level <= d).sum() <= max_boxes]
+    return fits[-1] if fits else 1
 
 
 def _short(lab: str) -> str:
