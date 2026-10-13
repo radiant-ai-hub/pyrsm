@@ -10,12 +10,10 @@ from pyrsm.model.model import (
     check_binary,
     conditional_get_dummies,
     convert_to_list,
-    evalreg,
     kept_rows,
     nobs_dropped,
     sim_prediction,
 )
-from pyrsm.model.perf import auc
 from pyrsm.utils import check_dataframe, ifelse
 from pyrsm.data_scope import apply_scope, print_scope
 from pyrsm.basics import display_utils as du
@@ -232,29 +230,9 @@ class rforest:
         print(f"min_samples_leaf     : {self.min_samples_leaf}")
         print(f"max_samples          : {self.max_samples}")
         print(f"random_state         : {self.random_state}")
-        if self.mod_type == "classification":
-            cpred = self.fitted.oob_decision_function_[:, 1]
-            print(
-                f"AUC                  : {round(auc(self.data[self.rvar], cpred), dec)}"
-            )
-        else:
-            print("Model fit            :")
-            evalreg(
-                pl.DataFrame(
-                    {
-                        "rvar": self.data.get_column(self.rvar),
-                        "prediction": self.fitted.predict(self.data_onehot.to_pandas()),
-                    }
-                ),
-                "rvar",
-                "prediction",
-                dec=dec,
-            ).drop(["Type", "predictor"]).show(
-                tbl_formatting="NOTHING",
-                tbl_hide_dataframe_shape=True,
-                tbl_hide_column_data_types=True,
-                tbl_hide_dtype_separator=True,
-            )
+        from pyrsm.model.report import print_fit
+
+        print_fit(self, dec=dec)
 
         if len(self.kwargs) > 0:
             kwargs_list = [f"{k}={v}" for k, v in self.kwargs.items()]
@@ -345,9 +323,51 @@ class rforest:
             )
         return pred
 
+    def to_mermaid(self, tree: int = 1, depth: int | None = 3, orient: str = "LR", dec: int = 2) -> str:
+        """Mermaid source for one tree of the forest, drawn as ``crtree.plot("tree")``.
+
+        Parameters
+        ----------
+        tree : int, default 1
+            Which tree, counting from 1 to ``n_estimators``.
+        depth : int, optional
+            Number of split levels to draw (default 3); None draws the whole
+            tree. Splits below that depth are shown as a grey box.
+        orient : {"LR", "TD", "RL", "BT"}
+            Direction of the diagram.
+        dec : int
+            Decimals for the predictions and cut-offs.
+        """
+        from pyrsm.model._sktree import tree_to_mermaid
+        from pyrsm.model.crtree import _levels
+
+        trees = self.fitted.estimators_
+        if not 1 <= int(tree) <= len(trees):
+            raise ValueError(f"tree must be between 1 and {len(trees)}, got {tree}")
+        levels = {}
+        int_vars = set()
+        for c in self.evar:
+            col = self.data.get_column(c)
+            if col.dtype in (pl.Utf8, pl.String, pl.Categorical) or isinstance(col.dtype, pl.Enum):
+                levels[c] = _levels(col)
+            elif col.dtype.is_integer():
+                int_vars.add(c)
+        classes = list(self.fitted.classes_) if self.mod_type == "classification" else None
+        return tree_to_mermaid(
+            trees[int(tree) - 1],
+            list(self.feature_names),
+            levels,
+            int_vars=int_vars,
+            mod_type=self.mod_type,
+            depth=depth,
+            orient=orient,
+            dec=dec,
+            classes=classes,
+        )
+
     def plot(
         self,
-        plots: Literal["pred", "pdp", "pip", "pip_sklearn", "dashboard"] = "pred",
+        plots: Literal["pred", "pdp", "pip", "pip_sklearn", "dashboard", "tree"] = "pred",
         data=None,
         incl=None,
         excl=None,
@@ -362,6 +382,10 @@ class rforest:
         maxq=0.975,
         figsize=None,
         ret=None,
+        tree: int = 1,
+        depth: int | None = 3,
+        orient: str = "LR",
+        width: str = "900px",
     ) -> None:
         """
         Plots for a random forest model
@@ -369,7 +393,7 @@ class rforest:
         Parameters
         ----------
         plots : str or list[str], default 'pred'
-            List of plot types to generate. Options include 'pred', 'pdp', 'pip', 'pip_sklearn', 'dashboard'. 'pdp_sklearn' is accepted as an alias of 'pdp' (all plots are plotnine).
+            List of plot types to generate. Options include 'pred', 'pdp', 'pip', 'pip_sklearn', 'dashboard', 'tree'. 'pdp_sklearn' is accepted as an alias of 'pdp' (all plots are plotnine). 'tree' draws one tree of the forest with mermaid, as ``crtree.plot("tree")``.
         nobs : int, default 1000
             Number of observations to plot. Relevant for all plots that include a scatter of data points (i.e., corr, scatter, dashboard, residual).
         incl : list[str], optional
@@ -399,11 +423,23 @@ class rforest:
             Figure size for the plots in inches (e.g., "(3, 6)"). Relevant for 'corr', 'scatter', 'residual', and 'coef' plots.
         ret : bool, optional
             Whether to return the variable (permutation) importance scores for a "pip" plot.
+        tree : int, default 1
+            Which tree to draw for a "tree" plot, from 1 to ``n_estimators``.
+        depth : int, optional
+            Number of split levels a "tree" plot draws (default 3; None = all).
+        orient : {"LR", "TD", "RL", "BT"}, default "LR"
+            Direction of a "tree" plot.
+        width : str, default "900px"
+            Maximum width of a "tree" plot.
 
         """
         plots = convert_to_list(
             plots
         )  # control for the case where a single string is passed
+        if "tree" in plots:
+            from pyrsm.model._mermaid import MermaidDiagram
+
+            return MermaidDiagram(self.to_mermaid(tree=tree, depth=depth, orient=orient), width=width)
         excl = convert_to_list(excl)
         incl = ifelse(incl is None, None, convert_to_list(incl))
         incl_int = convert_to_list(incl_int)

@@ -301,3 +301,91 @@ def test_ice_lines_stay_inside_the_y_axis():
     ice = p.layers[0].geom.data
     low, high = [s for s in p.scales if "y" in s.aesthetics][0].limits
     assert low <= ice["prediction"].min() and high >= ice["prediction"].max()
+
+
+class TestRforestTreePlot:
+    """One tree of the forest, drawn with mermaid as crtree.plot("tree")."""
+
+    @pytest.fixture(scope="class")
+    def rf(self, titanic_polars):
+        return rforest(
+            {"titanic": titanic_polars}, rvar="survived", lev="Yes",
+            evar=["pclass", "sex", "age"], mod_type="classification",
+        )
+
+    def test_levels_not_dummies(self, rf):
+        src = rf.to_mermaid(tree=1, depth=3)
+        assert src.startswith("graph LR")
+        # dummy columns (sex_male, pclass_3rd) become variables and levels
+        assert "sex_male" not in src and "pclass_3rd" not in src
+        assert "|female|" in src and "|male|" in src
+        assert "|1st,2nd|" in src and "|3rd|" in src
+        # the root holds every (bootstrap) row and the share of survivors
+        assert 'click id1 callback "<b>n:</b> 1,043<br><b>p:</b>' in src
+
+    def test_depth_limits_the_drawing(self, rf):
+        shallow = rf.to_mermaid(tree=1, depth=2)
+        assert " more;" in shallow and "splits]" in shallow
+        full = rf.to_mermaid(tree=1, depth=None)
+        assert " more;" not in full and " leaf;" in full
+        assert full.count("---") > shallow.count("---")
+
+    def test_each_tree_differs(self, rf):
+        assert rf.to_mermaid(tree=1) != rf.to_mermaid(tree=2)
+
+    def test_tree_out_of_range(self, rf):
+        with pytest.raises(ValueError, match="between 1 and 100"):
+            rf.to_mermaid(tree=101)
+
+    def test_plot_tree(self, rf):
+        from pyrsm.model._mermaid import MermaidDiagram
+
+        p = rf.plot("tree", tree=3, depth=2, orient="TD")
+        assert isinstance(p, MermaidDiagram)
+        assert str(p).startswith("graph TD")
+
+    def test_regression_tree(self):
+        catalog = pl.read_parquet("examples/data/model/catalog.parquet")
+        rf = rforest({"catalog": catalog}, rvar="Sales", evar=["Income", "HH_size", "Age"], mod_type="regression")
+        src = rf.to_mermaid(tree=1, depth=2)
+        assert "<b>b:</b>" in src and "<b>p:</b>" not in src
+        # HH_size is an integer: its cut-offs are whole numbers
+        for line in src.splitlines():
+            if line.startswith("id") and "[HH_size] ---" in line:
+                cut = line.split("|")[1].split()[-1]
+                assert float(cut).is_integer()
+
+
+class TestFitLines:
+    """The plain summary prints the numbers the formatted report shows."""
+
+    def test_rforest_regression_is_out_of_bag(self, capsys):
+        catalog = pl.read_parquet("examples/data/model/catalog.parquet")
+        rf = rforest({"catalog": catalog}, rvar="Sales", evar=["Income", "HH_size", "Age"], mod_type="regression")
+        rf.summary()
+        out = capsys.readouterr().out
+        assert "Model fit            : out-of-bag (OOB)" in out
+        from pyrsm.model.report import fit_metrics
+
+        m = fit_metrics(rf)
+        assert m["fit_kind"] == "oob" and m["r2"] < 0.5
+        assert f"{m['r2']:.3f}" in out
+
+    def test_rforest_classification_auc_is_out_of_bag(self, capsys, titanic_polars):
+        rf = rforest({"titanic": titanic_polars}, rvar="survived", lev="Yes", evar=["pclass", "sex", "age"])
+        rf.summary()
+        assert "(OOB)" in capsys.readouterr().out
+
+    def test_mlp_regression_in_response_units(self, capsys):
+        from pyrsm.model.mlp import mlp
+
+        catalog = pl.read_parquet("examples/data/model/catalog.parquet")
+        nn = mlp({"catalog": catalog}, rvar="Sales", evar=["Income", "HH_size", "Age"], mod_type="regression")
+        nn.summary()
+        out = capsys.readouterr().out
+        assert "Model fit            : estimation data" in out
+        from pyrsm.model.report import fit_metrics
+
+        # Sales is in dollars: the RMSE is tens of dollars, not a standardized ~0.7
+        assert fit_metrics(nn)["rmse"] > 10
+        assert fit_metrics(nn)["mae"] > 10
