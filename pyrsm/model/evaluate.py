@@ -23,6 +23,7 @@ reports each. Any value other than ``"All"`` needs a filter or a slice.
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import polars as pl
 
 from pyrsm.data_scope import apply_scope
@@ -207,6 +208,17 @@ def _print_table(df: pl.DataFrame, dec: int) -> None:
         print(rounded)
 
 
+def _whole(df: pl.DataFrame, cols: list[str]) -> pl.DataFrame:
+    """Counts (and profit with whole-number cost, margin and scale) as integers,
+    so a table shows 1,387 rather than 1,387.000."""
+    keep = [
+        c for c in cols
+        if c in df.columns and df[c].dtype.is_float()
+        and df[c].is_finite().all() and (df[c] == df[c].round(0)).all()
+    ]
+    return df.with_columns([pl.col(c).cast(pl.Int64) for c in keep])
+
+
 def _single_series(obj) -> bool:
     return len(obj.pred) < 2 and obj.train != "Both"
 
@@ -230,9 +242,15 @@ def _line_plot(df, x, y, ylab, single: bool, ref=None, percent_y=False, comma_y=
     )
 
     pdf = df.to_pandas()
-    pdf["pred"] = pdf["pred"].astype("category").cat.reorder_categories(
-        list(dict.fromkeys(df["pred"].to_list()))
-    )
+    cats = list(dict.fromkeys(df["pred"].to_list()))
+    pdf["pred"] = pdf["pred"].astype("category").cat.reorder_categories(cats)
+
+    def _same_colours(lines):
+        # the break-even and maximum lines take the colour of their curve
+        out = lines.to_pandas()
+        out["pred"] = pd.Categorical(out["pred"], categories=cats)
+        return out
+
     if single:
         g = ggplot(pdf, aes(x=x, y=y, group="pred")) + geom_line(color=LINE)
         if points:
@@ -248,13 +266,13 @@ def _line_plot(df, x, y, ylab, single: bool, ref=None, percent_y=False, comma_y=
         if single:
             g += geom_vline(xintercept=list(vlines["contact"]), color=LINE, linetype="dashdot", size=0.5)
         else:
-            g += geom_vline(aes(xintercept="contact", color="pred"), data=vlines.to_pandas(),
+            g += geom_vline(aes(xintercept="contact", color="pred"), data=_same_colours(vlines),
                             linetype="dashdot", size=0.5, show_legend=False)
     if hlines is not None and len(hlines):
         if single:
             g += geom_hline(yintercept=list(hlines["max_profit"]), color=LINE, linetype="dashdot", size=0.5)
         else:
-            g += geom_hline(aes(yintercept="max_profit", color="pred"), data=hlines.to_pandas(),
+            g += geom_hline(aes(yintercept="max_profit", color="pred"), data=_same_colours(hlines),
                             linetype="dashdot", size=0.5, show_legend=False)
     g += labs(x="Proportion of population targeted", y=ylab, color="Predictor")
     g += scale_x_continuous(labels=percent_format())
@@ -501,7 +519,8 @@ class confusion(_Evaluation):
 
         _header(self, "Confusion matrix", [
             ("Level", f"{self.lev} in {self.rvar}"),
-            ("Cost:Margin", f"{self.cost} : {self.margin}"),
+            ("Cost", f"{self.cost}"),
+            ("Margin", f"{self.margin}"),
             ("Scale", f"{self.scale}"),
         ])
         df = self.dataset
@@ -581,7 +600,7 @@ class evalbin(_Evaluation):
         self.qnt, self.cost, self.margin, self.scale = qnt, cost, margin, scale
         self.cnf = confusion(data, self.pred, rvar, lev=self.lev, cost=cost, margin=margin,
                              scale=scale, train=self.train, data_filter=self.data_filter,
-                             sort=self.sort, slice=self.slice)
+                             sort=self.sort, slice=self.slice, test_filter=self.test_filter)
 
         tables = []
         for label, frame in self.dat_list.items():
@@ -621,7 +640,10 @@ class evalbin(_Evaluation):
                     "pred", "bins", "nr_obs", "nr_resp", "resp_rate", "gains", "profit",
                     "ROME", "cum_prop", "cum_resp", "cum_resp_rate", "cum_lift", "cum_gains",
                 ]))
-        self.dataset = pl.concat(tables).with_columns(pl.col("bins").cast(pl.Int64))
+        self.dataset = _whole(
+            pl.concat(tables).with_columns(pl.col("bins").cast(pl.Int64)),
+            ["nr_obs", "nr_resp", "profit", "cum_resp"],
+        )
 
     def summary(self, prn: bool = True, dec: int = 3, plain: bool = True) -> None:
         """Print the evaluation header and (when ``prn``) the per-bin table.
@@ -637,7 +659,8 @@ class evalbin(_Evaluation):
         _header(self, "Evaluate predictions for binary response models", [
             ("Level", f"{self.lev} in {self.rvar}"),
             ("Bins", f"{self.qnt}"),
-            ("Cost:Margin", f"{self.cost} : {self.margin}"),
+            ("Cost", f"{self.cost}"),
+            ("Margin", f"{self.margin}"),
             ("Scale", f"{self.scale}"),
         ])
         if prn:
@@ -654,8 +677,15 @@ class evalbin(_Evaluation):
         origin = df.group_by("pred", maintain_order=True).first().with_columns(
             [pl.lit(0.0).alias(c) for c in cols]
         )
-        return pl.concat([origin, df.cast({c: pl.Float64 for c in cols})]).sort(
-            "pred", maintain_order=True
+        order = {p: i for i, p in enumerate(dict.fromkeys(df["pred"].to_list()))}
+        # sorted by the order the predictors first appear in, not by name:
+        # plotnine assigns colours in that order, so the lift and gains plots
+        # of one evaluation give each predictor the same colour
+        return (
+            pl.concat([origin, df.cast({c: pl.Float64 for c in cols})])
+            .with_columns(_order=pl.col("pred").replace_strict(order, return_dtype=pl.Int64))
+            .sort("_order", maintain_order=True)
+            .drop("_order")
         )
 
     def plot(self, plots=("lift", "gains")):
@@ -751,7 +781,7 @@ class uplift(_Evaluation):
         self.qnt, self.cost, self.margin, self.scale = qnt, cost, margin, scale
         self.cnf = confusion(data, self.pred, rvar, lev=self.lev, cost=cost, margin=margin,
                              scale=scale, train=self.train, data_filter=self.data_filter,
-                             sort=self.sort, slice=self.slice)
+                             sort=self.sort, slice=self.slice, test_filter=self.test_filter)
         tables = []
         for label, frame in self.dat_list.items():
             rv = _is_level(frame[rvar], self.lev)
@@ -792,7 +822,10 @@ class uplift(_Evaluation):
                     "pred", "bins", "cum_prop", "T_resp", "T_n", "C_resp", "C_n",
                     "incremental_resp", "incremental_profit", "inc_uplift", "uplift",
                 ]))
-        self.dataset = pl.concat(tables).with_columns(pl.col("bins").cast(pl.Int64))
+        self.dataset = _whole(
+            pl.concat(tables).with_columns(pl.col("bins").cast(pl.Int64)),
+            ["nr_obs", "nr_resp", "profit", "cum_resp"],
+        )
 
     def summary(self, prn: bool = True, dec: int = 3, plain: bool = True) -> None:
         """Print the uplift header and (when ``prn``) the per-bin table.
@@ -810,7 +843,8 @@ class uplift(_Evaluation):
             ("Treatment", self.tvar),
             ("Level", f"{self.tlev} in {self.tvar}"),
             ("Bins", f"{self.qnt}"),
-            ("Cost:Margin", f"{self.cost} : {self.margin}"),
+            ("Cost", f"{self.cost}"),
+            ("Margin", f"{self.margin}"),
             ("Scale", f"{self.scale}"),
         ])
         if prn:

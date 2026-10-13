@@ -205,3 +205,28 @@ def _out(ev) -> str:
     with contextlib.redirect_stdout(buf):
         ev.summary()
     return buf.getvalue()
+
+
+def test_evalbin_counts_are_integers(dvd):
+    # 1,387 customers, not 1,387.000; profit too when cost, margin and scale are whole
+    ev = evalbin({"dvd": dvd}, ["pred_logit"], "buy", lev="yes", cost=1, margin=6)
+    for c in ("nr_obs", "nr_resp", "profit", "cum_resp"):
+        assert ev.dataset[c].dtype == pl.Int64
+    fractional = evalbin({"dvd": dvd}, ["pred_logit"], "buy", lev="yes", cost=0.5, margin=6, scale=1.5)
+    assert fractional.dataset["profit"].dtype == pl.Float64
+
+
+def test_evalbin_header_lists_cost_and_margin(dvd, capsys):
+    evalbin({"dvd": dvd}, ["pred_logit"], "buy", lev="yes", cost=1, margin=6).summary(prn=False)
+    out = capsys.readouterr().out
+    assert "Cost        : 1\n" in out and "Margin      : 6\n" in out
+
+
+def test_evalbin_curves_keep_one_order(dvd):
+    # every plot lists (and colours) the predictors in the same order
+    ev = evalbin({"dvd": dvd}, ["pred_rnd", "pred_logit"], "buy", lev="yes", train="Both",
+                 data_filter="training == 1")
+    first = list(dict.fromkeys(ev.dataset["pred"].to_list()))
+    origin = ev._with_origin(["cum_prop", "cum_gains"])
+    assert list(dict.fromkeys(origin["pred"].to_list())) == first
+    assert first[0] == "pred_rnd (train)"
