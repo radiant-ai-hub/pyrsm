@@ -154,7 +154,7 @@ GOODNESS_TABLES = [
 ]
 
 
-def goodness_report(gf: Any, output: list[str] | str = ("observed", "expected"), dec: int = 3) -> dict[str, Any]:
+def goodness_report(gf: Any, output: list[str] | str = ("observed", "expected"), dec: int = 2) -> dict[str, Any]:
     """The tables selected in ``output``, one row per level; the test line below."""
     output = [output] if isinstance(output, str) else list(output)
     text = _plain(gf, output=output, dec=dec)

@@ -324,9 +324,10 @@ Alt. hyp : There is an association between {self.var1} and {self.var2}""")
 
     def _summary_footer(self, dec: int = 2) -> None:
         """Print the chi-squared test results."""
-        p_val_str = du.format_pval(self.chisq_test[1], dec)
+        # statistic and p-value with one more decimal than the tables, as radiant.basics
+        p_val_str = du.format_pval(self.chisq_test[1], dec + 1)
         print(f"""
-Chi-squared: {round(self.chisq_test[0], dec)} df({int(self.chisq_test[2])}), p.value {p_val_str}
+Chi-squared: {round(self.chisq_test[0], dec + 1)} df({int(self.chisq_test[2])}), p.value {p_val_str}
 {100 * round(self.expected_low[0] / self.expected_low[1], dec)}% of cells have expected values below 5
 """)
 

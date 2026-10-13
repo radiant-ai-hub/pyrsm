@@ -163,7 +163,7 @@ class goodness:
     def summary(
         self,
         output: list[str] = ["observed", "expected"],
-        dec: int = 3,
+        dec: int = 2,
         plain: bool = True,
     ) -> None:
         """
@@ -217,7 +217,7 @@ class goodness:
             f"Alt. hyp.    : The distribution of {self.var} is not consistent with the specified distribution"
         )
 
-    def _summary_plain(self, output: list[str], dec: int = 3) -> None:
+    def _summary_plain(self, output: list[str], dec: int = 2) -> None:
         """Print plain text tables."""
         with pl.Config(
             tbl_hide_column_data_types=True,
@@ -244,7 +244,7 @@ class goodness:
                 )
                 print(self.stdev)
 
-    def _summary_footer(self, dec: int = 3) -> None:
+    def _summary_footer(self, dec: int = 2) -> None:
         """Print chi-squared test results."""
         sorted_keys = self.levels
         chisquare = _get_scipy_chisquare()
@@ -253,9 +253,10 @@ class goodness:
             [self.expected[key].item() for key in sorted_keys],
         )
 
-        p_val_str = du.format_pval(p_val, dec)
+        # statistic and p-value with one more decimal than the tables, as radiant.basics
+        p_val_str = du.format_pval(p_val, dec + 1)
         print(
-            f"\nChi-squared: {round(chisq, dec)} df ({self.nlev - 1}), p.value {p_val_str}"
+            f"\nChi-squared: {round(chisq, dec + 1)} df ({self.nlev - 1}), p.value {p_val_str}"
         )
 
     def plot(

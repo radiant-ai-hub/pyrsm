@@ -25,7 +25,7 @@ from plotnine import (
 from sklearn.inspection import permutation_importance
 
 from pyrsm.plot_style import FILL, LINE, MUTED, REF, theme_pyrsm
-from pyrsm.utils import expand_grid, ifelse, intersect, setdiff
+from pyrsm.utils import cat_levels, expand_grid, ifelse, intersect, setdiff
 
 # Suppress plotnine warnings about missing values in ICE lines
 warnings.filterwarnings("ignore", message=".*Removed.*rows containing missing values.*")
@@ -515,6 +515,25 @@ def _interaction_ice_frame(grid_df: pl.DataFrame, ice_preds: list) -> pl.DataFra
     return pl.concat(frames) if frames else None
 
 
+
+def _ordered_labels(data: pl.DataFrame, col: str, ice_data: pl.DataFrame | None = None):
+    """Text labels for a color/group variable that keep the level order.
+
+    A plain Utf8 column would be sorted alphabetically by plotnine; an Enum keeps
+    the order of the original Enum levels (else order of appearance), and
+    numbers in numeric order.
+    """
+    s = data.get_column(col)
+    if s.dtype.is_numeric():
+        levels = [str(v) for v in s.drop_nulls().unique().sort().cast(pl.Utf8).to_list()]
+    else:
+        levels = [str(v) for v in cat_levels(s.drop_nulls(), drop_unused=True)]
+    if ice_data is not None and col in ice_data.columns:
+        extra = ice_data.get_column(col).drop_nulls().cast(pl.Utf8).unique(maintain_order=True)
+        levels += [v for v in extra.to_list() if v not in levels]
+    enum = pl.Enum(levels)
+    return lambda c: c.cast(pl.Utf8).cast(enum)
+
 def _create_interaction_plot(
     data: pl.DataFrame,
     var: str,
@@ -575,9 +594,13 @@ def _create_interaction_plot(
     if sum(is_num) == 2:
         if is_pdp:
             # PDP: Two numeric - line plot with color (sliced)
-            def as_label(c):
-                return c.round(2).cast(pl.Utf8)
+            def rounded(c):
+                return c.round(2)
 
+            data = data.with_columns(rounded(pl.col(vl[1])).alias(vl[1]))
+            if with_ice:
+                ice_data = ice_data.with_columns(rounded(pl.col(vl[1])).alias(vl[1]))
+            as_label = _ordered_labels(data, vl[1], ice_data if with_ice else None)
             data = data.with_columns(as_label(pl.col(vl[1])).alias(vl[1]))
             p = ggplot(data, aes(x=vl[0], y="prediction", color=vl[1]))
             if with_ice:
@@ -606,10 +629,11 @@ def _create_interaction_plot(
         # One numeric, one categorical - line plot with color grouping
         if is_num[1]:
             vl = [vl[1], vl[0]]
-        data = data.with_columns(pl.col(vl[1]).cast(pl.Utf8))
+        as_label = _ordered_labels(data, vl[1], ice_data if with_ice else None)
+        data = data.with_columns(as_label(pl.col(vl[1])).alias(vl[1]))
         p = ggplot(data, aes(x=vl[0], y="prediction", color=vl[1]))
         if with_ice:
-            p = p + ice_layer(vl[1], lambda c: c.cast(pl.Utf8))
+            p = p + ice_layer(vl[1], as_label)
         p = (
             p
             + geom_line(size=1 if with_ice else 0.5)
@@ -619,10 +643,11 @@ def _create_interaction_plot(
         )
     else:
         # Both categorical
-        data = data.with_columns(pl.col(vl[1]).cast(pl.Utf8))
+        as_label = _ordered_labels(data, vl[1], ice_data if with_ice else None)
+        data = data.with_columns(as_label(pl.col(vl[1])).alias(vl[1]))
         p = ggplot(data, aes(x=vl[0], y="prediction", color=vl[1]))
         if with_ice:
-            p = p + ice_layer(vl[1], lambda c: c.cast(pl.Utf8))
+            p = p + ice_layer(vl[1], as_label)
         p = (
             p
             + geom_line(aes(group=vl[1]), size=1 if with_ice else 0.5)
