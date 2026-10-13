@@ -17,7 +17,7 @@ def _texts(p):
         ("tdist", {"df": 101.286, "plb": 0.05}, "t Distribution (df: 101.286)", [" plb = 0.05 (x = -1.66)"]),
         ("binom", {"n": 1000, "p": 0.1, "pub": 0.05}, "Binomial Distribution (n: 1000, p: 0.1)", [" pub = 0.05 (x = 85)"]),
         ("chisq", {"df": 1, "pub": 0.95}, "Chi-square Distribution (df: 1)", [" pub = 0.95 (x = 3.841)"]),
-        ("disc", {"v": [1, 2, 3, 4], "p": [0.4, 0.3, 0.2, 0.1], "lb": 2}, "Discrete Distribution (values: 1 2 3 4, probabilities: 0.4 0.3 0.2 0.1)", [" lb = 2"]),
+        ("disc", {"v": [1, 2, 3, 4], "p": [0.4, 0.3, 0.2, 0.1], "lb": 2}, "Discrete Distribution\n(values: 1 2 3 4, probabilities: 0.4 0.3 0.2 0.1)", [" lb = 2"]),
         ("norm", {"mean": 0, "sd": 1}, "Normal Distribution (mean: 0, sd: 1)", []),
     ],
 )
