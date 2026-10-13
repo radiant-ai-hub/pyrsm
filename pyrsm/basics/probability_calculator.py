@@ -315,10 +315,15 @@ class prob_calc:
         line (or highlighted bar), all at the same height."""
         spec = self.spec()
         title = p.labels.get("title", None) or ""
+        if title and spec:
+            # a long parameter list (e.g., a discrete distribution's values and
+            # probabilities) goes on its own line instead of running off the plot
+            sep = "\n" if len(title) + len(spec) > 52 else " "
+            title = f"{title}{sep}({spec})"
         p = (
             p
-            + labs(title=f"{title} ({spec})" if title and spec else title or spec)
-            + theme(plot_title=element_text(ha="center"))
+            + labs(title=title or spec)
+            + theme(plot_title=element_text(ha="center", ma="center"))
         )
         bounds = self.thresholds(type)
         if not bounds:
