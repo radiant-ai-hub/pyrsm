@@ -83,6 +83,9 @@ full = [
     "pyrsm[all,dev]",
 ]
 
+[project.scripts]
+rds2parquet = "pyrsm.data.rds:main"
+
 [project.urls]
 "Bug Reports" = "https://github.com/radiant-ai-hub/pyrsm/issues"
 "Source" = "https://github.com/vnijs/pyrsm"

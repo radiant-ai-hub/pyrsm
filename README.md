@@ -85,6 +85,20 @@ reg.summary()
 reg.plot()
 ```
 
+## R data files to parquet
+
+Convert R data files (`.rds`, `.rda`) to parquet files that load into Radiant-AI. Factors become
+Enums with R's level order, and the markdown description Radiant stores with a dataset is kept
+inside the parquet file and beside it as `<name>_description.md`. Requires R (`Rscript`).
+
+```python
+rsm.data.rds_to_parquet("~/data/*.rds")                       # writes ~/data/<name>.parquet
+rsm.data.rds_to_parquet("~/data", out_dir="~/parquet")         # every .rds/.rda in a folder
+rsm.data.read_description("~/data/diamonds.parquet")
+```
+
+Or from a terminal: `rds2parquet ~/data/*.rds` (`rds2parquet --help` for options).
+
 ## Examples
 
 Extensive example notebooks are available at: <https://github.com/radiant-ai-hub/pyrsm/tree/main/examples>
