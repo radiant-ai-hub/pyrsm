@@ -149,3 +149,22 @@ def test_radiant_diamonds_matches_the_shipped_example(tmp_path):
     shipped = Path(__file__).parents[1] / "examples" / "data" / "data" / "diamonds.parquet"
     assert pl.read_parquet(out).equals(pl.read_parquet(shipped))
     assert rsm.data.read_description(out).startswith("## Diamond prices")
+
+
+def test_a_timeout_stops_r_with_a_clear_message(tmp_path, monkeypatch):
+    import subprocess
+
+    import pytest
+
+    from pyrsm.data import rds as rds_module
+
+    src = tmp_path / "x.rds"
+    src.write_bytes(b"not really R data")
+
+    def too_slow(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs.get("timeout"))
+
+    monkeypatch.setattr(rds_module, "find_rscript", lambda rscript=None: "Rscript")
+    monkeypatch.setattr(rds_module.subprocess, "run", too_slow)
+    with pytest.raises(RuntimeError, match="within 5 seconds"):
+        rds_module.rds_to_parquet(src, timeout=5, quiet=True)

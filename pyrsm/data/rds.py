@@ -326,6 +326,7 @@ def rds_to_parquet(
     overwrite: bool = True,
     rscript: str | Path | None = None,
     quiet: bool = False,
+    timeout: float | None = None,
 ) -> list[Path]:
     """Convert R data files to parquet, keeping each dataset's description.
 
@@ -343,6 +344,10 @@ def rds_to_parquet(
         Path to ``Rscript`` when R is not on the PATH (also: ``$RSCRIPT``).
     quiet : bool
         Do not print a line per file.
+    timeout : float | None
+        Seconds R may take before it is stopped (default: no limit). An
+        application reading uploaded files sets one, so a file R cannot finish
+        reading does not hang it.
 
     Returns
     -------
@@ -385,10 +390,13 @@ def rds_to_parquet(
         script.write_text(_EXPORT_R, encoding="utf-8")
         export = Path(tmp) / "out"
         export.mkdir()
-        result = subprocess.run(
-            [exe, "--vanilla", str(script), str(export), *[str(f) for f in files]],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-        )
+        try:
+            result = subprocess.run(
+                [exe, "--vanilla", str(script), str(export), *[str(f) for f in files]],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(f"R did not finish reading the files within {timeout:g} seconds.") from exc
         if result.returncode != 0:
             raise RuntimeError(f"R failed while reading the files:\n{(result.stderr or result.stdout).strip()}")
 
