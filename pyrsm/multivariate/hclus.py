@@ -388,6 +388,29 @@ class hclus:
         print(f"Standardize : {self.standardize}")
         print(f"Observations: {format_nr(self.nobs, dec=0)}")
         print_dropped(self, 12)
+        print("\nWithin-cluster heterogeneity (as in the scree and change plots):")
+        print(self.heterogeneity().with_columns(pl.col(pl.Float64).round(dec)))
+
+    def heterogeneity(self, max_clus: int = 10) -> pl.DataFrame:
+        """Normalized within-cluster heterogeneity for 1 to ``max_clus`` clusters.
+
+        ``Heterogeneity`` is the scree plot's value (merge heights divided by the
+        largest); ``Change`` is the change plot's bar for going from that number
+        of clusters to one more (a big value: the extra cluster helps a lot).
+        """
+        h = self.height
+        hmax = h.max() if len(h) else 1.0
+        hn = (h / hmax if hmax > 0 else h)[::-1]
+        k = min(max_clus, len(hn))
+        change = [float(abs((hn[i + 1] - hn[i]) / hn[i])) if i + 1 < len(hn) and hn[i] else None for i in range(k)]
+        return pl.DataFrame(
+            {
+                "Clusters": list(range(1, k + 1)),
+                "Heterogeneity": [float(v) for v in hn[:k]],
+                "Change": change,
+            },
+            schema={"Clusters": pl.Int64, "Heterogeneity": pl.Float64, "Change": pl.Float64},
+        )
 
     def plot(self, plots="dendro", dec: int = 2, cutoff: float = 0.05):
         """Cluster plots (plotnine, pyrsm plot style).
