@@ -143,6 +143,12 @@ EXAMPLES: list[dict[str, Any]] = [
             "popup": "popup.yaml",
         },
         "main": "full",
+        "prob_table": {
+            "prior": {"S": 0.6, "F": 0.4},
+            "likelihood": {"S": {"+": 0.8, "-": 0.2}, "F": {"+": 0.1, "-": 0.9}},
+            "state": "store",
+            "signal": "popup",
+        },
         "answer": (
             "P(success | positive test) = 0.8 x 0.6 / (0.8 x 0.6 + 0.1 x 0.4) = 0.923. "
             "Run the popup test and open only after a positive result: EMV $820,000 vs. "
@@ -172,6 +178,12 @@ EXAMPLES: list[dict[str, Any]] = [
             "test market": "test_market.yaml",
         },
         "main": "product launch",
+        "prob_table": {
+            "prior": {"high": 0.4, "low": 0.6},
+            "likelihood": {"high": {"pos": 0.85, "neg": 0.15}, "low": {"pos": 0.2, "neg": 0.8}},
+            "state": "demand",
+            "signal": "test market",
+        },
         "sensitivity": {
             "tree": "product launch",
             "vars": {"P(high)": {"min": 0.1, "max": 0.7, "step": 0.05}},

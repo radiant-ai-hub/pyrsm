@@ -9,6 +9,7 @@ from importlib import import_module
 
 _LAZY_SUBMODULES = {
     "dtree",
+    "prob_table",
     "simulate",
     "optimize",
 }

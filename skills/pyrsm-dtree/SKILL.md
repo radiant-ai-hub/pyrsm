@@ -126,6 +126,91 @@ A tree with any error-severity diagnostic does not roll back —
 `tree.is_solved` is `False` and `tree.payoff` is `None`. Surface the
 diagnostics in the UI rather than silently swallowing them.
 
+## Probability tables (imperfect information)
+
+When a test, survey or study is not perfect, the problem gives the prior
+P(state) and how often the test reads each way in each state,
+P(signal | state). The branches after the test need P(signal) and
+P(state | signal). Fill them in with tables, not a formula from memory:
+
+```python
+pt = rsm.decide.prob_table(
+    {"S": 0.6, "F": 0.4},                                            # P(state)
+    {"S": {"Pos": 0.8, "Neg": 0.2}, "F": {"Pos": 0.1, "Neg": 0.9}},  # P(signal | state)
+    state="store", signal="popup",
+)
+pt.summary()            # conditional, joint (Total row = P(signal)), posterior tables
+pt.values["P(S|Pos)"]   # 0.9231
+print(pt.variables())   # the variables: lines for the tree
+```
+
+1. **Joint table:** P(signal and state) = P(signal | state) x P(state).
+   Its column totals are P(signal) (here P(Pos) = 0.52, P(Neg) = 0.48);
+   its row totals are the prior.
+2. **Posterior table:** divide each joint cell by its column total:
+   P(S | Pos) = 0.48 / 0.52 = 0.9231. Each column adds up to 1.
+
+`pt.variables()` writes the given probabilities as numbers and the rest
+as formulas (`P(Pos and S): P(Pos|S) * P(S)`, `P(S|Pos): P(Pos and S) /
+P(Pos)`), so a sensitivity analysis on `P(S)` updates the posteriors.
+The usual mistake is to use P(Pos | S) (0.8, how good the test is) where
+the tree needs P(S | Pos) (0.92, what a positive result tells you).
+
+## Trees in parts (sub-trees)
+
+A large tree repeats the same stage many times. Write each stage once as
+its own tree and use it as a branch (the `product-launch` example):
+
+```yaml
+# tree "launch"
+name: Launch
+variables: product launch      # use the variables of the main tree
+cost: fixed cost
+type: chance
+High demand:
+    p: P(high)
+    payoff: margin * sales high
+Low demand:
+    p: 1 - P(high)
+    payoff: margin * sales low
+```
+
+```yaml
+# in tree "test market": the same stage after a positive test
+Positive result:
+    p: P(pos)
+    type: decision
+    Launch:
+        tree: launch
+        with:
+            P(high): P(high|pos)   # this use only
+    Do not launch:
+        payoff: 0
+```
+
+- `tree: name` puts tree `name` at that branch; the combined tree is
+  solved, printed and plotted as one. The branch keeps its label and
+  `p:`; a `cost:` on it is added to the sub-tree's first node. A branch
+  with `tree:` has no `payoff:`, `type:` or branches of its own.
+- `with:` sets values for that use only, evaluated in the tree that uses
+  it. Use it for posteriors (`P(high): P(high|pos)`) and for a variant of
+  a stage (a partner's share of the payoff).
+- `variables: name` (a tree name instead of a list) uses another tree's
+  variables, so every part can also be calculated on its own.
+- `dtree("name")` in `variables:` is the EMV of another tree (Radiant's
+  older way); `tree:` keeps the sub-tree visible in the solved tree.
+
+Build the parts bottom-up: the last stage first, calculate it, check its
+EMV by hand, then the stage that uses it. In Python, pass the other trees
+as `subtree_library`:
+
+```python
+ex = rsm.decide.dtree_example("product-launch")
+tree = rsm.decide.dtree(ex["trees"]["product launch"], subtree_library=ex["trees"])
+tree.payoff     # 1380000
+tree.tree_uses  # every tree: branch, where it is used and its with: values
+```
+
 ## Interpretation
 
 When explaining the result to a student:
