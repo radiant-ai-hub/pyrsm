@@ -215,18 +215,63 @@ def test_hetcor_two_step_matches_r():
     assert not c.hcor_se
 
 
-def test_hetcor_with_standard_errors_matches_r():
+def test_hetcor_with_standard_errors_keeps_the_estimates():
+    """Asking for p.values must not change a correlation.
+
+    polycor::hetcor(std.err = TRUE) re-optimizes numeric x categorical cells
+    (R: pclass x fare -0.650 without, -0.818 with); pyrsm keeps the two-step
+    estimates and evaluates the standard errors there. Reference SEs: R,
+    optimHess() of polycor's polyserial likelihood at the two-step rho;
+    polychor(std.err = TRUE) for pclass x survived; hetcor's Pearson SE for
+    age x fare.
+    """
+    from scipy.stats import norm
+
     from pyrsm.basics.correlation import correlation
 
+    plain = correlation({"titanic": _titanic()}, vars=_VARS, method="polychoric")
     c = correlation({"titanic": _titanic()}, vars=_VARS, method="polychoric", hcor_se=True)
-    r = {(0, 1): 0.44407, (0, 2): -0.45427, (0, 3): -0.81752,
-         (1, 2): 0.07247, (1, 3): -0.35770, (2, 3): 0.17721}
-    p = {(0, 1): 1.1420e-31, (0, 2): 7.9409e-63, (1, 2): 6.3235e-02,
-         (1, 3): 8.2303e-19, (2, 3): 3.5166e-09}
+    assert _np.array_equal(c.cr, plain.cr)
+    r = {(0, 1): 0.44407, (0, 2): -0.47134, (0, 3): -0.65048,
+         (1, 2): 0.07268, (1, 3): -0.31375, (2, 3): 0.17721}
+    se = {(0, 1): 0.037925, (0, 2): 0.026014, (0, 3): 0.053518,
+          (1, 2): 0.039013, (1, 3): 0.042383, (2, 3): 0.030007}
     for (i, j), value in r.items():
         assert c.cr[i, j] == _pytest.approx(value, abs=1e-4)
-    for (i, j), value in p.items():
-        assert c.cp[i, j] == _pytest.approx(value, rel=0.01)
+        assert c.se[i, j] == _pytest.approx(se[(i, j)], rel=0.01)
+        assert c.cp[i, j] == _pytest.approx(2 * norm.sf(abs(value / se[(i, j)])), rel=0.05)
+
+
+def test_polyserial_matches_r_on_salary_with_and_without_standard_errors(salary_data):
+    """R: polycor::hetcor(salary[, c("salary", "yrs_since_phd", "yrs_service",
+    "rank")]) gives rank 0.7705, 0.8750, 0.7594 (two-step polyserial); SEs from
+    optimHess() of polyserial's likelihood at those values. pyrsm's
+    polyserial once applied sqrt((n - 1) / n) twice (0.7695)."""
+    from pyrsm.basics.correlation import correlation
+
+    v = ["salary", "yrs_since_phd", "yrs_service", "rank"]
+    plain = correlation({"salary": salary_data}, vars=v, method="polychoric")
+    c = correlation({"salary": salary_data}, vars=v, method="polychoric", hcor_se=True)
+    assert _np.array_equal(c.cr, plain.cr)
+    for j, (rho, se) in enumerate([(0.770517, 0.060303), (0.875036, 0.012779), (0.759445, 0.030841)]):
+        assert c.cr[3, j] == _pytest.approx(rho, abs=1e-5)
+        assert c.se[3, j] == _pytest.approx(se, rel=1e-3)
+    assert c.cr[1, 0] == _pytest.approx(0.4192311, abs=1e-6)  # Pearson, as hetcor
+
+
+def test_hetcor_summary_says_which_pairs_used_which_method(salary_data, capsys):
+    from pyrsm.basics.correlation import correlation
+
+    v = ["salary", "yrs_since_phd", "rank"]
+    correlation({"salary": salary_data}, vars=v, method="polychoric").summary()
+    out = capsys.readouterr().out
+    assert "Method   : polychoric (heterogeneous; categorical variables treated as ordinal)" in out
+    assert "Pairs    : Pearson (numeric-numeric), polyserial (numeric-categorical)\n" in out
+    correlation({"titanic": _titanic()}, vars=_VARS, method="polychoric").summary()
+    assert "polychoric (categorical-categorical)" in capsys.readouterr().out
+    correlation({"salary": salary_data}, vars=v[:2], method="spearman").summary()
+    out = capsys.readouterr().out
+    assert "Method   : spearman\n" in out and "Pairs" not in out
 
 
 def test_hetcor_summary_shows_p_values_only_with_standard_errors(capsys):

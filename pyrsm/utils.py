@@ -701,8 +701,9 @@ def polyserial_corr(x_num, y_codes):
         dens_sum += norm.pdf(norm.ppf(cum))
     if dens_sum == 0:
         return 0.0
-    n = x.size
-    rho = np.sqrt((n - 1) / n) * r_xy * sy / dens_sum
+    # sy already carries polycor's sqrt((n - 1) / n); applying it again shrank
+    # every estimate by that factor (salary x rank 0.7695 instead of R's 0.7705)
+    rho = r_xy * sy / dens_sum
     return float(np.clip(rho, -0.9999, 0.9999))
 
 
@@ -715,20 +716,14 @@ def _optim_hessian_1d(f, x, h=1e-3):
     return (f(x + 2 * h) - 2 * f(x) + f(x - 2 * h)) / (4 * h * h)
 
 
-def _bounded_rho(f, start, maxcor=0.9999):
-    """Minimize ``f`` over rho near ``start`` (R: ``optim(rho, f, method = "BFGS")``)."""
-    from scipy.optimize import minimize
-
-    clipped = lambda r: f(float(np.clip(r[0] if np.ndim(r) else r, -maxcor, maxcor)))
-    res = minimize(clipped, x0=[start], method="BFGS")
-    return float(np.clip(res.x[0], -maxcor, maxcor))
-
-
 def polychoric_corr_se(x, y, inf=10):
-    """Polychoric correlation and its standard error, as ``polycor::polychor(std.err = TRUE)``.
+    """Polychoric correlation and its standard error (``polycor::polychor(std.err = TRUE)``).
 
-    Two-step estimate (thresholds from the marginals, held fixed); the standard
-    error is ``sqrt(1 / hessian)`` of the negative log-likelihood in rho.
+    The correlation is exactly :func:`polychoric_corr` (two-step: thresholds
+    from the marginals, held fixed), so asking for a standard error never
+    changes the estimate. The standard error is ``sqrt(1 / hessian)`` of the
+    negative log-likelihood in rho at that estimate, the hessian computed as
+    R's ``optim(hessian = TRUE)`` does.
 
     Returns
     -------
@@ -738,23 +733,32 @@ def polychoric_corr_se(x, y, inf=10):
     neg_ll = _polychoric_nll(x, y, inf)
     if neg_ll is None:
         return 0.0, float("nan")
-    rho = _bounded_rho(neg_ll, polychoric_corr(x, y, inf=inf))
+    rho = float(polychoric_corr(x, y, inf=inf))
     hess = _optim_hessian_1d(neg_ll, rho)
     se = float(np.sqrt(1.0 / hess)) if hess > 0 else float("nan")
     return rho, se
 
 
 def polyserial_corr_se(x_num, y_codes, maxcor=0.9999):
-    """Polyserial correlation and its standard error, as ``polycor::polyserial(std.err = TRUE)``.
+    """Polyserial correlation and its standard error.
 
-    R starts from the two-step estimate and re-optimizes rho (thresholds fixed)
-    by BFGS, then takes ``sqrt(1 / hessian)``; so with standard errors the
-    correlation itself can differ slightly from :func:`polyserial_corr`.
+    The correlation is exactly the two-step estimate of :func:`polyserial_corr`,
+    so asking for a standard error never changes it. The standard error is
+    ``sqrt(1 / hessian)`` of the polyserial negative log-likelihood in rho
+    (thresholds fixed at their marginal values, as ``polycor::polyserial``)
+    evaluated at that estimate.
+
+    ``polycor::polyserial(std.err = TRUE)`` (and so ``polycor::hetcor``)
+    instead re-optimizes rho by BFGS before taking the hessian, so R reports a
+    different correlation when standard errors are requested (salary data:
+    salary x rank 0.77 without, 0.85 with). pyrsm deliberately does not: the
+    correlation a student reads must not depend on whether p.values were asked
+    for.
 
     Returns
     -------
     tuple[float, float]
-        ``(rho, se)``.
+        ``(rho, se)``; ``se`` is NaN when it cannot be computed.
     """
     from scipy.stats import norm
 
@@ -780,8 +784,7 @@ def polyserial_corr_se(x_num, y_codes, maxcor=0.9999):
         probs = norm.cdf((hi - rho * z) / d) - norm.cdf((lo - rho * z) / d)
         return -float(np.sum(log_dz + np.log(np.clip(probs, 1e-300, None))))
 
-    start = polyserial_corr(x, y)
-    rho = _bounded_rho(neg_ll, start, maxcor)
+    rho = polyserial_corr(x, y)
     hess = _optim_hessian_1d(neg_ll, rho)
     se = float(np.sqrt(1.0 / hess)) if hess > 0 else float("nan")
     return rho, se

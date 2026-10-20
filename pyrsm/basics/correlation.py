@@ -30,13 +30,20 @@ class correlation:
         Correlation method: ``"pearson"``, ``"spearman"``, ``"kendall"``,
         or ``"polychoric"``. Use ``"polychoric"`` for ordinal variables to
         estimate correlations between latent normal variables (equivalent
-        to R's ``polycor::polychor``).
+        to R's ``polycor::polychor``). ``"polychoric"`` gives heterogeneous
+        correlations, as radiant.basics' "Adjust for categorical variables"
+        (``polycor::hetcor``): Pearson for numeric pairs, polyserial for a
+        numeric and a categorical variable, polychoric for two categorical
+        variables; the summary lists which pairs used which. Spearman and
+        Kendall do not apply then.
     hcor_se : bool
         With ``method="polychoric"``: also compute standard errors and the
         adjusted p-values from them, as radiant.basics' "Calculate adjusted
-        p.values" (``polycor::hetcor(std.err = TRUE)``; z = r / se, two-sided).
-        As in R, numeric x categorical correlations are then re-optimized,
-        so they can differ slightly from the estimates without it.
+        p.values" (z = r / se, two-sided). The correlations are the same as
+        without it: the standard errors are evaluated at those estimates.
+        (``polycor::hetcor(std.err = TRUE)`` re-optimizes numeric x
+        categorical correlations, so R reports different correlations with
+        and without standard errors; pyrsm does not.)
 
     Attributes
     ----------
@@ -174,11 +181,23 @@ class correlation:
 
             mat = np.column_stack(codes)
             cr = np.eye(ncol)
+            # which estimator each kind of pair used, for the summary
+            self.pair_methods = {}
             for i in range(ncol - 1):
                 for j in range(i + 1, ncol):
                     xi, xj = mat[:, i], mat[:, j]
                     ci, cj = is_cat[i], is_cat[j]
                     se = np.nan
+                    kind = (
+                        "categorical-categorical"
+                        if ci and cj
+                        else "numeric-categorical" if ci or cj else "numeric-numeric"
+                    )
+                    self.pair_methods[kind] = {
+                        "categorical-categorical": "polychoric",
+                        "numeric-categorical": "polyserial",
+                        "numeric-numeric": "Pearson",
+                    }[kind]
                     if ci and cj:
                         if self.hcor_se:
                             r, se = polychoric_corr_se(xi, xj)
@@ -280,6 +299,16 @@ class correlation:
         for line in scope_lines(self, 9):
             prn += f"{line}\n"
         prn += f"Method   : {self.method}"
+        if self.method == "polychoric":
+            # Heterogeneous correlations: say which estimator each kind of pair
+            # used, so a numeric pair's Pearson value is not read as polychoric
+            # (and not as the Spearman a caller may have had in mind).
+            order = ["numeric-numeric", "numeric-categorical", "categorical-categorical"]
+            pairs = getattr(self, "pair_methods", {})
+            used = [f"{pairs[k]} ({k})" for k in order if k in pairs]
+            prn += " (heterogeneous; categorical variables treated as ordinal)"
+            if used:
+                prn += "\nPairs    : " + ", ".join(used)
         for line in dropped_lines(self, 9):
             prn += f"\n{line}"
         print(prn)
