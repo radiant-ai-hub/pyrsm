@@ -262,7 +262,10 @@ class conjoint:
             pdf = pdf.copy()
             pdf[self.rvar] = (pdf[self.rvar].max() + 1) - pdf[self.rvar]
 
-        formula = f"{self.rvar} ~ " + (" + ".join(rhs) if rhs else "1")
+        from pyrsm.model.model import build_formula
+
+        # Checked terms only: patsy evaluates every term as Python.
+        formula = build_formula(self.rvar, rhs, None, pdf.columns)
         # As R's lm(): drop levels that do not occur (e.g. within a `by`
         # group) and drop aliased terms instead of splitting their effect with
         # a pseudo-inverse. Aliased terms get a coefficient (and part-worth) of

@@ -237,12 +237,10 @@ class regress:
         import statsmodels.formula.api as smf
 
         if not self.formula:
-            if self.evar is None or len(self.evar) == 0:
-                self.formula = f"{self.rvar} ~ 1"
-            else:
-                self.formula = f"{self.rvar} ~ {' + '.join(self.evar)}"
-            if self.ivar:
-                self.formula += f" + {' + '.join(self.ivar)}"
+            # Checked terms only: patsy evaluates every term as Python.
+            self.formula = model_utils.build_formula(
+                self.rvar, self.evar, self.ivar, self.data.columns
+            )
             model = smf.ols(self.formula, data=model_utils.to_model_pandas(self.data))
         else:
             model = smf.ols(formula=self.formula, data=model_utils.to_model_pandas(self.data))

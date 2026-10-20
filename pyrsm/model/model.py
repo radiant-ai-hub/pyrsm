@@ -399,6 +399,80 @@ def r_label(term: str) -> str:
     return _PY_POWER.sub(lambda m: f"I({m.group(1)}^{m.group(2)})", str(term))
 
 
+# The formula engine (patsy) evaluates every factor of a formula as Python, so
+# a formula built from names a user chose -- column names in an uploaded file,
+# interaction terms sent by a web form -- may hold only terms that cannot run
+# anything: the plain name of a column, an interaction of such names, or a
+# power of one. ``__import__('os').system(...)`` as a column name, or
+# ``I(open('.env').read())`` as an interaction, is refused here.
+_POWER_TERM = re.compile(r"I\(\s*([^()\s]+)\s*\*\*\s*([0-9]+)\s*\)\Z")
+
+
+def formula_name(name, columns) -> str:
+    """``name`` when it is a column of the data that is safe in a formula, else a ValueError."""
+    import keyword
+
+    name = str(name)
+    if name not in set(columns):
+        raise ValueError(f"{name!r} is not a variable in the data.")
+    if not name.isidentifier() or keyword.iskeyword(name):
+        raise ValueError(
+            f"The variable name {name!r} cannot be used in a model. Rename it to "
+            "letters, digits and underscores, starting with a letter."
+        )
+    return name
+
+
+def formula_term(term, columns) -> str:
+    """One term of a model: ``x``, an interaction ``x:z`` or a power ``I(x ** 2)`` (R's ``I(x^2)``)."""
+    term = r_powers(str(term)).strip()
+    parts = [part.strip() for part in term.split(":")] if ":" in term else [term]
+    if not all(parts):
+        raise ValueError(f"{term!r} is not a valid model term.")
+    checked = []
+    for part in parts:
+        power = _POWER_TERM.match(part)
+        if power:
+            checked.append(f"I({formula_name(power.group(1), columns)} ** {int(power.group(2))})")
+        else:
+            checked.append(formula_name(part, columns))
+    return ":".join(checked)
+
+
+def build_formula(rvar, evar, ivar, columns) -> str:
+    """``rvar ~ evar + ivar`` from checked terms (``rvar ~ 1`` without explanatory terms)."""
+    lhs = formula_name(rvar, columns)
+    rhs = [formula_term(t, columns) for t in (evar or [])]
+    terms = [formula_term(t, columns) for t in (ivar or [])]
+    return f"{lhs} ~ {' + '.join(rhs) if rhs else '1'}" + (f" + {' + '.join(terms)}" if terms else "")
+
+
+def check_formula(formula, columns) -> str:
+    """``formula`` (R's ``^`` powers rewritten) when every factor is a safe term, else a ValueError.
+
+    For a formula a user typed: it is parsed, never evaluated, and each factor
+    must be a column name or a power of one. Intercept terms (``- 1``, ``+ 0``)
+    are allowed.
+    """
+    from patsy import ModelDesc
+
+    formula = r_powers(str(formula))
+    try:
+        desc = ModelDesc.from_formula(formula)
+    except Exception as exc:  # noqa: BLE001 - patsy's PatsyError and tokenizer errors
+        raise ValueError(f"{formula!r} is not a valid model formula.") from exc
+    if not desc.lhs_termlist:
+        raise ValueError(f"{formula!r} has no response variable (left of ~).")
+    for term in [*desc.lhs_termlist, *desc.rhs_termlist]:
+        for factor in term.factors:
+            code = getattr(factor, "code", None)
+            if code is None:
+                raise ValueError(f"{formula!r} holds a term that cannot be checked.")
+            power = _POWER_TERM.match(code)
+            formula_name(power.group(1) if power else code, columns)
+    return formula
+
+
 def check_pred_vars(evar, data=None, cmd=None, data_cmd=None) -> None:
     """
     Refuse a prediction request that does not fit the model, with Radiant's message

@@ -10,6 +10,7 @@ from statsmodels.genmod.families.links import Logit
 
 from pyrsm.basics import display_utils as du
 from pyrsm.model.model import (
+    build_formula,
     collinearity_note,
     dates_to_numeric,
     to_model_pandas,
@@ -240,12 +241,8 @@ class logistic:
             self._enum_types.update(enum_types)
 
         if not self.formula:
-            if self.evar is None or len(self.evar) == 0:
-                self.formula = f"{self.rvar} ~ 1"
-            else:
-                self.formula = f"{self.rvar} ~ {' + '.join(self.evar)}"
-            if self.ivar:
-                self.formula += f" + {' + '.join(self.ivar)}"
+            # Checked terms only: patsy evaluates every term as Python.
+            self.formula = build_formula(self.rvar, self.evar, self.ivar, self.data.columns)
             formula_given = False
         else:
             formula_given = True
