@@ -698,6 +698,16 @@ class logistic:
         )
         du.print_plain_tables(df)
 
+    @property
+    def residuals(self) -> pl.Series:
+        """The working residuals, (y - p) / (p (1 - p)), as R's glm keeps them
+        and Radiant stores them, one per row of the data the model was given
+        (empty where a value was missing):
+        ``titanic = titanic.with_columns(resid=lr.residuals)``."""
+        from pyrsm.model.model import fit_on_rows
+
+        return fit_on_rows(self.fitted.resid_working, self.fitted, self.data.height)
+
     def predict(
         self, data=None, cmd=None, data_cmd=None, ci=False, conf=0.95, dec=None,
         interval="confidence",

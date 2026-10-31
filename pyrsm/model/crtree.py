@@ -523,13 +523,17 @@ class crtree:
             if len(fit.frame) > 1:
                 fit = fit.prune(pcp)
 
-        # rpart does not return residuals by default (Pearson, as in Radiant)
+        # rpart does not return residuals by default (Pearson, as in Radiant);
+        # one per row of the data given, empty where a value was missing, as
+        # every model's ``residuals``
+        from pyrsm.model.model import on_all_rows
+
         if self.mod_type == "classification":
             yprob = np.array([fit.frame[k]["yval2"][1 + len(self.ylevels) :][:-1] for k in fit.where])
             yhat = yprob[np.arange(y.size), y.astype(int) - 1]
-            self.residuals = (1 - yhat) / yhat
+            self.residuals = on_all_rows((1 - yhat) / yhat, self._kept_rows)
         else:
-            self.residuals = y - np.array([fit.frame[k]["yval"] for k in fit.where])
+            self.residuals = on_all_rows(y - np.array([fit.frame[k]["yval"] for k in fit.where]), self._kept_rows)
 
         if cost is None and margin is None and prior is not None and adjprob:
             # Elkan (2001), theorem 2: undo the prior so probabilities are on

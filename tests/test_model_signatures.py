@@ -223,7 +223,27 @@ def test_every_ml_model_has_a_dashboard_and_residuals_on_their_rows():
         assert len(reg.residuals) == t.height
     tree = rsm.model.crtree({"t": t}, rvar="survived", lev="Yes", evar=ev)
     assert tree.plot("dashboard") is not None
-    assert tree._kept_rows.sum() == len(tree.residuals) == t.height - 5
+    assert tree._kept_rows.sum() == t.height - 5
+    assert len(tree.residuals) == t.height and tree.residuals.null_count() == 5
+
+
+def test_regress_and_logistic_residuals_are_on_the_rows_of_the_data():
+    """``data = data.with_columns(resid=model.residuals)`` is the code Radiant
+    writes when a student stores residuals; it needs one value per row."""
+    import numpy as np
+    import pyrsm as rsm
+
+    t = _titanic_with_missing()
+    reg = rsm.model.regress({"t": t}, rvar="fare", evar=["pclass", "age"])
+    r = reg.residuals
+    assert len(r) == t.height and r.null_count() == 5 and r[:5].null_count() == 5
+    assert np.allclose(r.drop_nulls().to_numpy(), reg.fitted.resid.to_numpy())
+    assert "resid" in t.with_columns(resid=reg.residuals).columns
+
+    lr = rsm.model.logistic({"t": t}, rvar="survived", lev="Yes", evar=["pclass", "sex", "age"])
+    w = lr.residuals
+    assert len(w) == t.height and w.null_count() == 5
+    assert np.allclose(w.drop_nulls().to_numpy(), lr.fitted.resid_working.to_numpy())
 
 
 def test_mnl_residuals_are_one_minus_the_probability_of_the_choice():

@@ -679,6 +679,13 @@ class regress:
         # pl.col("index").str.replace("[T.", "[", literal=True),
         du.print_plain_tables(df)
 
+    @property
+    def residuals(self) -> pl.Series:
+        """Actual minus fitted values, one per row of the data the model was
+        given (empty where a value was missing), as Radiant stores them:
+        ``diamonds = diamonds.with_columns(resid=reg.residuals)``."""
+        return _model_utils().fit_on_rows(self.fitted.resid, self.fitted, self.data.height)
+
     def predict(
         self, data=None, cmd=None, data_cmd=None, ci=False, conf=0.95, dec=None,
         interval="confidence",

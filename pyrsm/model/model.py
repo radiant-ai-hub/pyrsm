@@ -1499,6 +1499,15 @@ def on_all_rows(values, kept: np.ndarray | None) -> pl.Series:
     return pl.Series("residuals", out).fill_nan(None)
 
 
+def fit_on_rows(values, fitted, n: int) -> pl.Series:
+    """``values`` of a statsmodels fit (one per estimation row) placed on the
+    ``n`` rows of the data the model was given; rows dropped for missing values
+    stay empty. The fit's row labels are those rows' positions."""
+    kept = np.zeros(n, dtype=bool)
+    kept[np.asarray(fitted.model.data.row_labels, dtype=int)] = True
+    return on_all_rows(values, kept)
+
+
 def ml_residuals(model) -> pl.Series:
     """Actual minus predicted for a machine learning model, on its estimation
     data: the response (1 for the chosen level, 0 otherwise, in
