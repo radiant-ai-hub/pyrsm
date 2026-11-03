@@ -513,6 +513,22 @@ def check_pred_vars(evar, data=None, cmd=None, data_cmd=None) -> None:
             )
 
 
+def data_cmd_value(value, dtype) -> pl.Expr:
+    """A ``data_cmd`` value as a column of type ``dtype``.
+
+    Categorical and whole-number values take the column's type; a fraction
+    for an integer column (``purch = 2.5``) stays a number, as R's
+    ``mutate`` keeps it, instead of being truncated to 2.
+    """
+    if (
+        dtype.is_integer()
+        and isinstance(value, float)
+        and not float(value).is_integer()
+    ):
+        return pl.lit(value, dtype=pl.Float64)
+    return pl.lit(value).cast(dtype)
+
+
 def convert_to_list(v):
     if v is None:
         return []

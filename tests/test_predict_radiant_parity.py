@@ -347,11 +347,6 @@ def compare_column(name: str, got: pl.Series, fx: dict, want_name: str, rtol: fl
 # breaks (case -> {test: reason}). Line numbers are those of pyrsm at the
 # commit that added this file.
 
-DATACMD_INT = (
-    "data + cmd: a fraction set for an integer column is cast to the column's "
-    "integer type (2.5 -> 2); R's mutate keeps 2.5. pyrsm/model/nb.py:646 and "
-    "pyrsm/model/crtree.py:774 (pl.lit(v).cast(<column dtype>))"
-)
 NA_ROWS = (
     "data: rows with a missing explanatory value are kept, with a NaN (regress, "
     "logistic) or a surrogate-split (crtree) prediction; R's predict_model drops "
@@ -428,7 +423,6 @@ def _known(reason: str, tests: str, *cases: str) -> None:
             KNOWN[case][test] = f"{have} || {reason}" if have else reason
 
 
-_known(DATACMD_INT, "grid predictions", "nb_dvd_datacmd_frac", "crtree_dvd_datacmd_frac")
 # missing values
 _known(NA_ROWS, "grid layout", "regress_syn_na_data", "logistic_syn_na_data", "crtree_syn_na_data")
 _known(NA_FILL, "grid predictions", "regress_syn_na_x_cmd", "regress_syn_na_y_cmd", "logistic_syn_na_x_cmd")

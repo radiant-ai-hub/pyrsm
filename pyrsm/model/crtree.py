@@ -35,7 +35,7 @@ from pyrsm.model._rpart import (
     r_sample_xgroups,
     rpart_fit,
 )
-from pyrsm.model.model import convert_to_list, nobs_dropped, sim_prediction
+from pyrsm.model.model import convert_to_list, data_cmd_value, nobs_dropped, sim_prediction
 from pyrsm.utils import cat_levels, check_dataframe
 from pyrsm.basics import display_utils as du
 
@@ -771,7 +771,7 @@ class crtree:
             pred_data = check_dataframe(data).select(self.evar)
         if data_cmd is not None and data_cmd != "":
             pred_data = pred_data.with_columns(
-                [pl.lit(v).cast(pred_data[k].dtype).alias(k) for k, v in data_cmd.items()]
+                [data_cmd_value(v, pred_data[k].dtype).alias(k) for k, v in data_cmd.items()]
             )
         elif cmd is not None and cmd != "":
             cmd = {k: [v] if isinstance(v, str) else v for k, v in cmd.items()}
