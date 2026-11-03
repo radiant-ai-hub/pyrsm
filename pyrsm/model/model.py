@@ -1890,7 +1890,6 @@ def sim_prediction(
         return next(v for v in order if v in tied)
 
     dct = {c: [fix_value(c)] for c in data.columns}
-    schema = {c: data[c].dtype for c in data.columns}
 
     if isinstance(vary, dict):
         # user provided values and ranges
@@ -1912,6 +1911,19 @@ def sim_prediction(
             else:
                 # Enum order (or order of appearance), not an arbitrary order
                 dct[v] = cat_levels(col)
+
+    # The grid keeps each column's type, except that an integer column holds
+    # its mean (2000.94 square feet) or values typed for it (1500.5) as
+    # numbers, as R does: it stays an integer column only when every value in
+    # the grid is whole (casting would truncate 2000.94 to 2000).
+    schema = {}
+    for c in data.columns:
+        dtype = data[c].dtype
+        if dtype.is_integer() and not all(
+            v is None or float(v).is_integer() for v in dct[c]
+        ):
+            dtype = pl.Float64
+        schema[c] = dtype
 
     return expand_grid(dct, schema)
 

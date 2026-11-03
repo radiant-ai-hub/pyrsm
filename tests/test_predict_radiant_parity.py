@@ -18,8 +18,9 @@ and R's prediction table. Every case refits the same model in pyrsm and calls
 * ``test_layout``: column order and row order exactly as R prints them.
 
 pyrsm's naming conventions are mapped, not tested: ``Prediction`` is
-``prediction``, R's interval labels ``2.5%`` are ``2.50%``, and R's ``+/-``
-column (half the interval width) has no pyrsm counterpart.
+``prediction``, R's interval labels ``2.5%`` are ``2.50%``, R's ``+/-``
+column (half the interval width) has no pyrsm counterpart, and a logical
+column R's crtree shows as a factor (``"FALSE"``) is pyrsm's Boolean.
 
 A known discrepancy is marked ``xfail(strict=True)`` with its root cause, so
 the suite passes now and fails once a fix lands (then remove the mark).
@@ -334,6 +335,8 @@ def compare_column(name: str, got: pl.Series, fx: dict, want_name: str, rtol: fl
                 np.testing.assert_allclose(v, st[k], rtol=rtol, atol=tol, err_msg=f"{name} {k}")
     elif tp == "bool":
         assert g.to_list() == want, name
+    elif g.dtype == pl.Boolean:  # R's crtree shows a logical as a factor: "FALSE"
+        assert [None if v is None else str(v).upper() for v in g.to_list()] == want, name
     else:  # factor / text: compare the labels
         assert g.cast(pl.String).to_list() == want, name
 
@@ -344,18 +347,6 @@ def compare_column(name: str, got: pl.Series, fx: dict, want_name: str, rtol: fl
 # breaks (case -> {test: reason}). Line numbers are those of pyrsm at the
 # commit that added this file.
 
-INT_FILL = (
-    "cmd: an integer column the command does not mention is filled with its mean "
-    "cast back to the integer type, i.e. truncated (2000.94 -> 2000, 0.504 -> 0); "
-    "R uses the mean. sim_prediction keeps each column's dtype "
-    "(pyrsm/model/model.py:1893 schema, :1916 expand_grid(dct, schema)) and "
-    "expand_grid casts to it (pyrsm/utils.py:203)"
-)
-INT_VALUES = (
-    "cmd: fractions given for an integer column are truncated (1500.5 -> 1500, "
-    "2.5 -> 2); R keeps them. Same cast: pyrsm/model/model.py:1893/1916 and "
-    "pyrsm/utils.py:203"
-)
 DATACMD_INT = (
     "data + cmd: a fraction set for an integer column is cast to the column's "
     "integer type (2.5 -> 2); R's mutate keeps 2.5. pyrsm/model/nb.py:646 and "
@@ -437,17 +428,6 @@ def _known(reason: str, tests: str, *cases: str) -> None:
             KNOWN[case][test] = f"{have} || {reason}" if have else reason
 
 
-# integer columns in a command's grid
-_known(INT_FILL, "grid predictions",
-       "logistic_dvd_cmd", "logistic_syn_cmd_fill", "logistic_syn_wts_cmd", "logistic_tit_int_cols_cmd",
-       "mnl_syn_cmd_fill", "mnl_tit_cmd_age", "regress_catalog_cmd", "regress_hp_cmd_int_means",
-       "regress_hp_cmd_int_values", "regress_hp_pi90_cmd", "regress_syn_cmd_bool", "regress_syn_cmd_fill",
-       "regress_syn_filter_cmd", "regress_syn_xi_frac_cmd")
-# (a tree's prediction does not change between 3 and 3.9 here; nn/rforest
-# predictions are not compared)
-_known(INT_FILL, "grid", "crtree_dvd_cmd", "crtree_syn_cmd_fill", "gbt_catalog_cmd", "gbt_dvd_cmd",
-       "nn_dvd_cmd", "rforest_dvd_cmd")
-_known(INT_VALUES, "grid predictions", "regress_hp_cmd_int_values", "regress_syn_xi_frac_cmd")
 _known(DATACMD_INT, "grid predictions", "nb_dvd_datacmd_frac", "crtree_dvd_datacmd_frac")
 # missing values
 _known(NA_ROWS, "grid layout", "regress_syn_na_data", "logistic_syn_na_data", "crtree_syn_na_data")
