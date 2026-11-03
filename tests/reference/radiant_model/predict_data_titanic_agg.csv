@@ -1,0 +1,13 @@
+"pclass","sex","survived","n"
+"1st","female","Yes",126
+"1st","female","No",5
+"1st","male","Yes",53
+"1st","male","No",98
+"2nd","female","Yes",92
+"2nd","female","No",11
+"2nd","male","Yes",23
+"2nd","male","No",135
+"3rd","female","Yes",72
+"3rd","female","No",80
+"3rd","male","Yes",59
+"3rd","male","No",289
