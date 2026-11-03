@@ -183,6 +183,34 @@ COLLINEARITY_NOTE = (
 )
 
 
+def check_variation(df: pl.DataFrame, cols: list[str], rows: list[str] | None = None) -> None:
+    """Refuse a model with a variable that does not vary, as radiant.model's
+    regress() and logistic() do (``does_vary`` on the rows the model uses):
+    one value only for a categorical variable, a range below
+    sqrt(machine epsilon) for a number. ``rows``: the columns that decide the
+    rows (default ``cols``; logistic adds the weights)."""
+    cols = [c for c in dict.fromkeys(cols) if c in df.columns]
+    rows = [c for c in dict.fromkeys(rows or cols) if c in df.columns]
+    data = df.filter(complete_rows(df, rows)) if rows else df
+    flat = []
+    for c in cols:
+        s = data[c]
+        if s.len() <= 1:
+            flat.append(c)
+        elif s.dtype.is_numeric() or s.dtype == pl.Boolean or s.dtype.is_temporal():
+            x = s.to_physical().cast(pl.Float64)
+            if not abs(x.max() - x.min()) > np.sqrt(np.finfo(float).eps):
+                flat.append(c)
+        elif s.n_unique() <= 1:
+            flat.append(c)
+    if flat:
+        raise ValueError(
+            "The following variable(s) show no variation. Please select other variables.\n\n** "
+            + ", ".join(flat)
+            + " **"
+        )
+
+
 def drop_unused_levels(df: pl.DataFrame, cols: list[str]) -> pl.DataFrame:
     """Drop Enum levels that do not occur in the rows used for estimation.
 

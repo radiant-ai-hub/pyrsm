@@ -271,6 +271,12 @@ class logistic:
         # dropped (the next level becomes the base), and collinear terms are
         # dropped rather than split by a pseudo-inverse (see ``_glm``)
         used = formula_vars(_formula_model(self.formula, self.data), self.data.columns)
+        # radiant.model refuses a variable without variation in these rows
+        from pyrsm.model.model import check_variation
+
+        check_variation(
+            self.data, used, used + ([self.weights_name] if self.weights_name is not None else [])
+        )
         if self.weights_name is not None:
             used = used + [self.weights_name]
         self.data = drop_unused_levels(self.data, used)

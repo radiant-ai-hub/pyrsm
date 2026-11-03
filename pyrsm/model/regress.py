@@ -255,6 +255,8 @@ class regress:
         # dropped (the next level becomes the base), and collinear terms are
         # dropped rather than split by a pseudo-inverse (see ``_ols``)
         used = model_utils.formula_vars(model, self.data.columns)
+        # radiant.model refuses a variable without variation in these rows
+        model_utils.check_variation(self.data, used)
         self.data = model_utils.drop_unused_levels(self.data, used)
         self._enum_types = {
             c: self.data[c].dtype for c in self._enum_types if c in self.data.columns

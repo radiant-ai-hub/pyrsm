@@ -384,11 +384,6 @@ LL_W = (
     "weights (dbinom(round(w y), round(w), mu)); pyrsm (statsmodels freq_weights, model.py:813-819) uses "
     "sum(w log-lik), consistent with the deviance and pseudo R-squared both programs report"
 )
-CONST = (
-    "a column without variation: radiant refuses the model ('The following variable(s) show no variation. Please "
-    "select other variables.'); pyrsm (no does_vary check in regress.py / logistic.py __init__) fits it and drops "
-    "the column as aliased"
-)
 R_ROBUST_INT = (
     "R: robust standard errors and a test variable in an interaction: radiant's matchCf returns a list and "
     "car::linearHypothesis stops ('requires numeric/complex matrix/vector arguments'), so radiant shows no "
@@ -405,7 +400,6 @@ def _known() -> dict[str, dict[str, str]]:
 
     add("logistic_syn_wts_frac", "fit", LL_W)
     add("logistic_syn_wts_sampling", "fit", LL_W)
-    add("regress_syn_const logistic_syn_const", "error", CONST)
     add("regress_dia_robust_int logistic_tit_robust_int", "variables_test", R_ROBUST_INT)
     return out
 
@@ -466,9 +460,11 @@ def test_reference_data_is_pyrsm_data():
 
 @pytest.mark.parametrize("case", params("error", [c for c in CASES if "error" in fixture(c)]))
 def test_error(case):
-    """radiant.model refuses the model (e.g. a column without variation)."""
-    with pytest.raises(Exception):
+    """radiant.model refuses the model (e.g. a column without variation);
+    pyrsm refuses it with radiant's message."""
+    with pytest.raises(ValueError) as err:
         _fit.__wrapped__(case)
+    assert str(err.value) == fixture(case)["error"]
 
 
 @pytest.mark.parametrize("case", params("coefficients", ok_cases()))
