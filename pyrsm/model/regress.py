@@ -487,7 +487,8 @@ class regress:
                 )
             )
         if ci:
-            confidence_intervals = model_utils.coef_ci(self.fitted, dec=dec)
+            # the intervals summary() shows: robust (HC1) when robust=True
+            confidence_intervals = model_utils.coef_ci(self.fitted_inference, dec=dec)
             sections.append(
                 table_section(
                     "confidence_intervals",

@@ -673,6 +673,37 @@ def test_vif_for_a_variable_and_its_square(case):
     }
 
 
+@pytest.mark.parametrize("case", ["regress_dia_robust", "regress_catalog_conf90", "logistic_tit", "logistic_dvd",
+                                  "logistic_tit_robust"])
+def test_summary_data_intervals_are_summarys(case):
+    """summary_data(ci=True) has the intervals summary() prints (95%):
+    robust for a robust regression, profile likelihood / Wald / robust for
+    logistic (odds ratios), so R's at three decimals."""
+    fx = fixture(case)
+    m = fit(case)
+    doc = m.summary_data(ci=True, dec=6)
+    section = next(sec for sec in doc["sections"] if sec["id"] == "confidence_intervals")
+    rows = {py_key(r["index"]): r for r in section["rows"]}
+    m95 = pyrsm_ci(m, 0.95)
+    for k, (lo, hi) in m95.items():
+        if is_logistic(fx):
+            if k == frozenset(["(Intercept)"]):
+                continue
+            lo, hi = np.exp(lo), np.exp(hi)
+        vals = [v for name, v in rows[k].items() if name.endswith("%") and name != "OR%"]
+        np.testing.assert_allclose([float(vals[0]), float(vals[1])], [lo, hi], atol=1e-6)
+    if fx["conf_lev"] == 0.95:
+        want = r_ci(fx["tight"]["ci_profile"] if is_logistic(fx) and fx["ci"]["type"] == "profile"
+                    else (fx["tight"]["ci_wald"] if is_logistic(fx) else fx["ci"]))
+        for k, (lo, hi) in want.items():
+            if is_logistic(fx):
+                if k == frozenset(["(Intercept)"]):
+                    continue
+                lo, hi = np.exp(lo), np.exp(hi)
+            vals = [v for name, v in rows[k].items() if name.endswith("%") and name != "OR%"]
+            np.testing.assert_allclose([float(vals[0]), float(vals[1])], [lo, hi], rtol=1e-5, atol=1e-6)
+
+
 # -- logistic: radiant's printed numbers (default glm convergence) ----------
 
 

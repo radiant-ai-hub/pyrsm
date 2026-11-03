@@ -525,7 +525,15 @@ class logistic:
                     )
                 )
         if ci:
-            confidence_intervals = or_ci(self.fitted, dec=dec).set_index("index")
+            confidence_intervals = or_ci(self.fitted_inference, dec=dec).set_index("index")
+            if not self.aliased:
+                # the bounds summary() shows (profile likelihood below 5,000
+                # rows, else Wald; robust when robust=True), as radiant.model
+                cis = np.exp(self.conf_int())
+                low, high = confidence_intervals.columns[2:4]
+                rows = confidence_intervals.index
+                confidence_intervals[low] = cis.loc[rows].iloc[:, 0].round(dec).to_numpy()
+                confidence_intervals[high] = cis.loc[rows].iloc[:, 1].round(dec).to_numpy()
             sections.append(
                 table_section(
                     "confidence_intervals",
