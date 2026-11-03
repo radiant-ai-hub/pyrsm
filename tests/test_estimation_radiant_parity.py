@@ -379,13 +379,6 @@ def model1_terms(formula: str) -> set:
 # file:line ("R:" when the cause is on radiant.model's side and pyrsm's value
 # is the defensible one). The mark comes off with the fix.
 
-AUC_W = (
-    "AUC with weights: get_mfit (pyrsm/model/model.py:817) passes the weights to perf.auc, which ranks a "
-    "table2data expansion (pyrsm/utils.py:242, repeat_by truncates non-integer weights) but divides by the raw "
-    "weight sums: 0.841 vs 0.840 for integer weights and above 1 (1.17, 1.11) for non-integer ones; radiant's "
-    "summary.logistic computes auc(fitted, response) without weights (titanic_agg: R 0.5, pyrsm 0.821, the AUC of "
-    "the expanded rows); fix: unweighted as radiant, or a correct weighted Mann-Whitney AUC"
-)
 LL_W = (
     "R: non-integer weights: radiant's log-likelihood, AIC and BIC come from binomial()$aic, which rounds the "
     "weights (dbinom(round(w y), round(w), mu)); pyrsm (statsmodels freq_weights, model.py:813-819) uses "
@@ -429,9 +422,8 @@ def _known() -> dict[str, dict[str, str]]:
         for c in cases.split():
             out.setdefault(c, {})[test] = reason
 
-    add("logistic_tit_wts_agg logistic_tit_wts_int logistic_tit_wts_std logistic_syn_wts_na", "fit", AUC_W)
-    add("logistic_syn_wts_frac", "fit", f"{AUC_W}. {LL_W}")
-    add("logistic_syn_wts_sampling", "fit", f"{AUC_W}. {LL_W}. {NOBS_SW}")
+    add("logistic_syn_wts_frac", "fit", LL_W)
+    add("logistic_syn_wts_sampling", "fit", f"{LL_W}. {NOBS_SW}")
     add("logistic_syn_na_x", "ci", PROFILE_WARM)
     add("logistic_syn_na_x", "radiant_output", PROFILE_WARM)
     add("logistic_syn_quasi_sep", "ci", PROFILE_SEP)
@@ -550,6 +542,10 @@ def test_fit(case):
                  ("AUC", "auc", 0, auc_tol), ("log_likelihood", "loglik", GLM_RTOL, 0),
                  ("AIC", "aic", GLM_RTOL, 0), ("BIC", "bic", GLM_RTOL, 0), ("chisq", "chi2", GLM_RTOL, 0),
                  ("chisq_df", "df", 0, 0), ("nobs", "nobs", 0, 0)]
+        if fx["args"].get("wts"):
+            # INTENDED: radiant's AUC ignores the weights; pyrsm's is weighted
+            # (test_weighted_auc_is_the_auc_of_the_weighted_rows)
+            pairs = [pr for pr in pairs if pr[0] != "AUC"]
         bad = [
             f"{r}: pyrsm {mf[p]!r} vs R {want[r]!r}"
             for p, r, rt, at in pairs
@@ -752,6 +748,57 @@ def test_logistic_radiant_output(case):
             want_v = {term_key(t): v for t, v in zip(as_list(fx["vif"]["term"]), as_list(fx["vif"]["vif"]))}
             if set(got_v) == set(want_v):
                 close([got_v[k] for k in want_v], list(want_v.values()), rtol=RADIANT_SE_RTOL, msg="VIF")
+
+
+# -- intended differences from radiant ---------------------------------------
+
+WEIGHTED = ["logistic_tit_wts_agg", "logistic_tit_wts_int", "logistic_tit_wts_std", "logistic_syn_wts_na",
+            "logistic_syn_wts_frac", "logistic_syn_wts_sampling"]
+
+
+def _plain_auc(y, p) -> float:
+    """Rank-based AUC (radiant.model's auc): ties count half."""
+    from scipy.stats import rankdata
+
+    y = np.asarray(y, dtype=bool)
+    r = rankdata(p)
+    n0, n1 = (~y).sum(), y.sum()
+    a = (r[y].sum() - n1 * (n1 + 1) / 2) / n0 / n1
+    return max(a, 1 - a)
+
+
+@pytest.mark.parametrize("case", WEIGHTED)
+def test_weighted_auc_is_the_auc_of_the_weighted_rows(case):
+    """INTENDED difference. radiant.model's summary.logistic computes the AUC
+    without the weights (auc(fitted, response)): for titanic aggregated to one
+    row per pclass x sex x survived it reports 0.5 -- every covariate pattern
+    appears once with each outcome -- whatever the model. pyrsm weights every
+    (positive, negative) pair by the product of their weights: with integer
+    frequency weights that is exactly the AUC of the rows repeated by their
+    weights, and it stays between 0 and 1 for any weights (pyrsm's earlier
+    row expansion gave 1.17 for non-integer ones)."""
+    fx = fixture(case)
+    m = fit(case)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        got = float(model_fit(m.fitted, prn=False).iloc[0]["AUC"])
+    y = np.asarray(m.fitted.model.endog, dtype=bool)
+    p = np.asarray(m.fitted.fittedvalues, dtype=float)
+    w = np.asarray(m.fitted.model.freq_weights, dtype=float)
+    assert 0.5 <= got <= 1
+    # radiant's number is the unweighted AUC of the same predictions
+    assert _plain_auc(y, p) == pytest.approx(fx["fit"]["auc"], abs=1e-9)
+    if np.all(w == np.round(w)):
+        reps = w.astype(int)
+        assert got == pytest.approx(_plain_auc(np.repeat(y, reps), np.repeat(p, reps)), rel=1e-12)
+    else:  # pairs weighted by w_i w_j, counted directly
+        pos, neg = np.flatnonzero(y), np.flatnonzero(~y)
+        diff = p[pos][:, None] - p[neg][None, :]
+        share = np.outer(w[pos], w[neg]) * ((diff > 0) + 0.5 * (diff == 0))
+        a = share.sum() / (w[pos].sum() * w[neg].sum())
+        assert got == pytest.approx(max(a, 1 - a), rel=1e-12)
+    if case == "logistic_tit_wts_agg":
+        assert fx["fit"]["auc"] == 0.5 and got == pytest.approx(0.8212488102, rel=1e-9)
 
 
 # -- behaviour where no estimate exists --------------------------------------

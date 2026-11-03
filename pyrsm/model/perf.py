@@ -16,7 +16,7 @@ from sklearn import metrics
 
 # from pyrsm import xtile, bincode
 from ..bins import bincode, xtile
-from ..utils import check_dataframe, ifelse, table2data
+from ..utils import check_dataframe, ifelse
 from pyrsm.plot_style import FILL, LINE, REF, theme_pyrsm
 
 
@@ -1405,6 +1405,22 @@ def evalbin(df, rvar, lev, pred, cost=1, margin=2, scale=1, dec=3):
     return result
 
 
+def _weighted_auc(y, pred, w) -> float:
+    """Weighted Mann-Whitney AUC: the share of (positive, negative) pairs,
+    each weighted by the product of their weights, in which the positive has
+    the higher prediction (a tie counts half). With integer frequency weights
+    it is the AUC of the rows repeated by their weights; it is between 0 and
+    1 for any non-negative weights."""
+    y = np.asarray(y, dtype=bool)
+    order = np.argsort(pred, kind="stable")
+    pred, y, w = pred[order], y[order], w[order]
+    _, start = np.unique(pred, return_index=True)
+    neg = np.add.reduceat(np.where(~y, w, 0.0), start)
+    pos = np.add.reduceat(np.where(y, w, 0.0), start)
+    below = np.cumsum(neg) - neg  # negative weight with a lower prediction
+    return float(np.sum(pos * (below + 0.5 * neg)) / (pos.sum() * neg.sum()))
+
+
 def auc(rvar, pred, lev=1, weights=None):
     """
     Calculate area under the RO curve (AUC)
@@ -1446,18 +1462,10 @@ def auc(rvar, pred, lev=1, weights=None):
         n1 = (~rvar_bool).sum()
         n2 = rvar_bool.sum()
     else:
-        if not isinstance(weights, pl.Series):
-            weights = pl.Series("weights", weights)
-        df = table2data(
-            pl.DataFrame({"pred": pred, "rvar": rvar_bool, "weights": weights}),
-            "weights",
+        wt = _weighted_auc(
+            rvar_bool.to_numpy(), pred.cast(pl.Float64).to_numpy(), np.asarray(weights, dtype=float)
         )
-        df = df.with_columns(pl.col("pred").rank(method="average").alias("rank"))
-        rd = df.filter(~pl.col("rvar"))["rank"].sum()
-        # For weighted case, sum weights by rvar
-        weight_df = pl.DataFrame({"rvar": rvar_bool, "weights": weights})
-        n1 = weight_df.filter(~pl.col("rvar"))["weights"].sum()
-        n2 = weight_df.filter(pl.col("rvar"))["weights"].sum()
+        return wt if wt >= 0.5 else 1 - wt
 
     U = rd - n1 * (n1 + 1) / 2
     wt = U / n1 / n2
