@@ -423,13 +423,6 @@ CONST = (
     "select other variables.'); pyrsm (no does_vary check in regress.py / logistic.py __init__) fits it and drops "
     "the column as aliased"
 )
-LEV_TEXT = (
-    "lev as radiant gives it, text, for a number or logical response: convert_binary (pyrsm/model/model.py:561) "
-    "compares the column with the text, so lev='1' on an integer column raises polars' ComputeError ('cannot "
-    "compare string with numeric type') and lev='TRUE' on a Boolean column matches nothing ('All converted "
-    "response values are 0'); radiant's dataset[[rvar]] == lev coerces both; fix: compare as text, or cast lev "
-    "to the column's type"
-)
 R_ROBUST_INT = (
     "R: robust standard errors and a test variable in an interaction: radiant's matchCf returns a list and "
     "car::linearHypothesis stops ('requires numeric/complex matrix/vector arguments'), so radiant shows no "
@@ -781,19 +774,31 @@ def test_no_lev_models_radiants_first_level_and_says_so(case):
     assert f"Level                : {fx['lev']} in {fx['args']['rvar']}" in out
 
 
-@pytest.mark.xfail(strict=True, reason=LEV_TEXT)
-@pytest.mark.parametrize("case", ["logistic_syn_resp_01", "logistic_syn_resp_bool"])
-def test_lev_as_text_for_a_number_or_logical_response(case):
-    """radiant.model's lev is text ("1", "TRUE"); the other tests pass pyrsm
-    the column's own type (pyrsm_lev). Given the text, pyrsm should fit the
-    same model."""
+@pytest.mark.parametrize(
+    "case, lev",
+    [("logistic_syn_resp_01", "1"), ("logistic_syn_resp_bool", "TRUE"), ("logistic_syn_resp_bool", "true")],
+)
+def test_lev_as_text_for_a_number_or_logical_response(case, lev):
+    """radiant.model's lev is text ("1", "TRUE"; the app's level list shows
+    a logical as "true"); the other tests pass pyrsm the column's own type
+    (pyrsm_lev). Given the text, pyrsm fits the same model."""
     fx = fixture(case)
     kw = fit_kwargs(fx)
-    kw["lev"] = fx["args"]["lev"]
+    kw["lev"] = lev
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         m = rsm.model.logistic({"synth": load_dataset("synth")}, **kw)
     compare_coef(case, r_coef(fx, "tight"), py_coef(m), GLM_RTOL, GLM_SE_RTOL)
+
+
+def test_lev_that_is_not_a_value_is_refused():
+    """A level that is not a value of the response matches no row: refused
+    with the levels there are, for text as for numbers."""
+    d = load_dataset("synth")
+    with pytest.raises(ValueError, match="All converted response values are 0"):
+        rsm.model.logistic({"synth": d}, rvar="y01", lev="2", evar=["x1"])
+    with pytest.raises(ValueError, match="All converted response values are 0"):
+        rsm.model.logistic({"synth": d}, rvar="y01", lev="yes", evar=["x1"])
 
 
 @pytest.mark.xfail(strict=True, reason=PROFILE_SEP)

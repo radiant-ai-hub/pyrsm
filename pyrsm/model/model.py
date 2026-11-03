@@ -600,10 +600,34 @@ def convert_to_list(v):
         return list(v)
 
 
+def response_level(column: pl.Series, lev):
+    """``lev`` as a value of ``column``. radiant.model compares the response
+    with the level as text (``dataset[[rvar]] == lev``), so a level given as
+    text, as a web form sends it, picks the matching number ("1" -> 1) or
+    logical ("TRUE" / "true" -> True)."""
+    if not isinstance(lev, str):
+        return lev
+    dtype = column.dtype
+    if dtype == pl.Boolean:
+        if lev.strip().upper() in ("TRUE", "FALSE"):
+            return lev.strip().upper() == "TRUE"
+    elif dtype.is_numeric():
+        try:
+            value = float(lev)
+        except ValueError:
+            return lev
+        return int(value) if dtype.is_integer() and value.is_integer() else value
+    return lev
+
+
 def convert_binary(data, rvar, lev):
     """Convert response variable to binary (0/1) based on level. Works with polars DataFrame."""
+    lev = response_level(data[rvar], lev)
+    column = pl.col(rvar)
+    if isinstance(lev, str) and (data[rvar].dtype.is_numeric() or data[rvar].dtype == pl.Boolean):
+        column = column.cast(pl.String)  # text that is not a value: matches nothing
     cb = (
-        pl.when(pl.col(rvar) == lev)
+        pl.when(column == lev)
         .then(1)
         .when(pl.col(rvar).is_null())
         .then(None)
