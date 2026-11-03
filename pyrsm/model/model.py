@@ -91,13 +91,16 @@ def to_pandas_with_categories(
 
 
 def convert_categoricals_to_enum(
-    df: pl.DataFrame, columns: list[str] = None
+    df: pl.DataFrame, columns: list[str] = None, text_order: str = "appearance"
 ) -> tuple[pl.DataFrame, dict]:
     """
     Convert categorical/string columns to Enum, preserving level ordering.
 
     - If column is already Enum: preserves its level order exactly
-    - If column is String/Categorical: uses occurrence order (first-seen order)
+    - If column is String/Categorical: uses occurrence order (first-seen order),
+      or, with ``text_order="r"``, a String column's values in R's alphabetical
+      order (``r_text_order``), the levels R's ``factor()`` gives text -- so the
+      first (base) level of a regression is R's
 
     This ensures consistent ordering between training and prediction.
 
@@ -146,6 +149,8 @@ def convert_categoricals_to_enum(
                     .drop_nulls()
                     .to_list()
                 )
+                if text_order == "r" and col_data.dtype == pl.String:
+                    levels = r_text_order(levels)
             enum_type = pl.Enum(levels)
             enum_types[col] = enum_type
             converted = converted.with_columns(

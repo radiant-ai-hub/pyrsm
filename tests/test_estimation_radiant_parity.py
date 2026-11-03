@@ -370,12 +370,6 @@ def model1_terms(formula: str) -> set:
 # file:line ("R:" when the cause is on radiant.model's side and pyrsm's value
 # is the defensible one). The mark comes off with the fix.
 
-TEXT_BASE = (
-    "a text (String) explanatory variable gets its levels in order of first appearance "
-    "(convert_categoricals_to_enum, pyrsm/model/model.py:145, called at regress.py:216 / logistic.py:241); R's "
-    "factor() sorts them, so the base level differs (delta vs alpha) and with it every coefficient of that "
-    "variable; fix: R's alphabetical order (r_text_order) for String columns"
-)
 LEV_DEFAULT = (
     "no lev: pyrsm/model/logistic.py:186 skips the 0/1 conversion; statsmodels then models y = 1 for a 0/1 integer "
     "response and the first Enum level (order of appearance for text) for a categorical one; radiant's logistic() "
@@ -456,12 +450,8 @@ def _known() -> dict[str, dict[str, str]]:
         for c in cases.split():
             out.setdefault(c, {})[test] = reason
 
-    add("regress_syn_text logistic_syn_text_x", "coefficient_order", TEXT_BASE)
-    for t in ("coefficients", "ci"):
-        add("regress_syn_text logistic_syn_text_x", t, TEXT_BASE)
-    add("logistic_syn_text_x", "radiant_output", TEXT_BASE)
     for t in ("coefficients", "ci", "residuals", "radiant_output"):
-        add("logistic_syn_resp_01_default logistic_syn_resp_text2_default", t, LEV_DEFAULT)
+        add("logistic_syn_resp_01_default", t, LEV_DEFAULT)
     for t in ("coefficients", "ci", "fit", "residuals"):
         add("regress_syn_na_std", t, NA_SCALE)
     for t in ("coefficients", "ci", "radiant_output"):

@@ -223,8 +223,9 @@ class logistic:
             self.weights_name = self.weights = None
 
         # Convert categorical/string columns to Enum BEFORE fitting (Enum level
-        # order is kept; text columns get their order of appearance) so patsy
-        # uses the same level order for estimation and prediction
+        # order is kept; text columns get R's alphabetical order, so the base
+        # level is radiant.model's) so patsy uses the same level order for
+        # estimation and prediction
         self._enum_types = {}
         cols_to_convert = []
         for c in self.data.columns:
@@ -239,7 +240,7 @@ class logistic:
 
         if cols_to_convert:
             self.data, enum_types = convert_categoricals_to_enum(
-                self.data, cols_to_convert
+                self.data, cols_to_convert, text_order="r"
             )
             self._enum_types.update(enum_types)
 
