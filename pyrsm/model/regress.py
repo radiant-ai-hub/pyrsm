@@ -451,7 +451,7 @@ class regress:
             ),
         ]
         if vif:
-            if self.evar is None or len(self.evar) < 2:
+            if _model_utils().n_model_terms(self.fitted) < 2:
                 sections.append(key_value_section("vif", "Variance inflation factors", {"available": False}))
             else:
                 vif_table = model_utils.gvif(self.fitted, dec=dec, round_first=True)
@@ -589,7 +589,7 @@ class regress:
             if self.aliased:
                 # R: car::vif() needs a full-rank model
                 print("\nMulticollinearity diagnostics were not calculated.")
-            elif self.evar is None or len(self.evar) < 2:
+            elif _model_utils().n_model_terms(self.fitted) < 2:
                 print("\nVariance Inflation Factors cannot be calculated")
             else:
                 print("\nVariance inflation factors:")

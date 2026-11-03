@@ -524,7 +524,7 @@ def linear_report(
     if vif:
         if aliased:
             sections.append(_not_calculated("vif", "Variance inflation factors", "Multicollinearity diagnostics were not calculated."))
-        elif reg.evar is None or len(reg.evar) < 2:
+        elif model_utils.n_model_terms(reg.fitted) < 2:
             sections.append({"id": "vif", "title": "Variance inflation factors", "lines": ["Variance Inflation Factors cannot be calculated"]})
         else:
             sections.append(
@@ -608,7 +608,7 @@ def logistic_report(
     if vif:
         if aliased:
             sections.append(_not_calculated("vif", "Variance inflation factors", "Multicollinearity diagnostics were not calculated."))
-        elif model.evar is None or len(model.evar) < 2:
+        elif model_utils.n_model_terms(model.fitted) < 2:
             sections.append({"id": "vif", "title": "Variance inflation factors", "lines": ["Variance Inflation Factors cannot be calculated"]})
         else:
             frame = model_utils.gvif(model.fitted, dec=dec)

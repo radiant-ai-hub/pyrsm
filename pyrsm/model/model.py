@@ -1128,6 +1128,14 @@ def vif(fitted, dec=3):
     return df
 
 
+def n_model_terms(fitted) -> int:
+    """The number of terms of a fitted formula model besides the intercept,
+    R's ``length(attr(terms(model), "term.labels"))``: ``x + I(x^2)`` has
+    two. radiant.model shows VIFs when there are at least two."""
+    design = fitted.model.data.design_info
+    return sum(1 for t in design.terms if t.factors)
+
+
 def gvif(fitted, dec: int | None = 3, round_first: bool = False) -> pd.DataFrame:
     """
     Generalized variance inflation factors as ``car::vif``

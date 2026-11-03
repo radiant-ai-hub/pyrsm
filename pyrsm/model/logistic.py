@@ -29,7 +29,7 @@ from pyrsm.model.model import (
     sig_stars,
     sim_prediction,
 )
-from pyrsm.model.model import gvif
+from pyrsm.model.model import gvif, n_model_terms
 from pyrsm.model.visualize import (
     extract_evars,
     extract_rvar,
@@ -506,7 +506,7 @@ class logistic:
             ),
         ]
         if vif:
-            if self.evar is None or len(self.evar) < 2:
+            if n_model_terms(self.fitted) < 2:
                 sections.append(key_value_section("vif", "Variance inflation factors", {"available": False}))
             else:
                 vif_table = gvif(self.fitted, dec=dec)
@@ -621,7 +621,7 @@ class logistic:
         if vif:
             if self.aliased:
                 print("\nMulticollinearity diagnostics were not calculated.")
-            elif self.evar is None or len(self.evar) < 2:
+            elif n_model_terms(self.fitted) < 2:
                 print("\nVariance Inflation Factors cannot be calculated")
             else:
                 print("\nVariance inflation factors:")

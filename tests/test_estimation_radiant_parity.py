@@ -327,7 +327,7 @@ def compare_ci(case: str, want: dict, got: dict, rtol: float, atol: float = 0.0)
 def pyrsm_vif(m) -> dict | None:
     """The VIF table summary(vif=True) / the report print, or None when pyrsm
     prints that it was not (or cannot be) calculated."""
-    if m.aliased or m.evar is None or len(m.evar) < 2:
+    if m.aliased or "Variance inflation factors" not in captured(m.summary, vif=True):
         return None
     tab = gvif(m.fitted, dec=None)
     return {term_key(i): v for i, v in zip(tab.index, tab["vif"])}
@@ -379,11 +379,6 @@ def model1_terms(formula: str) -> set:
 # file:line ("R:" when the cause is on radiant.model's side and pyrsm's value
 # is the defensible one). The mark comes off with the fix.
 
-VIF_GATE = (
-    "the VIF is gated on len(evar) < 2 (regress.py:585, logistic.py:590, report.py:527 / 611); radiant counts "
-    "the model's terms (length(term.labels) > 1), so x + I(x^2) gets a VIF table in R and 'cannot be "
-    "calculated' in pyrsm; fix: count the design's terms"
-)
 AUC_W = (
     "AUC with weights: get_mfit (pyrsm/model/model.py:817) passes the weights to perf.auc, which ranks a "
     "table2data expansion (pyrsm/utils.py:242, repeat_by truncates non-integer weights) but divides by the raw "
@@ -434,7 +429,6 @@ def _known() -> dict[str, dict[str, str]]:
         for c in cases.split():
             out.setdefault(c, {})[test] = reason
 
-    add("regress_dia_quad_only logistic_tit_quad_only", "vif", VIF_GATE)
     add("logistic_tit_wts_agg logistic_tit_wts_int logistic_tit_wts_std logistic_syn_wts_na", "fit", AUC_W)
     add("logistic_syn_wts_frac", "fit", f"{AUC_W}. {LL_W}")
     add("logistic_syn_wts_sampling", "fit", f"{AUC_W}. {LL_W}. {NOBS_SW}")
@@ -703,6 +697,21 @@ def test_coefficient_plot_order(case):
     want = [":".join(sorted(r_key(t))) for t in fx["coef"]["term"] if t != "(Intercept)"]
     got = [":".join(sorted(py_key(str(i)))) for i in p.data["index"].cat.categories][::-1]
     assert got == want
+
+
+@pytest.mark.parametrize("case", ["regress_dia_quad_only", "logistic_tit_quad_only"])
+def test_vif_for_a_variable_and_its_square(case):
+    """x + I(x^2) has two terms, so radiant shows the VIF table (it counts
+    terms, not variables), in the summary and in the Radiant report."""
+    from pyrsm.model.report import linear_report, logistic_report
+
+    m = fit(case)
+    report = (logistic_report if is_logistic(fixture(case)) else linear_report)(m, vif=True)
+    section = next(sec for sec in report["sections"] if sec["id"] == "vif")
+    assert "table" in section
+    assert {term_key(r["index"]) for r in section["table"]["rows"]} == {
+        term_key(t) for t in as_list(fixture(case)["vif"]["term"])
+    }
 
 
 # -- logistic: radiant's printed numbers (default glm convergence) ----------
