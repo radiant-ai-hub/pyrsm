@@ -384,12 +384,6 @@ LL_W = (
     "weights (dbinom(round(w y), round(w), mu)); pyrsm (statsmodels freq_weights, model.py:813-819) uses "
     "sum(w log-lik), consistent with the deviance and pseudo R-squared both programs report"
 )
-PROFILE_SEP = (
-    "a coefficient without a finite estimate (quasi-separation: every row of level pure is a yes) gets a finite "
-    "profile bound in the direction it diverges (qsep[pure]'s upper bound 31.56, where the constrained refits "
-    "saturate: probabilities clipped at 1 - eps) from profile_ci (pyrsm/model/model.py); R's confint gives NA; "
-    "fix: a missing bound in that direction"
-)
 PROFILE_XTOL = (
     "profile_ci's brentq xtol=1e-10 is absolute (pyrsm/model/model.py:1144): an upper bound of 3.5e-7 (ext, a "
     "coefficient on a 1e-7 scale) is off by 5.9e-13, 1.7e-6 relative; fix: xtol relative to the standard error"
@@ -857,15 +851,21 @@ def test_lev_that_is_not_a_value_is_refused():
         rsm.model.logistic({"synth": d}, rvar="y01", lev="yes", evar=["x1"])
 
 
-@pytest.mark.xfail(strict=True, reason=PROFILE_SEP)
 def test_quasi_separation_interval():
     """Every row of level pure is a yes: its coefficient has no finite
     estimate and its profile interval no upper bound. R's confint gives NA
-    there and finite bounds for the other coefficients."""
+    there (and finite bounds for the other coefficients, test_ci); so does
+    pyrsm. The lower bound is R's exact root (R's spline-based confint gives
+    -48.8 there, an artefact of interpolating a flat profile)."""
     fx = fixture("logistic_syn_quasi_sep")
-    assert fx["ci"]["high"][fx["ci"]["term"].index("qseppure")] is None
+    i = fx["ci"]["term"].index("qseppure")
+    assert fx["ci"]["high"][i] is None
     ci = fit("logistic_syn_quasi_sep").conf_int()
-    assert not np.isfinite(ci.loc["qsep[T.pure]"].iloc[1])
+    assert np.isnan(ci.loc["qsep[T.pure]"].iloc[1])
+    exact = fx["tight"]["ci_profile"]
+    assert ci.loc["qsep[T.pure]"].iloc[0] == pytest.approx(exact["low"][exact["term"].index("qseppure")], rel=GLM_RTOL)
+    out = captured(fit("logistic_syn_quasi_sep").summary, ci=True, odds=True)
+    assert "Confidence intervals:" in out and "Odds ratios:" in out
 
 
 def test_quasi_separation_estimates():
@@ -897,3 +897,7 @@ def test_perfect_separation():
         mf = model_fit(m.fitted, prn=False).iloc[0]
     assert mf["AUC"] == 1
     assert m.fitted.deviance < 1e-6 and fx["fit"]["deviance"] < 1e-6
+    # no finite estimate, so no interval in the direction each one grows (R: NA)
+    ci = m.conf_int()
+    assert all(np.isnan(ci.loc[k].iloc[1 if m.fitted.params[k] > 0 else 0]) for k in ci.index)
+    assert "Confidence intervals:" in captured(m.summary, ci=True)

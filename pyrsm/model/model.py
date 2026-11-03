@@ -1238,10 +1238,28 @@ def profile_ci(fitted, alpha: float = 0.05) -> pd.DataFrame:
             dev = fit.deviance
         return (dev - dev_hat) - q
 
+    # A coefficient whose rows (non-zero in its column) are all fitted
+    # perfectly has no finite estimate (quasi-separation: every row of a level
+    # is a "yes"): it grows with every IRLS iteration and its profile has no
+    # bound in that direction. R's confint gives NA there; so does pyrsm.
+    mu = np.asarray(fitted.mu, dtype=float)
+    perfect = np.abs(np.asarray(y, dtype=float) - mu) < 1e-8
+
+    def diverges(j: int) -> bool:
+        rows = np.asarray(X[:, j]) != 0
+        return bool(rows.any() and perfect[rows].all())
+
     out = []
     for j in range(len(params)):
         bounds = []
+        # no proper maximum (perfect separation: the refit with this
+        # coefficient fixed at its estimate fits worse than the model did):
+        # no interval, as R's NA
+        at_estimate = excess(j, params[j]) < 0
         for direction in (-1, 1):
+            if not at_estimate or (diverges(j) and direction == np.sign(params[j])):
+                bounds.append(np.nan)
+                continue
             step = max(bse[j], 1e-8) * np.sqrt(q)
             edge = params[j] + direction * step
             for _ in range(60):
@@ -1249,6 +1267,9 @@ def profile_ci(fitted, alpha: float = 0.05) -> pd.DataFrame:
                     break
                 step *= 2
                 edge = params[j] + direction * step
+            if not excess(j, edge) > 0:  # the profile never reaches the cutoff
+                bounds.append(np.nan)
+                continue
             lo, hi = sorted([params[j], edge])
             bounds.append(brentq(lambda b: excess(j, b), lo, hi, xtol=1e-10))
         out.append(bounds)
