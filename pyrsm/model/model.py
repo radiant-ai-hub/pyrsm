@@ -1224,33 +1224,33 @@ def profile_ci(fitted, alpha: float = 0.05) -> pd.DataFrame:
     params = np.asarray(fitted.params)
     bse = np.asarray(fitted.bse)
 
-    def excess(j: int, b: float, start) -> float:
+    def excess(j: int, b: float) -> float:
         others = np.delete(X, j, axis=1)
         off = base_offset + X[:, j] * b
         if others.shape[1] == 0:
             mu = model.family.link.inverse(off)
             dev = model.family.deviance(y, mu, freq_weights=w if w is not None else 1.0)
         else:
-            fit = GLM(y, others, family=model.family, offset=off, freq_weights=w).fit(
-                start_params=start
-            )
+            # IRLS from its own starting values, as R's glm.fit: started at the
+            # full model's estimates it can converge to a far worse fit for
+            # some fixed values, and the profile then jumps (a false bound)
+            fit = GLM(y, others, family=model.family, offset=off, freq_weights=w).fit()
             dev = fit.deviance
         return (dev - dev_hat) - q
 
     out = []
     for j in range(len(params)):
-        start = np.delete(params, j)
         bounds = []
         for direction in (-1, 1):
             step = max(bse[j], 1e-8) * np.sqrt(q)
             edge = params[j] + direction * step
             for _ in range(60):
-                if excess(j, edge, start) > 0:
+                if excess(j, edge) > 0:
                     break
                 step *= 2
                 edge = params[j] + direction * step
             lo, hi = sorted([params[j], edge])
-            bounds.append(brentq(lambda b: excess(j, b, start), lo, hi, xtol=1e-10))
+            bounds.append(brentq(lambda b: excess(j, b), lo, hi, xtol=1e-10))
         out.append(bounds)
     return pd.DataFrame(out, index=fitted.params.index)
 

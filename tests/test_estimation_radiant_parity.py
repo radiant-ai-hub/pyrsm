@@ -384,16 +384,11 @@ LL_W = (
     "weights (dbinom(round(w y), round(w), mu)); pyrsm (statsmodels freq_weights, model.py:813-819) uses "
     "sum(w log-lik), consistent with the deviance and pseudo R-squared both programs report"
 )
-PROFILE_WARM = (
-    "profile_ci (pyrsm/model/model.py:1126) warm-starts every constrained refit at the full-model estimates; for "
-    "x1 >= 0.773 statsmodels' IRLS from there converges to a bad fit (deviance +5,598), the profile jumps and "
-    "brentq returns the jump: x1's upper bound 0.7707 vs R 0.7756; a cold start gives 0.775586488566 (R's exact "
-    "root 0.775586488566)"
-)
 PROFILE_SEP = (
-    "profile_ci (pyrsm/model/model.py:1144) raises ValueError ('f(a) and f(b) must have different signs') when "
-    "the profile never reaches the cutoff (quasi-separation: a one-sided interval); R's confint gives NA for that "
-    "bound; summary(ci=True), summary(odds=True) and the report fail; fix: an infinite (or missing) bound"
+    "a coefficient without a finite estimate (quasi-separation: every row of level pure is a yes) gets a finite "
+    "profile bound in the direction it diverges (qsep[pure]'s upper bound 31.56, where the constrained refits "
+    "saturate: probabilities clipped at 1 - eps) from profile_ci (pyrsm/model/model.py); R's confint gives NA; "
+    "fix: a missing bound in that direction"
 )
 PROFILE_XTOL = (
     "profile_ci's brentq xtol=1e-10 is absolute (pyrsm/model/model.py:1144): an upper bound of 3.5e-7 (ext, a "
@@ -420,10 +415,6 @@ def _known() -> dict[str, dict[str, str]]:
 
     add("logistic_syn_wts_frac", "fit", LL_W)
     add("logistic_syn_wts_sampling", "fit", LL_W)
-    add("logistic_syn_na_x", "ci", PROFILE_WARM)
-    add("logistic_syn_na_x", "radiant_output", PROFILE_WARM)
-    add("logistic_syn_quasi_sep", "ci", PROFILE_SEP)
-    add("logistic_syn_quasi_sep", "radiant_output", PROFILE_SEP)
     add("logistic_syn_ext", "ci", PROFILE_XTOL)
     add("regress_syn_const logistic_syn_const", "error", CONST)
     add("regress_dia_robust_int logistic_tit_robust_int", "variables_test", R_ROBUST_INT)
