@@ -775,6 +775,13 @@ class logistic:
                 pred_data = apply_enum_types(pred_data, self._enum_types)
         elif cmd is not None:
             cmd = {k: ifelse(isinstance(v, str), [v], v) for k, v in cmd.items()}
+            if data is None:
+                # As R: variables the command does not mention are held at
+                # their mean or most common value in the rows the model was
+                # estimated on (not rows dropped for a missing value)
+                from pyrsm.model.model import estimation_rows
+
+                pred_data = estimation_rows(self.data_raw, self.fitted).select(self.evar)
             pred_data = sim_prediction(data=pred_data, vary=cmd, text=self._text_cols)
             # Re-apply Enum types after sim_prediction creates new data
             if self._enum_types:

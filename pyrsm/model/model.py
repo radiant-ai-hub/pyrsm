@@ -1522,6 +1522,13 @@ def on_all_rows(values, kept: np.ndarray | None) -> pl.Series:
     return pl.Series("residuals", out).fill_nan(None)
 
 
+def estimation_rows(data: pl.DataFrame, fitted) -> pl.DataFrame:
+    """The rows of ``data`` a statsmodels formula fit was estimated on, R's
+    model frame: rows with a missing response or explanatory value left out.
+    The fit's row labels are those rows' positions in ``data``."""
+    return data[np.asarray(fitted.model.data.row_labels, dtype=int)]
+
+
 def fit_on_rows(values, fitted, n: int) -> pl.Series:
     """``values`` of a statsmodels fit (one per estimation row) placed on the
     ``n`` rows of the data the model was given; rows dropped for missing values

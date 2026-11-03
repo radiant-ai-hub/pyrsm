@@ -353,13 +353,6 @@ NA_ROWS = (
     "them (select(vars) %>% na.omit()). No drop_nulls in regress.py:736-741, "
     "logistic.py:756-761, crtree.py:768-771 (nb.py:652 does drop them)"
 )
-NA_FILL = (
-    "cmd: means and modes use every non-missing value of a column, also rows the "
-    "model did not use (the response or another explanatory variable missing); R "
-    "uses the model frame (complete rows). sim_prediction gets data_raw, the "
-    "scoped data before rows with missing values are dropped: regress.py:737 -> "
-    ":755, logistic.py:757 -> :775"
-)
 NEW_LEVEL_CRTREE = (
     "a level not seen in estimation: R's predict refuses it (model.frame with "
     "xlev: 'factor dom has new levels zz'); pyrsm's crtree codes it as missing "
@@ -412,7 +405,6 @@ def _known(reason: str, tests: str, *cases: str) -> None:
 
 # missing values
 _known(NA_ROWS, "grid layout", "regress_syn_na_data", "logistic_syn_na_data", "crtree_syn_na_data")
-_known(NA_FILL, "grid predictions", "regress_syn_na_x_cmd", "regress_syn_na_y_cmd", "logistic_syn_na_x_cmd")
 # ties
 # levels not seen in estimation
 _known(NEW_LEVEL_CRTREE, "grid", "crtree_syn_newlevel")
