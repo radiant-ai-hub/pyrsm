@@ -379,32 +379,17 @@ def model1_terms(formula: str) -> set:
 # file:line ("R:" when the cause is on radiant.model's side and pyrsm's value
 # is the defensible one). The mark comes off with the fix.
 
-LL_W = (
-    "R: non-integer weights: radiant's log-likelihood, AIC and BIC come from binomial()$aic, which rounds the "
-    "weights (dbinom(round(w y), round(w), mu)); pyrsm (statsmodels freq_weights, model.py:813-819) uses "
-    "sum(w log-lik), consistent with the deviance and pseudo R-squared both programs report"
-)
-R_ROBUST_INT = (
-    "R: robust standard errors and a test variable in an interaction: radiant's matchCf returns a list and "
-    "car::linearHypothesis stops ('requires numeric/complex matrix/vector arguments'), so radiant shows no "
-    "test; pyrsm gives the robust Wald test of the variable's coefficients"
-)
+# None is open. Where radiant.model itself is wrong pyrsm keeps its own value,
+# pinned by an explicit test: test_weighted_auc_is_the_auc_of_the_weighted_rows,
+# test_non_integer_weights_log_likelihood, test_robust_test_with_an_interaction.
 
+KNOWN: dict[str, dict[str, str]] = {}
 
-def _known() -> dict[str, dict[str, str]]:
-    out: dict[str, dict[str, str]] = {}
-
-    def add(cases, test, reason):
-        for c in cases.split():
-            out.setdefault(c, {})[test] = reason
-
-    add("logistic_syn_wts_frac", "fit", LL_W)
-    add("logistic_syn_wts_sampling", "fit", LL_W)
-    add("regress_dia_robust_int logistic_tit_robust_int", "variables_test", R_ROBUST_INT)
-    return out
-
-
-KNOWN: dict[str, dict[str, str]] = _known()
+#: weights that are not whole numbers: R's log-likelihood rounds them
+#: (test_non_integer_weights_log_likelihood), so test_fit leaves out the
+#: log-likelihood, AIC and BIC (test_weighted_nobs_and_bic_penalty checks their
+#: penalties)
+NON_INTEGER_WEIGHTS = {"logistic_syn_wts_frac", "logistic_syn_wts_sampling"}
 
 #: no finite maximum-likelihood estimate: only the behaviour is tested
 #: (test_perfect_separation)
@@ -518,6 +503,8 @@ def test_fit(case):
             # INTENDED: radiant's AUC ignores the weights; pyrsm's is weighted
             # (test_weighted_auc_is_the_auc_of_the_weighted_rows)
             pairs = [pr for pr in pairs if pr[0] != "AUC"]
+        if case in NON_INTEGER_WEIGHTS:
+            pairs = [pr for pr in pairs if pr[0] not in ("log_likelihood", "AIC", "BIC")]
         bad = [
             f"{r}: pyrsm {mf[p]!r} vs R {want[r]!r}"
             for p, r, rt, at in pairs
@@ -587,6 +574,10 @@ def test_variables_test(case):
     tv = as_list(fx["test_var"])
     f = m.chisq_test if is_logistic(fx) else m.f_test
     got = parse_test(captured(f, test=tv, dec=12))
+    if want.get("robust_all"):
+        # radiant fails here (test_robust_test_with_an_interaction); pyrsm's
+        # test is the one radiant means
+        return
     if want.get("no_test") or want.get("error"):
         assert "stat" not in got, f"R gives no test ({want.get('error', 'no df')}); pyrsm: {got}"
         return
@@ -789,6 +780,52 @@ def test_weighted_nobs_and_bic_penalty(case):
     assert float(mf["nobs"]) == pytest.approx(want["nobs"], rel=1e-12)
     assert float(mf["BIC"] + 2 * mf["log_likelihood"]) == pytest.approx(want["bic"] + 2 * want["loglik"], rel=1e-9)
     assert float(mf["AIC"] + 2 * mf["log_likelihood"]) == pytest.approx(want["aic"] + 2 * want["loglik"], rel=1e-9)
+
+
+@pytest.mark.parametrize("case", sorted(NON_INTEGER_WEIGHTS))
+def test_non_integer_weights_log_likelihood(case):
+    """Kept on purpose. With weights that are not whole numbers, radiant's
+    log-likelihood (and its AIC and BIC) comes from R's binomial()$aic, which
+    rounds every weight: sum(dbinom(round(w y), round(w), mu, log = TRUE)), so
+    a weight of 0.5 counts 0 times. It then disagrees with the deviance R
+    itself reports (-2 sum(w log-lik)). pyrsm's log-likelihood is
+    sum(w log-lik) = -deviance / 2, R's deviance; R's number is the rounded
+    sum at the same fitted values."""
+    fx = fixture(case)
+    m = fit(case)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        mf = model_fit(m.fitted, prn=False).iloc[0]
+    assert float(mf["log_likelihood"]) == pytest.approx(-fx["fit"]["deviance"] / 2, rel=GLM_RTOL)
+    y = np.asarray(m.fitted.model.endog, dtype=float)
+    mu = np.asarray(m.fitted.mu, dtype=float)
+    w = np.asarray(m.fitted.model.freq_weights, dtype=float)
+    rounded = np.sum(np.round(w) * (y * np.log(mu) + (1 - y) * np.log(1 - mu)))
+    assert rounded == pytest.approx(fx["fit"]["loglik"], rel=GLM_RTOL)
+    assert abs(float(mf["log_likelihood"]) - fx["fit"]["loglik"]) > 1
+
+
+@pytest.mark.parametrize("case", ["regress_dia_robust_int", "logistic_tit_robust_int"])
+def test_robust_test_with_an_interaction(case):
+    """Kept on purpose. With robust standard errors and a test variable that
+    is in an interaction, radiant's matchCf returns a list and
+    car::linearHypothesis stops ('requires numeric/complex matrix/vector
+    arguments'): radiant shows no test. pyrsm gives the robust Wald test of
+    every coefficient the restricted model leaves out (the variable and its
+    interactions) -- R's linearHypothesis on those coefficients."""
+    fx = fixture(case)
+    m = fit(case)
+    radiant = fx["test"]
+    assert "requires numeric/complex matrix/vector arguments" in radiant["error"]
+    want = (fx["tight"]["test"] if is_logistic(fx) else radiant)["robust_all"]
+    f = m.chisq_test if is_logistic(fx) else m.f_test
+    got = parse_test(captured(f, test=as_list(fx["test_var"]), dec=12))
+    close(got["stat"], want["stat"], rtol=GLM_SE_RTOL if is_logistic(fx) else REG_RTOL, msg="statistic")
+    if is_logistic(fx):
+        assert got["df1"] == want["df"]
+    else:
+        assert (got["df1"], got["df2"]) == (want["df1"], want["df2"])
+    assert got["p"] == "< .001" and want["p_value"] < 0.001
 
 
 # -- behaviour where no estimate exists --------------------------------------

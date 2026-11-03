@@ -296,6 +296,14 @@ regress_test <- function(object, test_var) {
     )
     if (is.character(sub_mod)) {
       out$error <- sub_mod
+      ## the robust test radiant means: every coefficient the restricted
+      ## model leaves out (radiant's matchCf fails when a test variable is in
+      ## an interaction)
+      sub_fit <- update(object$model, sub_form, data = object$model$model)
+      hyp <- setdiff(names(na.omit(coef(object$model))), names(coef(sub_fit)))
+      lh <- car::linearHypothesis(object$model, hyp, vcov = object$vcov)
+      out$robust_all <- list(coefficients = hyp, stat = lh$F[2], df1 = lh$Res.Df[1] - lh$Res.Df[2],
+                             df2 = lh$Res.Df[2], p_value = lh[, "Pr(>F)"][2])
       return(out)
     }
   }
@@ -502,6 +510,13 @@ logistic_test <- function(object, test_var, m = object$model, vcov = object$vcov
                    error = function(e) conditionMessage(e))
     if (is.character(lh)) {
       out$error <- lh
+      ## the robust test radiant means: every coefficient the restricted
+      ## model leaves out (radiant's matchCf fails when a test variable is in
+      ## an interaction)
+      hyp <- setdiff(names(na.omit(coef(m))), names(coef(logit_sub)))
+      lh <- car::linearHypothesis(m, hyp, vcov = vcov)
+      out$robust_all <- list(coefficients = hyp, stat = lh[2, "Chisq"], df = lh[2, "Df"],
+                             p_value = lh[2, "Pr(>Chisq)"])
       return(out)
     }
     out$stat <- lh[2, "Chisq"]
