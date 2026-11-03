@@ -1128,15 +1128,21 @@ def vif(fitted, dec=3):
     return df
 
 
-def gvif(fitted, dec: int | None = 3) -> pd.DataFrame:
+def gvif(fitted, dec: int | None = 3, round_first: bool = False) -> pd.DataFrame:
     """
     Generalized variance inflation factors as ``car::vif``
 
     Computed from the correlation matrix of the coefficient estimates (the
     model's covariance without the intercept), so it is right for weighted
-    and GLM fits as well as OLS. One row per term: ``vif`` is the GVIF and
-    ``Rsq`` = 1 - 1/GVIF, sorted from largest to smallest.
+    and GLM fits as well as OLS, and for terms with several columns (a
+    categorical variable, an interaction). One row per term: ``vif`` is the
+    GVIF and ``Rsq`` = 1 - 1/GVIF, sorted from largest to smallest as
+    radiant.model sorts them: terms in R's order, a stable sort, so equal
+    values keep that order. radiant's linear regression rounds to ``dec``
+    before it sorts (``round_first=True``), its logistic regression after.
     """
+    from pyrsm.multivariate._lm import r_terms
+
     design = fitted.model.data.design_info
     names = list(fitted.params.index)
     cov = np.asarray(fitted.cov_params())
@@ -1147,9 +1153,12 @@ def gvif(fitted, dec: int | None = 3) -> pd.DataFrame:
     det_all = np.linalg.det(R)
     position = {names[i]: j for j, i in enumerate(keep)}
     rows = []
-    for term, sl in design.term_name_slices.items():
+    terms = r_terms(fitted.model) or list(design.terms)
+    for t in terms:
+        term = t.name()
         if term == "Intercept":
             continue
+        sl = design.term_name_slices[term]
         cols = [position[names[i]] for i in range(sl.start, sl.stop) if names[i] in position]
         rest = [j for j in range(len(keep)) if j not in cols]
         a = np.linalg.det(R[np.ix_(cols, cols)])
@@ -1157,7 +1166,9 @@ def gvif(fitted, dec: int | None = 3) -> pd.DataFrame:
         rows.append((r_label(term), a * b / det_all))
     df = pd.DataFrame(rows, columns=["index", "vif"]).set_index("index")
     df["Rsq"] = 1 - 1 / df["vif"]
-    df = df.sort_values("vif", ascending=False)
+    if round_first and dec is not None:
+        df = df.round(dec)
+    df = df.sort_values("vif", ascending=False, kind="stable")
     df.index.name = None
     return df.round(dec) if dec is not None else df
 

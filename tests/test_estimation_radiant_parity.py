@@ -87,7 +87,6 @@ import pytest
 
 import pyrsm as rsm
 from pyrsm.model.model import coef_ci, gvif, model_fit, r_label
-from pyrsm.model.model import vif as design_vif
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "tests" / "reference" / "radiant_model"
@@ -330,11 +329,17 @@ def pyrsm_vif(m) -> dict | None:
     prints that it was not (or cannot be) calculated."""
     if m.aliased or m.evar is None or len(m.evar) < 2:
         return None
-    if isinstance(m, rsm.model.logistic):
-        tab = gvif(m.fitted, dec=None)
-    else:
-        tab = design_vif(m.fitted, dec=None)
+    tab = gvif(m.fitted, dec=None)
     return {term_key(i): v for i, v in zip(tab.index, tab["vif"])}
+
+
+def radiant_vif_order(fx: dict) -> list:
+    """The rows of radiant's VIF table: car::vif's terms (R's order) sorted
+    from largest to smallest by a stable sort, after rounding to 3 decimals
+    (regress) or before (logistic)."""
+    terms, vals = as_list(fx["vif"]["term"]), as_list(fx["vif"]["vif"])
+    key = (lambda v: -v) if is_logistic(fx) else (lambda v: -round(v, 3))
+    return [term_key(terms[i]) for i in sorted(range(len(vals)), key=lambda i: key(vals[i]))]
 
 
 def captured(f, *args, **kwargs) -> str:
@@ -374,12 +379,6 @@ def model1_terms(formula: str) -> set:
 # file:line ("R:" when the cause is on radiant.model's side and pyrsm's value
 # is the defensible one). The mark comes off with the fix.
 
-VIF_INT = (
-    "regress VIF with interactions: vif() (pyrsm/model/model.py:1013-1033) groups dummy columns by the text "
-    "before '[T.' and by substring, so clarity's GVIF also takes the carat:clarity columns (82 vs 45,023) and a "
-    "categorical x categorical interaction is merged into its first factor; fix: gvif() (car::vif's term-wise "
-    "GVIF; matches R to 8e-12 on every regress case), as logistic already does (regress.py:589, report.py:531)"
-)
 VIF_GATE = (
     "the VIF is gated on len(evar) < 2 (regress.py:585, logistic.py:590, report.py:527 / 611); radiant counts "
     "the model's terms (length(term.labels) > 1), so x + I(x^2) gets a VIF table in R and 'cannot be "
@@ -435,8 +434,6 @@ def _known() -> dict[str, dict[str, str]]:
         for c in cases.split():
             out.setdefault(c, {})[test] = reason
 
-    add("regress_dia_int_cat_cat regress_dia_int_num_cat regress_dia_robust_int regress_dia_std_int "
-        "regress_dia_step_int", "vif", VIF_INT)
     add("regress_dia_quad_only logistic_tit_quad_only", "vif", VIF_GATE)
     add("logistic_tit_wts_agg logistic_tit_wts_int logistic_tit_wts_std logistic_syn_wts_na", "fit", AUC_W)
     add("logistic_syn_wts_frac", "fit", f"{AUC_W}. {LL_W}")
@@ -614,6 +611,10 @@ def test_vif(case):
     assert set(got) == set(want), f"terms: pyrsm {sorted(map(sorted, got))} vs R {sorted(map(sorted, want))}"
     keys = list(want)
     close([got[k] for k in keys], [want[k] for k in keys], rtol=GLM_SE_RTOL if is_logistic(fx) else REG_RTOL, msg="VIF")
+    # the printed table's rows (summary, report): radiant's order
+    m = fit(case)
+    shown = gvif(m.fitted, dec=3, round_first=not is_logistic(fx))
+    assert [term_key(i) for i in shown.index] == radiant_vif_order(fx)
 
 
 @pytest.mark.parametrize("case", params("variables_test", ok_cases(lambda fx: "test" in fx and "skipped" not in fx["test"])))

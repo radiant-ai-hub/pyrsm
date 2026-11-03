@@ -528,7 +528,7 @@ def linear_report(
             sections.append({"id": "vif", "title": "Variance inflation factors", "lines": ["Variance Inflation Factors cannot be calculated"]})
         else:
             sections.append(
-                {"table": _pandas_table(model_utils.vif(fitted), id="vif", title="Variance inflation factors", dec=dec), "id": "vif", "title": "Variance inflation factors"}
+                {"table": _pandas_table(model_utils.gvif(fitted, dec=dec, round_first=True), id="vif", title="Variance inflation factors", dec=dec), "id": "vif", "title": "Variance inflation factors"}
             )
     if ssq:
         df = [fitted.df_model, fitted.df_resid, fitted.df_model + fitted.df_resid]

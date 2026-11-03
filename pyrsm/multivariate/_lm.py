@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 
-__all__ = ["r_qr_rank", "r_column_order", "fit_like_r", "glm_like_r", "collinearity_note"]
+__all__ = ["r_qr_rank", "r_terms", "r_column_order", "fit_like_r", "glm_like_r", "collinearity_note"]
 
 COLLINEARITY_NOTE = (
     "The set of explanatory variables exhibit perfect multicollinearity.\n"
@@ -74,6 +74,27 @@ def r_qr_rank(x: np.ndarray, tol: float = 1e-7) -> tuple[int, np.ndarray]:
     return min(k - 1, n), jpvt
 
 
+def r_terms(model) -> list | None:
+    """The terms of a statsmodels formula model in R's order (the formula's
+    order, main effects before two-way interactions, ...), or None when the
+    model has no formula."""
+    design = getattr(getattr(model, "data", None), "design_info", None)
+    formula = getattr(model, "formula", None)
+    if design is None or not formula:
+        return None
+    try:
+        from patsy import ModelDesc
+
+        written = list(ModelDesc.from_formula(formula).rhs_termlist)
+    except Exception:  # noqa: BLE001 - unusual formula: keep patsy's order
+        return list(design.terms)
+
+    def position(term):
+        return written.index(term) if term in written else len(written)
+
+    return sorted(design.terms, key=lambda t: (len(t.factors), position(t)))
+
+
 def r_column_order(model) -> list[int]:
     """Columns of a statsmodels formula model in R's ``model.matrix`` order.
 
@@ -85,21 +106,10 @@ def r_column_order(model) -> list[int]:
     model's own order when there is no formula.
     """
     k = np.asarray(model.exog).shape[1]
-    design = getattr(getattr(model, "data", None), "design_info", None)
-    formula = getattr(model, "formula", None)
-    if design is None or not formula:
+    terms = r_terms(model)
+    if terms is None:
         return list(range(k))
-    try:
-        from patsy import ModelDesc
-
-        written = list(ModelDesc.from_formula(formula).rhs_termlist)
-    except Exception:  # noqa: BLE001 - unusual formula: keep patsy's order
-        return list(range(k))
-
-    def position(term):
-        return written.index(term) if term in written else len(written)
-
-    terms = sorted(design.terms, key=lambda t: (len(t.factors), position(t)))
+    design = model.data.design_info
     order: list[int] = []
     for term in terms:
         sl = design.term_slices[term]

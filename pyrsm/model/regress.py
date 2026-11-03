@@ -454,7 +454,7 @@ class regress:
             if self.evar is None or len(self.evar) < 2:
                 sections.append(key_value_section("vif", "Variance inflation factors", {"available": False}))
             else:
-                vif_table = model_utils.vif(self.fitted, dec=dec)
+                vif_table = model_utils.gvif(self.fitted, dec=dec, round_first=True)
                 sections.append(
                     table_section(
                         "vif",
@@ -593,7 +593,8 @@ class regress:
                 print("\nVariance Inflation Factors cannot be calculated")
             else:
                 print("\nVariance inflation factors:")
-                print(f"\n{model_utils.vif(self.fitted).to_string()}")
+                # car::vif, as radiant.model: one generalized VIF per term
+                print(f"\n{model_utils.gvif(self.fitted, dec=dec, round_first=True).to_string()}")
 
         if ssq:
             print("\nSum of squares:")

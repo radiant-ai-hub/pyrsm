@@ -29,7 +29,7 @@ from pyrsm.model.model import (
     sig_stars,
     sim_prediction,
 )
-from pyrsm.model.model import vif as calc_vif
+from pyrsm.model.model import gvif
 from pyrsm.model.visualize import (
     extract_evars,
     extract_rvar,
@@ -509,7 +509,7 @@ class logistic:
             if self.evar is None or len(self.evar) < 2:
                 sections.append(key_value_section("vif", "Variance inflation factors", {"available": False}))
             else:
-                vif_table = calc_vif(self.fitted, dec=dec)
+                vif_table = gvif(self.fitted, dec=dec)
                 sections.append(
                     table_section(
                         "vif",
