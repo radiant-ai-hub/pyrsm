@@ -579,10 +579,14 @@ class nb:
                     levs = r_text_order(levs)
                 best = max(levs, key=lambda lv: cnt[lv])
                 values[v] = [s.filter(pl.Series(_labels(s)) == best)[0]]
-        rows = list(product(*values.values()))
+        # rows in the order of R's expand.grid: the first variable in the
+        # command changes fastest
+        varied = [v for v in cmd if v in values]
+        order = [v for v in self.evar if v not in varied] + varied[::-1]
+        rows = [dict(zip(order, r)) for r in product(*(values[v] for v in order))]
         cols = {}
-        for j, v in enumerate(self.evar):
-            col = [r[j] for r in rows]
+        for v in self.evar:
+            col = [r[v] for r in rows]
             dtype = base[v].dtype
             if self.isnumeric[v]:
                 cols[v] = pl.Series(v, col, dtype=pl.Float64)

@@ -1999,7 +1999,12 @@ def sim_prediction(
             dtype = pl.Float64
         schema[c] = dtype
 
-    return expand_grid(dct, schema)
+    # Rows in the order of R's expand.grid: the first variable varied changes
+    # fastest (product() changes the last fastest, so the varied columns go in
+    # reverse); the columns keep the data's order
+    varied = [c for c in vary if c in dct]
+    order = [c for c in dct if c not in varied] + varied[::-1]
+    return expand_grid({c: dct[c] for c in order}, schema).select(list(dct))
 
 
 def scatter_plot(

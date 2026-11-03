@@ -15,7 +15,10 @@ and R's prediction table. Every case refits the same model in pyrsm and calls
   (the same design and engine as R); random forest (ranger vs sklearn)
   and neural network (nnet vs sklearn MLP) are different engines, so only the
   range of the predictions is checked (the numeric gap is in ``gap_report``).
-* ``test_layout``: column order and row order exactly as R prints them.
+* ``test_layout``: the table's columns by name and its rows in R's order (a
+  command's grid as R's expand.grid: the first variable changes fastest).
+  pyrsm keeps the model's variable order for the columns; R puts a command's
+  variables last.
 
 pyrsm's naming conventions are mapped, not tested: ``Prediction`` is
 ``prediction``, R's interval labels ``2.5%`` are ``2.50%``, R's ``+/-``
@@ -364,17 +367,6 @@ STD_CI = (
     "error calculations not supported ...') and returns the prediction only; "
     "pyrsm returns the interval in original units (pyrsm/model/regress.py:764-775)"
 )
-LAYOUT_COLS = (
-    "cmd: R orders the table's columns by type (numeric, factor, text, date, "
-    "logical; then the command's variables, radiant.model predict_model: "
-    "plug_data + expand.grid); pyrsm keeps the model's variable order "
-    "(pyrsm/model/model.py:1892 sim_prediction)"
-)
-LAYOUT_ROWS = (
-    "cmd with 2+ variables: R's expand.grid varies the first variable fastest, "
-    "pyrsm's itertools.product the last (pyrsm/utils.py:189)"
-)
-
 KNOWN: dict[str, dict[str, str]] = {}
 
 
@@ -390,26 +382,7 @@ def _known(reason: str, tests: str, *cases: str) -> None:
 _known(NEW_LEVEL_CRTREE, "grid", "crtree_syn_newlevel")
 # model-specific
 _known(CRTREE_ADJPROB, "predictions", "crtree_tit_prior_noadj")
-_known(STD_CI, "grid", "regress_dia_std_ci_cmd")
-
-
-def _layout_known() -> None:
-    """The order of a command's table: columns by type, rows of a grid."""
-    for case in CASES:
-        fx = fixture(case)
-        p = fx["pred"]
-        if "error" in fx or p["mode"] != "cmd":
-            continue
-        cmd = list(p["cmd"])
-        evar = as_list(fx["r_evar"])
-        r_order = [c for c in as_list(fx["table"]["columns"]) if c in evar]
-        if r_order != evar:
-            _known(LAYOUT_COLS, "layout", case)
-        if len(cmd) > 1 and math.prod(len(as_list(v)) for v in p["cmd"].values()) > 1:
-            _known(LAYOUT_ROWS, "layout", case)
-
-
-_layout_known()
+_known(STD_CI, "grid layout", "regress_dia_std_ci_cmd")
 
 
 def _xfails() -> dict[tuple[str, str], str]:
@@ -538,13 +511,15 @@ def test_predictions(case):
 
 @pytest.mark.parametrize("case", params("layout", [c for c in CASES if "error" not in fixture(c)]))
 def test_layout(case):
-    """Column order and row order exactly as R's table (with pyrsm's names)."""
+    """The table's columns by name (pyrsm keeps the model's variable order;
+    R puts a command's variables last) and its rows in R's order: a command's
+    grid as R's expand.grid, the first variable changing fastest."""
     fx = fixture(case)
     got = predict(fx)
     pmap = pred_columns(fx)
     want = [pmap.get(c, c) for c in as_list(r_table(fx)["columns"])]
-    want = [c for i, c in enumerate(want) if c and c not in want[:i]]
-    assert got.columns == want, f"columns: pyrsm {got.columns} vs R {want}"
+    want = {c for c in want if c}
+    assert set(got.columns) == want, f"columns: pyrsm {got.columns} vs R {sorted(want)}"
     t = r_table(fx)
     assert got.height == t["nrow"], f"rows: pyrsm {got.height} vs R {t['nrow']}"
     for c in list(fx["pred"].get("cmd", {})):  # the grid's rows in R's order
