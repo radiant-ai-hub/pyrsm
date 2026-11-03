@@ -367,12 +367,6 @@ TEXT_MODE = (
     "level, :1886-1890; nb.py:564-570 the same), R by its alphabetical "
     "table(): names(which.max(table(x)))"
 )
-BOOL_TIE = (
-    "cmd: a bool column with exactly half TRUE: R fills FALSE (max_lfreq: "
-    "mean(x) > 0.5), pyrsm the value that appears first (sim_prediction treats a "
-    "Boolean as categorical: pyrsm/model/model.py:1882 is_numeric() is False for "
-    "Boolean, ties at :1886-1890)"
-)
 NEW_LEVEL_CRTREE = (
     "a level not seen in estimation: R's predict refuses it (model.frame with "
     "xlev: 'factor dom has new levels zz'); pyrsm's crtree codes it as missing "
@@ -428,7 +422,6 @@ _known(NA_ROWS, "grid layout", "regress_syn_na_data", "logistic_syn_na_data", "c
 _known(NA_FILL, "grid predictions", "regress_syn_na_x_cmd", "regress_syn_na_y_cmd", "logistic_syn_na_x_cmd")
 # ties
 _known(TEXT_MODE, "grid predictions", "regress_syn_tie_text", "nb_syn_tie_text")
-_known(BOOL_TIE, "grid predictions", "regress_syn_flag50")
 # levels not seen in estimation
 _known(NEW_LEVEL_CRTREE, "grid", "crtree_syn_newlevel")
 _known(NEW_LEVEL_MNL, "grid predictions layout", "mnl_syn_newlevel")

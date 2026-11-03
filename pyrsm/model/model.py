@@ -1897,6 +1897,11 @@ def sim_prediction(
         col = data[col_name]
         if col.dtype.is_numeric():
             return col.mean()
+        if col.dtype == pl.Boolean:
+            # R's max_lfreq: TRUE when more than half the values are TRUE, so
+            # an exact tie is FALSE (not the value that happens to come first)
+            share = col.drop_nulls().cast(pl.Float64).mean()
+            return bool(share is not None and share > 0.5)
         # most common value; ties go to the first level (Enum order, dates in
         # date order), as R's names(which.max(table(x)))
         counts = col.drop_nulls().value_counts()
