@@ -138,21 +138,22 @@ The summary is intentionally compact — Random Forest has no coefficients to pr
 
 ```python
 rf.predict(
-    data=None,                       # new data — uses in-sample if it's training rows
+    data=None,                       # data to predict; None = the estimation data (OOB)
     cmd=None,                        # dict for counterfactual queries
     data_cmd=None,                   # row-wise overrides
     dec=None,                        # rounding
+    drop_missing=True,               # False: keep rows with a missing predictor (empty prediction)
+    oob=None,                        # None = OOB exactly when data are the estimation data
 )
 ```
 
-Returns a `pl.DataFrame` with the input predictor columns and a `prediction` column.
+Returns a `pl.DataFrame` with the input predictor columns and a `prediction` column. Rows with a missing value in a predictor are left out, as in Radiant; with `drop_missing=False` every row of `data` stays, in order, with an empty prediction on those rows, so the predictions line up with `data`.
 
-**The critical distinction:**
+**The critical distinction** (Radiant's rule, `rf.is_estimation_data(data)` is the test):
 
-- **`rf.predict()` (no `data` argument)** → returns OOB predictions for the *training rows*. For each row, only the trees that did NOT include it in their bootstrap sample contribute. This is the honest training-set prediction.
-- **`rf.predict(data=<training_df>)`** → returns IN-SAMPLE predictions for the training rows. ALL trees vote, including those that memorized the row during training. **Dramatically overoptimistic.**
-
-For test rows (rows not seen during training), `rf.predict(data=test_df)` is the right call — all trees vote, and none of them have seen these rows.
+- **Data equal to the estimation data** — `rf.predict()`, or `rf.predict(data=<training_df>)` with the same rows in the same order and the same values → **OOB predictions**. For each row, only the trees that did NOT include it in their bootstrap sample contribute. This is the honest training-set prediction. (After `data_filter` / `sort` / `slice`, the estimation data are the rows left after them.)
+- **Any other data** — test rows, new data, or the full data with training *and* test rows → **all trees vote**. For rows the forest never saw that is the right call. For training rows inside a larger frame (`rf.predict(df)` with `df` holding both) it gives **IN-SAMPLE predictions**: ALL trees vote, including those that memorized the row. **Dramatically overoptimistic.**
+- `oob=True` / `oob=False` overrides the rule: `rf.predict(data=<training_df>, oob=False)` gives the in-sample predictions on purpose.
 
 ### The canonical workflow
 
@@ -162,15 +163,16 @@ df = df.with_columns(training=rsm.model.make_train(df, strat_var=rvar, test_size
 # Fit on training subset
 rf = rsm.model.rforest(data={"... (train)": df.filter(pl.col("training") == 1)}, ...)
 
-# Score test rows
+# Score all rows: all trees vote (fine for test rows, in-sample for training rows)
 df = df.with_columns(pred_rf=rf.predict(df).get_column("prediction"))
 
 # Replace TRAINING-row predictions with OOB predictions
+# (rf.predict() == rf.predict(df.filter(pl.col("training") == 1)): both OOB)
 train_idx = df.with_row_index().filter(pl.col("training") == 1).get_column("index")
 df[train_idx, "pred_rf"] = rf.predict().get_column("prediction")
 ```
 
-Now `df["pred_rf"]` is OOB on training rows and in-sample on test rows — both honest for their roles.
+Now `df["pred_rf"]` is OOB on training rows and all-trees on test rows — both honest for their roles.
 
 The visible signal that you've made this mistake: the training-set gains chart looks dramatically better than the test-set one. With OOB on training, the two curves should be reasonably similar (small overfitting gap is fine; huge gap is a red flag).
 
@@ -336,7 +338,7 @@ PDPs reveal the *shape* of effects that a logistic regression would force to be 
 Same as for `logistic` — route through `pyrsm.model.perf`:
 
 ```python
-# Attach honest predictions (OOB on training, in-sample on test)
+# Attach honest predictions (OOB on training, all trees on test)
 df = df.with_columns(pred_rf=rf.predict(df).get_column("prediction"))
 train_idx = df.with_row_index().filter(pl.col("training") == 1).get_column("index")
 df[train_idx, "pred_rf"] = rf.predict().get_column("prediction")
@@ -391,7 +393,7 @@ clf_tuned = rsm.model.rforest(
 clf_tuned.summary()
 ```
 
-Evaluate honestly with OOB on training, in-sample on test:
+Evaluate honestly with OOB on training, all trees on test:
 
 ```python
 titanic = titanic.with_columns(pred_rf=clf_tuned.predict(titanic).get_column("prediction"))
@@ -426,7 +428,7 @@ reg.summary()
 
 ## 11. Common pitfalls
 
-- **Using `rf.predict(training_df)` to evaluate training-set performance.** Returns in-sample predictions where every tree has memorized the row → gains chart looks perfect, AUC near 1.0, then crashes on test. Use `rf.predict()` (no arg) for OOB predictions instead.
+- **Evaluating training rows with predictions from the full data.** `rf.predict(df)` on a frame with training *and* test rows (or `oob=False`) gives in-sample predictions on the training rows, where every tree has memorized the row → gains chart looks perfect, AUC near 1.0, then crashes on test. Use OOB predictions for the training rows: `rf.predict()`, or `rf.predict(training_df)` with exactly the estimation rows (also OOB).
 - **Reporting MDI (`pip_sklearn`) as "the" feature importance.** Biased toward continuous predictors. Use `pip` (permutation) for cross-model and cross-predictor comparisons.
 - **No train/test split.** OOB is honest within the training set, but a held-out test is still essential for generalization assessment. Always use `rsm.model.make_train(strat_var=rvar)`.
 - **Tuning over a huge grid for a small dataset.** A 4 × 5 grid with 5-fold CV = 100 fits — fast. A 10 × 10 × 5 × 5 grid = 2500 fits — overkill for a class assignment.

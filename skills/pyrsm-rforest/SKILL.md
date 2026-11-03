@@ -123,7 +123,7 @@ rf.summary()
 
 Notes:
 - Pass the data as `{"name": df_train}` so the summary header prints `<name>`.
-- For categorical `evar` columns: pyrsm dummy-codes them internally (one column per non-reference level). The summary's `Nr. of features` shows `(<original>, <after dummies>)`.
+- For categorical `evar` columns: pyrsm dummy-codes them internally (a 2-level categorical becomes one 0/1 column; one with 3+ levels gets a column for every level). The summary's `Nr. of features` shows `(<original>, <after dummies>)`.
 - The model is fit inside `__init__` — no separate `.fit()` call.
 - For regression: omit `lev`, set `mod_type="regression"`; the summary reports R² / RMSE instead of AUC.
 
@@ -142,10 +142,10 @@ The summary is much shorter than a regression's because there are no coefficient
 
 This is the **defining pedagogical concept** for Random Forest in pyrsm:
 
-- **`rf.predict()` (no `data` argument) returns OOB predictions** — for each training row, the prediction averages only the trees in which that row was NOT in the bootstrap sample. This is the *honest* training-set prediction.
-- **`rf.predict(data=training_df)` returns IN-SAMPLE predictions** — for each row, ALL trees vote, including the trees that saw the row during training. This is **dramatically overoptimistic** for Random Forest because each tree has near-perfect memory of its bootstrap sample.
+- **Predicting the estimation data returns OOB predictions** — `rf.predict()` (no `data` argument), and also `rf.predict(data=training_df)` when `training_df` holds exactly the rows the forest was fit on (same rows, same order, same values; Radiant's rule, tested by `rf.is_estimation_data(training_df)`). For each training row, the prediction averages only the trees in which that row was NOT in the bootstrap sample. This is the *honest* training-set prediction.
+- **Predicting any other data lets ALL trees vote** — right for test rows and new data. But training rows scored inside a larger frame (`rf.predict(df)` where `df` holds training *and* test rows), or with `oob=False`, get **IN-SAMPLE predictions**: the trees that saw the row during training vote too. This is **dramatically overoptimistic** for Random Forest because each tree has near-perfect memory of its bootstrap sample.
 
-**Implication**: if you score the training rows by passing the *same* DataFrame you fit on, the resulting gains / lift / AUC / confusion are not a faithful "training-set performance" — they reflect partial memorization. Use **OOB predictions** for the training-set evaluation.
+**Implication**: if you take the training rows' predictions from `rf.predict(df)` on the full data, the resulting gains / lift / AUC / confusion are not a faithful "training-set performance" — they reflect partial memorization. Use **OOB predictions** for the training-set evaluation (`predict(oob=True)` / `predict(oob=False)` override the rule when you need one or the other).
 
 The canonical pattern:
 
@@ -153,16 +153,17 @@ The canonical pattern:
 # Fit on training subset
 rf = rsm.model.rforest(data={"titanic (train)": df.filter(pl.col("training") == 1)}, ...)
 
-# Score the test set normally (no overlap with training rows, so in-sample is honest)
+# Score the test set normally (no overlap with training rows, so all trees voting is honest)
 test_pred = rf.predict(df.filter(pl.col("training") == 0))
 
-# For the training rows: use OOB predictions (NOT rf.predict(df.filter(training==1)))
+# For the training rows: OOB predictions
 train_oob_pred = rf.predict()    # no arg → OOB predictions
+# rf.predict(df.filter(pl.col("training") == 1)) is the same: those are the estimation data
 ```
 
 Then attach both to the master DataFrame and pass the combined frame to `gains_plot` / `evalbin` etc.
 
-The 30%-test baseline check: if the training and test gains curves are essentially the same shape, the model isn't overfit. If the training (in-sample) curve is much steeper than test, you're seeing the memorization artifact — switch to OOB for training.
+The 30%-test baseline check: if the training and test gains curves are essentially the same shape, the model isn't overfit. If the training curve is much steeper than test, check that the training rows got OOB predictions: an in-sample curve (training rows scored inside the full data) shows the memorization artifact.
 
 ## Step 6 — Feature importance and partial dependence
 
@@ -250,14 +251,14 @@ pred = rf.predict(cmd={"age": [10, 30, 50]})
 
 `predict()` returns a polars DataFrame. For classification, the `prediction` column is `P(rvar = lev)`. For regression, it's the predicted continuous value.
 
-**Critical**: do NOT pass the training rows to `predict(data=...)` to get the training-set predictions — that gives in-sample (memorized) predictions. Use `predict()` (no argument) for OOB predictions on training.
+**Critical**: do NOT take the training rows' predictions from `predict(data=df)` on the full data (training + test rows) — for those rows that gives in-sample (memorized) predictions. Use `predict()` (no argument), or `predict(data=<exactly the training rows>)`, for OOB predictions on training. If the data have rows with a missing predictor, `predict` leaves them out (as Radiant); pass `drop_missing=False` to keep every row in order (empty prediction) so the predictions line up with the data.
 
 ## Step 9 — Evaluate classification performance
 
 For classification models, route through `pyrsm.model.perf` for decision-relevant metrics:
 
 ```python
-# Step A: attach honest predictions to the master DataFrame
+# Step A: attach honest predictions to the master DataFrame (all trees vote)
 df = df.with_columns(pred_rf=rf.predict(df).get_column("prediction"))
 
 # Replace training-row predictions with OOB predictions (for an honest training estimate)
@@ -446,7 +447,7 @@ This disclaimer is mandatory at the **end** of any walkthrough — even when the
 ## Style notes
 
 - **Always split into train/test** with `rsm.model.make_train(strat_var=<rvar>)` for classification. Evaluation on training data alone is misleading for any model, but especially so for Random Forest.
-- **Use OOB predictions for training-row evaluation.** `rf.predict()` (no arg) is the right call; `rf.predict(training_df)` is the wrong one. State this explicitly when the gains chart for training looks "too good".
+- **Use OOB predictions for training-row evaluation.** `rf.predict()` (no arg) is the right call, and `rf.predict(training_df)` with exactly the estimation rows gives the same OOB predictions; the training rows' predictions from `rf.predict(df)` on the full data (training + test) are in-sample and the wrong ones. State this explicitly when the gains chart for training looks "too good".
 - **Prefer permutation importance (`pip`) over sklearn impurity-based (`pip_sklearn`).** MDI is biased toward continuous and high-cardinality predictors; permutation importance is comparable and fair.
 - **State cost and margin** for any profit / ROME / threshold report.
 - **Tune `max_features` first**, then `n_estimators`. `min_samples_leaf` and `max_samples` are second-order knobs.
