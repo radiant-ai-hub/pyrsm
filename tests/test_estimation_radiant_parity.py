@@ -295,8 +295,12 @@ def py_coef(m) -> dict:
 def compare_coef(case: str, want: dict, got: dict, rtol: float, se_rtol: float):
     assert set(got) == set(want), f"terms: pyrsm {sorted(map(sorted, got))} vs R {sorted(map(sorted, want))}"
     keys = [k for k in want if k not in DIVERGING.get(case, ())]
-    for k, rt in (("estimate", rtol), ("std_error", se_rtol), ("statistic", se_rtol)):
-        close([got[t][k] for t in keys], [want[t][k] for t in keys], rtol=rt, atol=1e-300, msg=f"{case} {k}")
+    # an estimate that is 0 in exact arithmetic (a standardized model's
+    # intercept) is rounding noise in both: estimates are also close when
+    # within rtol of their standard error, t / z within rtol in t units
+    se = np.array([want[t]["std_error"] for t in keys])
+    for k, rt, at in (("estimate", rtol, rtol * se), ("std_error", se_rtol, 0.0), ("statistic", se_rtol, se_rtol)):
+        close([got[t][k] for t in keys], [want[t][k] for t in keys], rtol=rt, atol=at, msg=f"{case} {k}")
     close_p([got[t]["p_value"] for t in keys], [want[t]["p_value"] for t in keys],
             [want[t]["statistic"] for t in keys], se_rtol, msg=case)
 
@@ -370,12 +374,6 @@ def model1_terms(formula: str) -> set:
 # file:line ("R:" when the cause is on radiant.model's side and pyrsm's value
 # is the defensible one). The mark comes off with the fix.
 
-NA_SCALE = (
-    "standardize / center with missing values: _calc_scaling (pyrsm/model/regress.py:331, logistic.py:392) uses "
-    "every non-missing value of each column; radiant's get_data(na.rm = TRUE) drops incomplete rows (response, "
-    "explanatory variables, weights) first, so its means and sds are those of the estimation rows; fix: compute "
-    "them on the estimation rows"
-)
 VIF_INT = (
     "regress VIF with interactions: vif() (pyrsm/model/model.py:1013-1033) groups dummy columns by the text "
     "before '[T.' and by substring, so clarity's GVIF also takes the carat:clarity columns (82 vs 45,023) and a "
@@ -437,10 +435,6 @@ def _known() -> dict[str, dict[str, str]]:
         for c in cases.split():
             out.setdefault(c, {})[test] = reason
 
-    for t in ("coefficients", "ci", "fit", "residuals"):
-        add("regress_syn_na_std", t, NA_SCALE)
-    for t in ("coefficients", "ci", "radiant_output"):
-        add("logistic_syn_na_std", t, NA_SCALE)
     add("regress_dia_int_cat_cat regress_dia_int_num_cat regress_dia_robust_int regress_dia_std_int "
         "regress_dia_step_int", "vif", VIF_INT)
     add("regress_dia_quad_only logistic_tit_quad_only", "vif", VIF_GATE)

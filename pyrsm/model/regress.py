@@ -267,7 +267,7 @@ class regress:
         self.scale_means: dict[str, float] = {}
         self.scale_sds: dict[str, float] = {}
         if self.standardize or self.center:
-            self._calc_scaling()
+            self._calc_scaling(used)
             self.data = self._scale(self.data)
 
         pdf = model_utils.to_model_pandas(self.data)
@@ -324,13 +324,17 @@ class regress:
 
         return _fit_like_r(smf.ols(formula=formula, data=pdf))
 
-    def _calc_scaling(self) -> None:
-        """Means and standard deviations of the numeric columns (R's ``sd``)."""
+    def _calc_scaling(self, used: list[str] | None = None) -> None:
+        """Means and standard deviations of the numeric columns (R's ``sd``)
+        on the rows the model is estimated on: radiant.model's
+        ``get_data(na.rm = TRUE)`` drops a row with a missing value in any
+        model variable before it scales."""
+        rows = self.data.filter(complete_rows(self.data, used)) if used else self.data
         for c in self.data.columns:
             dtype = self.data[c].dtype
             if not dtype.is_numeric() or dtype == pl.Boolean:
                 continue
-            col = self.data[c].cast(pl.Float64)
+            col = rows[c].cast(pl.Float64)
             mean = col.mean()
             if mean is None:
                 continue

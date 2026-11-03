@@ -284,7 +284,7 @@ class logistic:
         self.scale_means: dict[str, float] = {}
         self.scale_sds: dict[str, float] = {}
         if self.standardize or self.center:
-            self._calc_scaling()
+            self._calc_scaling(used)
             self.data = self._scale(self.data)
 
         pdf = to_model_pandas(self.data)
@@ -396,22 +396,31 @@ class logistic:
             )
         )
 
-    def _calc_scaling(self) -> None:
+    def _calc_scaling(self, used: list[str] | None = None) -> None:
         """Means and standard deviations of the numeric explanatory variables.
 
         R's ``scale_df``: ``sd`` without weights, a weighted population
-        standard deviation with them.
+        standard deviation with them, on the rows the model is estimated on
+        (radiant.model's ``get_data(na.rm = TRUE)`` drops a row with a missing
+        value in any model variable or the weights before it scales).
         """
+        from pyrsm.utils import complete_rows
+
+        rows = (
+            self.data.select(complete_rows(self.data, used)).to_series().to_numpy()
+            if used
+            else np.ones(self.data.height, dtype=bool)
+        )
         w = None
         if self.weights is not None:
-            w = self.weights.cast(pl.Float64).to_numpy()
+            w = self.weights.cast(pl.Float64).to_numpy()[rows]
         for c in self.evar:
             if c not in self.data.columns:
                 continue
             dtype = self.data[c].dtype
             if not dtype.is_numeric() or dtype == pl.Boolean:
                 continue
-            x = self.data[c].cast(pl.Float64).to_numpy()
+            x = self.data[c].cast(pl.Float64).to_numpy()[rows]
             ok = ~np.isnan(x)
             if w is not None:
                 ok &= ~np.isnan(w)
