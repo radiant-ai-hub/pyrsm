@@ -691,7 +691,7 @@ class regress:
 
     def predict(
         self, data=None, cmd=None, data_cmd=None, ci=False, conf=0.95, dec=None,
-        interval="confidence",
+        interval="confidence", drop_missing=True,
     ) -> pl.DataFrame:
         """
         Generate predictions using the fitted model.
@@ -718,6 +718,12 @@ class regress:
             response. A prediction interval also carries the residual variance,
             so it is always wider. Both use the t distribution, as R's
             ``predict.lm``.
+        drop_missing : bool, default True
+            Leave out rows with a missing value (null or NaN) in an explanatory
+            variable, as Radiant (R's ``na.omit``). With False every row of
+            ``data`` stays, in order, and those rows get a missing prediction,
+            so the predictions line up with the rows of ``data`` (e.g. to store
+            them in it).
 
         Returns
         -------
@@ -765,6 +771,9 @@ class regress:
             if self._enum_types:
                 pred_data = model_utils.apply_enum_types(pred_data, self._enum_types)
 
+        full = pred_data
+        pred_data, keep = model_utils.drop_missing_rows(pred_data, self.evar)
+
         # A standardized/centered model is evaluated on scaled inputs; the
         # output shows the inputs and the prediction in original units.
         model_data = self._scale(pred_data) if self.scale_means else pred_data
@@ -789,6 +798,8 @@ class regress:
             if self.scale_means:
                 predictions = self._unscale_response(predictions)
             pred = pred_data.with_columns(pl.lit(predictions).alias("prediction"))
+        if not drop_missing:
+            pred = model_utils.on_prediction_rows(pred, full, keep)
 
         if dec is not None:
             pred = pred.with_columns(

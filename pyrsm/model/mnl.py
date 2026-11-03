@@ -741,7 +741,7 @@ class mnl:
         chosen = probs[np.arange(len(self._y)), self._y]
         return on_all_rows(1.0 - chosen, self._kept_rows)
 
-    def predict(self, data=None, cmd=None, data_cmd=None, dec=None) -> pl.DataFrame:
+    def predict(self, data=None, cmd=None, data_cmd=None, dec=None, drop_missing=True) -> pl.DataFrame:
         """
         Predicted probabilities of every response level
 
@@ -757,6 +757,12 @@ class mnl:
             Values that replace columns of ``data`` before predicting.
         dec : int, optional
             Round the probabilities and the numeric inputs.
+        drop_missing : bool, default True
+            Leave out rows with a missing value (null or NaN) in an explanatory
+            variable, as Radiant (R's ``na.omit``). With False every row of
+            ``data`` stays, in order, and those rows get a missing prediction,
+            so the predictions line up with the rows of ``data`` (e.g. to store
+            them in it).
 
         Returns
         -------
@@ -782,8 +788,12 @@ class mnl:
             cmd = {k: [v] if isinstance(v, str) or not hasattr(v, "__len__") else list(v)
                    for k, v in cmd.items()}
             pred_data = sim_prediction(data=self.data.select(self.evar), vary=cmd)
-        # A row with a level the model has not seen (or a missing level) gets
-        # missing probabilities, as R's predict.mnl, where factor(x, levels =
+        from pyrsm.model.model import drop_missing_rows, on_prediction_rows
+
+        full = pred_data
+        pred_data, keep = drop_missing_rows(pred_data, self.evar)
+        # A row with a level the model has not seen gets missing
+        # probabilities, as R's predict.mnl, where factor(x, levels =
         # <estimation levels>) makes the level NA; the other rows are predicted
         bad = np.zeros(pred_data.height, dtype=bool)
         unseen = {}
@@ -818,6 +828,8 @@ class mnl:
         out = pred_data.with_columns(
             [pl.Series(lv, P[:, i]).fill_nan(None) for i, lv in enumerate(self.levels)]
         )
+        if not drop_missing:
+            out = on_prediction_rows(out, full, keep)
         if dec is not None:
             out = out.with_columns(
                 [pl.col(c).round(dec) for c in out.columns if out[c].dtype in (pl.Float64, pl.Float32)]

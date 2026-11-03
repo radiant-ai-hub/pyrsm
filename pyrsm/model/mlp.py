@@ -10,9 +10,11 @@ from sklearn.neural_network import MLPClassifier, MLPRegressor
 from pyrsm.model.model import (
     check_binary,
     convert_to_list,
+    drop_missing_rows,
     get_dummies,
     kept_rows,
     nobs_dropped,
+    on_prediction_rows,
     sim_prediction,
 )
 from pyrsm.stats import scale_df
@@ -413,6 +415,7 @@ class mlp:
         means=None,
         stds=None,
         dec=None,
+        drop_missing=True,
     ) -> pl.DataFrame:
         """
         Predict probabilities or values for the MLP model.
@@ -434,6 +437,12 @@ class mlp:
         dec : int, optional
             Number of decimal places to round float columns in the output.
             If None (default), no rounding is applied.
+        drop_missing : bool, default True
+            Leave out rows with a missing value (null or NaN) in an explanatory
+            variable, as Radiant (R's ``na.omit``). With False every row of
+            ``data`` stays, in order, and those rows get a missing prediction,
+            so the predictions line up with the rows of ``data`` (e.g. to store
+            them in it).
 
         Returns
         -------
@@ -464,6 +473,8 @@ class mlp:
         elif cmd is not None and cmd != "":
             cmd = {k: ifelse(isinstance(v, str), [v], v) for k, v in cmd.items()}
             pred_data = sim_prediction(data=pred_data, vary=cmd)
+        full = pred_data
+        pred_data, keep = drop_missing_rows(pred_data, self.evar)
 
         if scale or (means is not None and stds is not None):
             if means is not None and stds is not None:
@@ -494,6 +505,8 @@ class mlp:
             )
 
         pred = pred_data.with_columns(pl.lit(predictions).alias("prediction"))
+        if not drop_missing:
+            pred = on_prediction_rows(pred, full, keep)
 
         if dec is not None:
             pred = pred.with_columns(

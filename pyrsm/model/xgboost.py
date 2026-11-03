@@ -8,8 +8,10 @@ import xgboost as xgb
 from pyrsm.model.model import (
     check_binary,
     convert_to_list,
+    drop_missing_rows,
     kept_rows,
     nobs_dropped,
+    on_prediction_rows,
     r_text_order,
     sim_prediction,
 )
@@ -282,7 +284,7 @@ class xgboost:
 
         return ml_residuals(self)
 
-    def predict(self, data=None, cmd=None, data_cmd=None, dec=None) -> pl.DataFrame:
+    def predict(self, data=None, cmd=None, data_cmd=None, dec=None, drop_missing=True) -> pl.DataFrame:
         """
         Predict probabilities or values for an XGBoost model
 
@@ -291,6 +293,13 @@ class xgboost:
         dec : int, optional
             Number of decimal places to round float columns in the output.
             If None (default), no rounding is applied.
+        drop_missing : bool, default True
+            Leave out rows with a missing value (null or NaN) in an explanatory
+            variable, as Radiant (R's ``na.omit``); XGBoost would predict them
+            along its default branches. With False every row of
+            ``data`` stays, in order, and those rows get a missing prediction,
+            so the predictions line up with the rows of ``data`` (e.g. to store
+            them in it).
 
         Returns
         -------
@@ -318,6 +327,9 @@ class xgboost:
             cmd = {k: ifelse(isinstance(v, str), [v], v) for k, v in cmd.items()}
             pred_data = sim_prediction(data=pred_data, vary=cmd)
 
+        full = pred_data
+        pred_data, keep = drop_missing_rows(pred_data, self.evar)
+
         # The estimation design (every level's column, in the same order)
         data_onehot = gbt_design(pred_data, self.evar, self.categories)
 
@@ -328,6 +340,8 @@ class xgboost:
             predictions = self.fitted.predict(data_onehot.to_pandas())
 
         pred = pred_data.with_columns(pl.lit(predictions).alias("prediction"))
+        if not drop_missing:
+            pred = on_prediction_rows(pred, full, keep)
 
         if dec is not None:
             pred = pred.with_columns(

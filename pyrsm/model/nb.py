@@ -42,7 +42,14 @@ import polars as pl
 
 from pyrsm.data_scope import apply_scope, print_scope
 from pyrsm.model.crtree import _r_format, _r_num2str
-from pyrsm.model.model import convert_to_list, data_cmd_value, nobs_dropped, r_text_order
+from pyrsm.model.model import (
+    convert_to_list,
+    data_cmd_value,
+    drop_missing_rows,
+    nobs_dropped,
+    on_prediction_rows,
+    r_text_order,
+)
 from pyrsm.utils import check_dataframe
 
 __all__ = ["nb"]
@@ -598,6 +605,7 @@ class nb:
         dec: int | None = None,
         threshold: float = 0.001,
         eps: float = 0.0,
+        drop_missing: bool = True,
     ) -> pl.DataFrame:
         """
         Predicted probabilities for each level of the response.
@@ -619,6 +627,12 @@ class nb:
             below ``eps`` (e1071's ``threshold``).
         eps : float, default 0
             e1071's ``eps``.
+        drop_missing : bool, default True
+            Leave out rows with a missing value (null or NaN) in an explanatory
+            variable, as Radiant (R's ``na.omit``). With False every row of
+            ``data`` stays, in order, and those rows get a missing prediction,
+            so the predictions line up with the rows of ``data`` (e.g. to store
+            them in it).
 
         Returns
         -------
@@ -653,16 +667,14 @@ class nb:
         else:
             pred_data = base
         # na.omit, as Radiant's predict_model
-        pred_data = pred_data.drop_nulls()
-        floats = [c for c in pred_data.columns if pred_data[c].dtype in (pl.Float32, pl.Float64)]
-        if floats:
-            pred_data = pred_data.filter(
-                ~pl.any_horizontal([pl.col(c).is_nan() for c in floats])
-            )
+        full = pred_data
+        pred_data, keep = drop_missing_rows(pred_data, self.evar)
         probs = self._predict_proba(pred_data, threshold=threshold, eps=eps)
         pred = pred_data.with_columns(
             [pl.Series(lv, probs[:, j]) for j, lv in enumerate(self.levels)]
         )
+        if not drop_missing:
+            pred = on_prediction_rows(pred, full, keep)
         if dec is not None:
             pred = pred.with_columns(
                 [pl.col(c).round(dec) for c in pred.columns if pred[c].dtype in (pl.Float64, pl.Float32)]

@@ -713,7 +713,7 @@ class logistic:
 
     def predict(
         self, data=None, cmd=None, data_cmd=None, ci=False, conf=0.95, dec=None,
-        interval="confidence",
+        interval="confidence", drop_missing=True,
     ) -> pl.DataFrame:
         """
         Generate probability predictions using the fitted model.
@@ -733,6 +733,12 @@ class logistic:
         dec : int, optional
             Number of decimal places to round float columns in the output.
             If None (default), no rounding is applied.
+        drop_missing : bool, default True
+            Leave out rows with a missing value (null or NaN) in an explanatory
+            variable, as Radiant (R's ``na.omit``). With False every row of
+            ``data`` stays, in order, and those rows get a missing prediction,
+            so the predictions line up with the rows of ``data`` (e.g. to store
+            them in it).
 
         Returns
         -------
@@ -787,6 +793,11 @@ class logistic:
             if self._enum_types:
                 pred_data = apply_enum_types(pred_data, self._enum_types)
 
+        from pyrsm.model.model import drop_missing_rows, on_prediction_rows
+
+        full = pred_data
+        pred_data, keep = drop_missing_rows(pred_data, self.evar)
+
         # A standardized/centered model is evaluated on scaled inputs; the
         # output shows the inputs in original units.
         model_data = self._scale(pred_data) if self.scale_means else pred_data
@@ -802,6 +813,8 @@ class logistic:
             pred = pred_data.with_columns(
                 pl.lit(predictions.values).alias("prediction")
             )
+        if not drop_missing:
+            pred = on_prediction_rows(pred, full, keep)
 
         if dec is not None:
             pred = pred.with_columns(

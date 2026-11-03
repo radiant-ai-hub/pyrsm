@@ -347,12 +347,6 @@ def compare_column(name: str, got: pl.Series, fx: dict, want_name: str, rtol: fl
 # breaks (case -> {test: reason}). Line numbers are those of pyrsm at the
 # commit that added this file.
 
-NA_ROWS = (
-    "data: rows with a missing explanatory value are kept, with a NaN (regress, "
-    "logistic) or a surrogate-split (crtree) prediction; R's predict_model drops "
-    "them (select(vars) %>% na.omit()). No drop_nulls in regress.py:736-741, "
-    "logistic.py:756-761, crtree.py:768-771 (nb.py:652 does drop them)"
-)
 NEW_LEVEL_CRTREE = (
     "a level not seen in estimation: R's predict refuses it (model.frame with "
     "xlev: 'factor dom has new levels zz'); pyrsm's crtree codes it as missing "
@@ -391,8 +385,6 @@ def _known(reason: str, tests: str, *cases: str) -> None:
             KNOWN[case][test] = f"{have} || {reason}" if have else reason
 
 
-# missing values
-_known(NA_ROWS, "grid layout", "regress_syn_na_data", "logistic_syn_na_data", "crtree_syn_na_data")
 # ties
 # levels not seen in estimation
 _known(NEW_LEVEL_CRTREE, "grid", "crtree_syn_newlevel")
@@ -454,6 +446,31 @@ def test_reference_data_is_pyrsm_data():
                 assert d[c].dtype.is_integer(), (name, c)
         for c, s in want["sums"].items():
             np.testing.assert_allclose(float(d[c].cast(pl.Float64).sum()), s, rtol=1e-12, err_msg=f"{name}.{c}")
+
+
+NA_DATA_CASES = [c for c in CASES if c.endswith("_syn_na_data")]
+
+
+@pytest.mark.parametrize("case", NA_DATA_CASES)
+def test_drop_missing_false_keeps_every_row(case):
+    """predict(..., drop_missing=False): one row per row of the data, in order
+    (e.g. to store the predictions in it), with an empty prediction where an
+    explanatory value is missing and R's prediction elsewhere."""
+    fx = fixture(case)
+    kw = predict_kwargs(fx)
+    data = kw["data"]
+    got = fit(fx).predict(**kw, drop_missing=False)
+    dropped = fit(fx).predict(**kw)
+    assert got.height == data.height
+    evar = as_list(fx["r_evar"])
+    complete = data.select(evar).with_columns(
+        [pl.col(c).fill_nan(None) for c in evar if data[c].dtype.is_float()]
+    ).select(pl.all_horizontal(pl.all().is_not_null())).to_series()
+    for pcol in [v for v in pred_columns(fx).values() if v]:
+        assert got[pcol].is_null().to_list() == (~complete).to_list()
+        np.testing.assert_array_equal(got.filter(complete)[pcol].to_numpy(), dropped[pcol].to_numpy())
+    for c in evar:
+        assert got[c].cast(pl.String).to_list() == data[c].cast(pl.String).to_list()
 
 
 def test_mnl_unseen_level_warns():

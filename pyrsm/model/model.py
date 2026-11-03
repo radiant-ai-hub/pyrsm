@@ -1511,6 +1511,33 @@ def kept_rows(data: pl.DataFrame, columns: list[str]) -> np.ndarray:
     return data.select(complete_rows(data, columns)).to_series().to_numpy()
 
 
+def drop_missing_rows(pred_data: pl.DataFrame, evar: list[str]):
+    """``pred_data`` without the rows that miss an explanatory value (null or
+    NaN), as R's predict_model (``na.omit``), and which rows were kept (None
+    when every row was complete)."""
+    keep = kept_rows(pred_data, [c for c in evar if c in pred_data.columns])
+    if keep.all():
+        return pred_data, None
+    return pred_data.filter(pl.Series(keep)), keep
+
+
+def on_prediction_rows(pred: pl.DataFrame, full: pl.DataFrame, keep: np.ndarray | None) -> pl.DataFrame:
+    """Predictions for the complete rows (``pred``) on every row of ``full``:
+    its columns as they were and the prediction columns empty on the rows that
+    were left out (``predict(..., drop_missing=False)``)."""
+    if keep is None:
+        return pred
+    idx = np.flatnonzero(keep)
+    cols = []
+    for c in pred.columns:
+        if c in full.columns:
+            cols.append(full.get_column(c))
+        else:
+            s = pred.get_column(c)
+            cols.append(pl.Series(c, [None] * full.height, dtype=s.dtype).scatter(idx, s))
+    return pl.DataFrame(cols)
+
+
 def on_all_rows(values, kept: np.ndarray | None) -> pl.Series:
     """``values`` (one per estimation row) placed back on the rows of the data
     the model was given; rows dropped for missing values stay empty."""

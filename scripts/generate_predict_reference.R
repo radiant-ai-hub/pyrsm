@@ -450,6 +450,8 @@ run_case("syn_cmd_fill", "mnl", list(dataset = "synth", rvar = "ym", evar = c("x
          cmd = list(x1 = c(8, 12)))
 run_case("syn_newlevel", "mnl", list(dataset = "synth", rvar = "ym", evar = c("x1", "dom"), lev = "A"),
          data = data.frame(x1 = c(9, 11), dom = c("common", "zz"), stringsAsFactors = FALSE))
+run_case("syn_na_data", "mnl", list(dataset = "synth", rvar = "ym", evar = c("x1", "xna", "cna"), lev = "A"),
+         data = "synth", note = "rows with a missing explanatory value are dropped")
 
 # -- nb ---------------------------------------------------------------------
 
@@ -535,6 +537,8 @@ run_case("dvd_cmd", "nn", list(dataset = "dvd", rvar = "buy", evar = c("coupon",
          cmd = list(coupon = c(0, 1)), note = "purch and last are integers")
 run_case("dia_data", "nn", dnn, data = "diamonds")
 run_case("dia_cmd", "nn", dnn, cmd = list(carat = c(0.5, 1, 2)))
+run_case("syn_na_data", "nn", list(dataset = "synth", rvar = "yb", evar = c("x1", "xna", "cna"), lev = "yes", size = 2, decay = 0.5, seed = 1234),
+         data = "synth", note = "rows with a missing explanatory value are dropped")
 
 # -- rforest (ranger; pyrsm is sklearn: compare the grid, record the gap) --
 
@@ -551,6 +555,8 @@ run_case("dvd_cmd", "rforest", list(dataset = "dvd", rvar = "buy", evar = c("cou
 run_case("dia_data", "rforest", drf, data = "diamonds", note = "R uses OOB predictions when the data are the estimation data")
 run_case("dia_cmd", "rforest", drf, cmd = list(carat = c(0.5, 1, 2)))
 run_case("dia_newcols", "rforest", drf, data = cols(diamonds, c("clarity", "carat")))
+run_case("syn_na_data", "rforest", list(dataset = "synth", rvar = "yb", evar = c("x1", "xna", "cna"), lev = "yes", seed = 1234, num.threads = 1),
+         data = "synth", note = "rows with a missing explanatory value are dropped")
 
 # -- gbt (xgboost) ----------------------------------------------------------
 
@@ -574,6 +580,8 @@ run_case("tit_levsub", "gbt", tit3_gbt, data = lev_subset(titanic, "pclass", c("
 run_case("tit_datacmd", "gbt", tit3_gbt, data = cols(titanic, c("pclass", "sex", "age"), 1:10), cmd = list(sex = "male"))
 run_case("dia_data", "gbt", dia_gbt, data = "diamonds")
 run_case("dia_cmd", "gbt", dia_gbt, cmd = list(carat = c(0.5, 1, 2)))
+run_case("syn_na_data", "gbt", c(list(dataset = "synth", rvar = "yb", evar = c("x1", "xna", "cna"), lev = "yes"), xgb_opts),
+         data = "synth", note = "rows with a missing explanatory value are dropped")
 
 writeLines(capture.output(sessionInfo()), file.path(OUT, "predict_sessionInfo.txt"))
 cat("wrote", N_CASES, "prediction fixtures\n")

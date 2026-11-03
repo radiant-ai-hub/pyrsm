@@ -35,7 +35,14 @@ from pyrsm.model._rpart import (
     r_sample_xgroups,
     rpart_fit,
 )
-from pyrsm.model.model import convert_to_list, data_cmd_value, nobs_dropped, sim_prediction
+from pyrsm.model.model import (
+    convert_to_list,
+    data_cmd_value,
+    drop_missing_rows,
+    nobs_dropped,
+    on_prediction_rows,
+    sim_prediction,
+)
 from pyrsm.utils import cat_levels, check_dataframe
 from pyrsm.basics import display_utils as du
 
@@ -749,7 +756,7 @@ class crtree:
             return np.array([self.fit.frame[k]["yval2"][1 + nclass] for k in where])
         return np.array([self.fit.frame[k]["yval"] for k in where])
 
-    def predict(self, data=None, cmd=None, data_cmd=None, dec=None) -> pl.DataFrame:
+    def predict(self, data=None, cmd=None, data_cmd=None, dec=None, drop_missing=True) -> pl.DataFrame:
         """
         Predict probabilities (classification, for ``lev``) or values (regression).
 
@@ -764,6 +771,13 @@ class crtree:
             Values to set for all rows of ``data``, e.g. ``{"sex": "male"}``.
         dec : int, optional
             Round float columns to this many decimals.
+        drop_missing : bool, default True
+            Leave out rows with a missing value (null or NaN) in an explanatory
+            variable, as Radiant (R's ``na.omit``); the tree would predict them
+            through surrogate splits. With False every row of
+            ``data`` stays, in order, and those rows get a missing prediction,
+            so the predictions line up with the rows of ``data`` (e.g. to store
+            them in it).
         """
         if data is None:
             pred_data = self.data.select(self.evar)
@@ -776,9 +790,13 @@ class crtree:
         elif cmd is not None and cmd != "":
             cmd = {k: [v] if isinstance(v, str) else v for k, v in cmd.items()}
             pred_data = sim_prediction(data=pred_data, vary=cmd)
+        full = pred_data
+        pred_data, keep = drop_missing_rows(pred_data, self.evar)
         pred = pred_data.with_columns(
             pl.Series("prediction", self._predict_values(pred_data))
         )
+        if not drop_missing:
+            pred = on_prediction_rows(pred, full, keep)
         if dec is not None:
             pred = pred.with_columns(
                 [pl.col(c).round(dec) for c in pred.columns
