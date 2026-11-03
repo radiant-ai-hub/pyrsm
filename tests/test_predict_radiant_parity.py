@@ -12,7 +12,7 @@ and R's prediction table. Every case refits the same model in pyrsm and calls
   mentioned are filled). An R error must be a pyrsm error.
 * ``test_predictions``: the prediction column(s), and interval columns where
   there are any. Deterministic models to about 1e-6 relative; xgboost to 1e-5
-  where pyrsm builds the same design as R; random forest (ranger vs sklearn)
+  (the same design and engine as R); random forest (ranger vs sklearn)
   and neural network (nnet vs sklearn MLP) are different engines, so only the
   range of the predictions is checked (the numeric gap is in ``gap_report``).
 * ``test_layout``: column order and row order exactly as R prints them.
@@ -52,8 +52,8 @@ DATA = ROOT / "examples" / "data" / "model"
 # weights of the iteration before its last update (titanic: the standard
 # errors of the linear predictor are 4.5e-5 off the ones at the final
 # coefficients; refitting in R with epsilon=1e-14 agrees with pyrsm to 1e-14),
-# so the interval bounds get 1e-4 relative. xgboost: 1e-5 where pyrsm builds
-# R's design (it then agrees to 1e-12: same XGBoost core, same data).
+# so the interval bounds get 1e-4 relative. xgboost: 1e-5 (pyrsm builds R's
+# design and agrees to 1e-12: same XGBoost core, same data).
 RTOL = 1e-6
 MNL_ATOL = 2e-4
 GLM_INTERVAL_RTOL = 1e-4
@@ -364,13 +364,6 @@ NEW_LEVEL_MNL = (
     "(predict.mnl re-levels with factor(x, levels)), pyrsm raises polars' "
     "InvalidOperationError from a strict cast (pyrsm/model/mnl.py:786)"
 )
-GBT_DESIGN = (
-    "xgboost design: pyrsm one-hot codes a categorical with 3+ levels with a "
-    "column for EVERY level (conditional_get_dummies, "
-    "pyrsm/model/model.py:696-697 and :726 drop_first=False); radiant.model's gbt "
-    "uses model.matrix treatment coding (first level dropped). With R's design "
-    "pyrsm's own XGBoost call matches R to 1e-12"
-)
 CRTREE_ADJPROB = (
     "R bug, not pyrsm: radiant.model::crtree ignores adjprob = FALSE (it tests "
     "!is.empty(adjprob), which is TRUE for FALSE) and always rescales the "
@@ -410,8 +403,6 @@ _known(NA_ROWS, "grid layout", "regress_syn_na_data", "logistic_syn_na_data", "c
 _known(NEW_LEVEL_CRTREE, "grid", "crtree_syn_newlevel")
 _known(NEW_LEVEL_MNL, "grid predictions layout", "mnl_syn_newlevel")
 # model-specific
-_known(GBT_DESIGN, "predictions", "gbt_dia_cmd", "gbt_dia_data", "gbt_tit_cmd", "gbt_tit_data",
-       "gbt_tit_datacmd", "gbt_tit_levsub")
 _known(CRTREE_ADJPROB, "predictions", "crtree_tit_prior_noadj")
 _known(STD_CI, "grid", "regress_dia_std_ci_cmd")
 

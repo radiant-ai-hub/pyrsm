@@ -7,13 +7,13 @@ import xgboost as xgb
 
 from pyrsm.model.model import (
     check_binary,
-    conditional_get_dummies,
     convert_to_list,
     kept_rows,
     nobs_dropped,
+    r_text_order,
     sim_prediction,
 )
-from pyrsm.utils import check_dataframe, ifelse
+from pyrsm.utils import cat_levels, check_dataframe, ifelse
 from pyrsm.data_scope import apply_scope, print_scope
 from pyrsm.basics import display_utils as du
 
@@ -24,6 +24,33 @@ def _get_visualize_plots():
     from .visualize import pdp_sk, pip_plot_sk, pip_plot_sklearn, pred_plot_sk
 
     return pred_plot_sk, pdp_sk, pip_plot_sk, pip_plot_sklearn
+
+
+def gbt_levels(s: pl.Series) -> list[str] | None:
+    """The levels of a categorical explanatory variable in the order R's
+    model.matrix uses them (Enum order; text alphabetically, as R makes a
+    factor of it), or None for a number."""
+    if isinstance(s.dtype, pl.Enum) or s.dtype == pl.Categorical:
+        return cat_levels(s)
+    if s.dtype in (pl.Utf8, pl.String):
+        return r_text_order(s.drop_nulls().unique().to_list())
+    return None
+
+
+def gbt_design(df: pl.DataFrame, evar: list[str], categories: dict[str, list[str]]) -> pl.DataFrame:
+    """radiant.model's gbt design: R's model.matrix (treatment coding) without
+    the intercept. The explanatory variables in order; a categorical one is a
+    0/1 column for every level but the first (``categories`` holds those
+    levels, ``<var>_<level>`` the column names)."""
+    cols = []
+    for v in evar:
+        s = df.get_column(v)
+        if v in categories:
+            text = s.cast(pl.Utf8)
+            cols += [(text == lv).cast(pl.UInt8).alias(f"{v}_{lv}") for lv in categories[v]]
+        else:
+            cols.append(s)
+    return pl.DataFrame(cols)
 
 
 class xgboost:
@@ -170,26 +197,16 @@ class xgboost:
                 **kwargs,
             )
 
-        # conditional_get_dummies returns polars DataFrame
-        self.data_onehot = conditional_get_dummies(self.data[self.evar])
-        self.n_features = [len(evar), self.data_onehot.width]
-
-        # Identify categorical columns for one-hot encoding
-        cat_cols = [
-            c
-            for c in self.evar
-            if self.data.get_column(c).dtype
-            in (pl.Utf8, pl.String, pl.Categorical, pl.Enum)
-        ]
-        # Derive categories from dummy column names (after conditional drop_first)
+        # The design radiant.model's gbt estimates on: R's model.matrix, so a
+        # categorical variable gets a 0/1 column for every level but the first
+        # (also with 3+ levels), in the order of the explanatory variables
         self.categories = {}
-        for col in cat_cols:
-            prefix = f"{col}_"
-            self.categories[col] = [
-                c.replace(prefix, "")
-                for c in self.data_onehot.columns
-                if c.startswith(prefix)
-            ]
+        for col in self.evar:
+            levels = gbt_levels(self.data.get_column(col))
+            if levels is not None:
+                self.categories[col] = levels[1:]
+        self.data_onehot = gbt_design(self.data, self.evar, self.categories)
+        self.n_features = [len(evar), self.data_onehot.width]
         # Store feature order for prediction
         self.feature_names = self.data_onehot.columns
 
@@ -301,12 +318,8 @@ class xgboost:
             cmd = {k: ifelse(isinstance(v, str), [v], v) for k, v in cmd.items()}
             pred_data = sim_prediction(data=pred_data, vary=cmd)
 
-        # Use categories to preserve all levels
-        data_onehot = conditional_get_dummies(
-            pred_data, drop_nonvarying=False, categories=self.categories
-        ).select(
-            self.data_onehot.columns
-        )  # ensure same column order as training data
+        # The estimation design (every level's column, in the same order)
+        data_onehot = gbt_design(pred_data, self.evar, self.categories)
 
         # .to_pandas() at sklearn call site
         if self.mod_type == "classification":
