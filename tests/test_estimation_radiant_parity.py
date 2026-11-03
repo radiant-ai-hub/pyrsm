@@ -370,12 +370,6 @@ def model1_terms(formula: str) -> set:
 # file:line ("R:" when the cause is on radiant.model's side and pyrsm's value
 # is the defensible one). The mark comes off with the fix.
 
-ORDER = (
-    "coefficient rows in patsy's order (terms with only categorical factors first, an interaction before a later "
-    "numeric main effect), not R's model.matrix order (formula order, main effects before interactions): "
-    "pyrsm/model/regress.py:293 and logistic.py:336 build the table from fitted.params; fix: order the rows by "
-    "r_column_order (pyrsm/multivariate/_lm.py:77)"
-)
 TEXT_BASE = (
     "a text (String) explanatory variable gets its levels in order of first appearance "
     "(convert_categoricals_to_enum, pyrsm/model/model.py:145, called at regress.py:216 / logistic.py:241); R's "
@@ -462,20 +456,7 @@ def _known() -> dict[str, dict[str, str]]:
         for c in cases.split():
             out.setdefault(c, {})[test] = reason
 
-    add(
-        "regress_dia regress_dia4 regress_dia_arr_rows regress_dia_center regress_dia_filter "
-        "regress_dia_filter_base regress_dia_int_cat_cat regress_dia_int_num_cat regress_dia_quad "
-        "regress_dia_quad_test_carat regress_dia_robust regress_dia_robust_int regress_dia_robust_std "
-        "regress_dia_std regress_dia_std1 regress_dia_std_int regress_dia_step_back regress_dia_step_both "
-        "regress_dia_step_fwd regress_dia_step_int regress_dm regress_hp regress_hp_robust regress_hp_step_both "
-        "regress_syn regress_syn_bool regress_syn_collinear_dummy regress_syn_dom regress_syn_factor_order "
-        "regress_syn_na_x regress_syn_na_y regress_syn_rare "
-        "logistic_syn logistic_syn_bool_x logistic_syn_collinear_dummy logistic_syn_dom logistic_syn_factor_order "
-        "logistic_syn_na_x logistic_syn_quasi_sep logistic_syn_rare logistic_tit_all logistic_tit_int "
-        "logistic_tit_robust_int logistic_tit_step_back logistic_tit_step_both logistic_tit_step_fwd",
-        "coefficient_order", ORDER,
-    )
-    add("regress_syn_text logistic_syn_text_x", "coefficient_order", f"{TEXT_BASE}; and {ORDER}")
+    add("regress_syn_text logistic_syn_text_x", "coefficient_order", TEXT_BASE)
     for t in ("coefficients", "ci"):
         add("regress_syn_text logistic_syn_text_x", t, TEXT_BASE)
     add("logistic_syn_text_x", "radiant_output", TEXT_BASE)
@@ -637,6 +618,8 @@ def test_ci(case):
     m = fit(case)
     conf = fx["conf_lev"]
     got = pyrsm_ci(m, conf)
+    # the table's rows in R's order
+    assert [k for k in got if k in r_ci(fx["ci"])] == list(r_ci(fx["ci"])), "row order"
     if not is_logistic(fx):
         compare_ci(case, r_ci(fx["ci"]), got, rtol=REG_RTOL)
         return
@@ -736,6 +719,20 @@ def test_stepwise(case):
     design = m.fitted.model.data.design_info
     got = {term_key(t.name()) for t in design.terms if len(t.factors) > 0}
     assert got == {term_key(t) for t in as_list(fx["step"]["terms"])}
+
+
+@pytest.mark.parametrize("case", ["regress_dia4", "regress_dia_int_num_cat", "logistic_tit_int", "logistic_tit_all"])
+def test_coefficient_plot_order(case):
+    """The coefficient (regress) and odds-ratio (logistic) plots list the
+    terms top to bottom in R's order, without the intercept."""
+    fx = fixture(case)
+    m = fit(case)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        p = m.plot("coef")
+    want = [":".join(sorted(r_key(t))) for t in fx["coef"]["term"] if t != "(Intercept)"]
+    got = [":".join(sorted(py_key(str(i)))) for i in p.data["index"].cat.categories][::-1]
+    assert got == want
 
 
 # -- logistic: radiant's printed numbers (default glm convergence) ----------

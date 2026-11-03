@@ -620,8 +620,8 @@ def logistic_report(
             sections.append(_not_calculated("odds", "Odds ratios", "Odds ratios were not calculated"))
     elif ci or odds:
         low, high = [f"{round(100 * p, 4):g}%" for p in ((1 - conf) / 2, 1 - (1 - conf) / 2)]
-        cis = model.conf_int(conf=conf)
-        coef = model.fitted.params
+        cis = model.conf_int(conf=conf)  # in R's coefficient order
+        coef = model.fitted.params[cis.index]
         labels = [model_utils.r_label(i).replace("[T.", "[") for i in coef.index]
         if ci:
             frame = pd.DataFrame(

@@ -289,7 +289,9 @@ class regress:
         #: Columns dropped because of perfect multicollinearity, as R's lm()
         #: drops them (NA coefficients). They are left out of the table.
         self.aliased = list(getattr(self.fitted, "aliased", []))
-        keep = [n not in self.aliased for n in inf.params.index]
+        # Rows in R's model.matrix order (formula order, main effects before
+        # interactions), as radiant.model lists them
+        keep = [n for n in model_utils.r_coef_order(self.fitted) if n not in self.aliased]
         params, bse, tvalues, pvalues = (
             inf.params[keep], inf.bse[keep], inf.tvalues[keep], inf.pvalues[keep]
         )

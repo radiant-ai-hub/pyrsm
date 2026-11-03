@@ -328,7 +328,15 @@ class logistic:
         else:
             self.fitted_inference = self.fitted
         inf = self.fitted_inference
-        keep = np.array([n not in self.aliased for n in self.fitted.params.index])
+        from pyrsm.model.model import r_coef_order
+
+        # Rows in R's model.matrix order (formula order, main effects before
+        # interactions), as radiant.model lists them
+        keep = [n for n in r_coef_order(self.fitted) if n not in self.aliased]
+        names = self.fitted.params.index
+
+        def column(values):
+            return pd.Series(np.asarray(values), index=names)[keep].to_numpy()
 
         # Build coefficient table as polars DataFrame
         from pyrsm.model.model import r_label as r_powers_label
@@ -349,10 +357,10 @@ class logistic:
                 "OR": pl.Series(or_vals, dtype=pl.Float64).fill_nan(None),
                 "OR%": pl.Series(or_pct, dtype=pl.Float64).fill_nan(None),
                 "coefficient": params.values,
-                "std.error": np.asarray(inf.bse)[keep],
-                "z.value": np.asarray(inf.tvalues)[keep],
-                "p.value": np.asarray(inf.pvalues)[keep],
-                "  ": sig_stars(np.asarray(inf.pvalues)[keep]),
+                "std.error": column(inf.bse),
+                "z.value": column(inf.tvalues),
+                "p.value": column(inf.pvalues),
+                "  ": sig_stars(column(inf.pvalues)),
             }
         ).drop_nulls(subset=["coefficient"])
 
@@ -432,7 +440,10 @@ class logistic:
             else:
                 ci = self.fitted_inference.conf_int(alpha=alpha)
                 ci = pd.DataFrame(np.asarray(ci), index=self.fitted.params.index)
-            cache[key] = ci
+            # R's coefficient order
+            from pyrsm.model.model import r_coef_order
+
+            cache[key] = ci.loc[r_coef_order(self.fitted)]
         return cache[key].copy()
 
     def summary_data(
@@ -601,8 +612,8 @@ class logistic:
                 print("\nOdds ratios were not calculated")
         elif ci or odds:
             low, high = [f"{round(100 * p, 4):g}%" for p in ((1 - conf) / 2, 1 - (1 - conf) / 2)]
-            cis = self.conf_int(conf=conf)
-            coef = self.fitted.params
+            cis = self.conf_int(conf=conf)  # in R's coefficient order
+            coef = self.fitted.params[cis.index]
             labels = [r_label(i).replace("[T.", "[") for i in coef.index]
             if ci:
                 tab = pd.DataFrame(

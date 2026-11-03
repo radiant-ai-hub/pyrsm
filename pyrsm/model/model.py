@@ -407,6 +407,23 @@ def r_label(term: str) -> str:
     return _PY_POWER.sub(lambda m: f"I({m.group(1)}^{m.group(2)})", str(term))
 
 
+def r_coef_order(fitted) -> list[str]:
+    """The coefficient names of a fitted formula model in R's
+    ``model.matrix`` order, the order radiant.model lists them in.
+
+    patsy puts terms with only categorical factors first (``price ~ carat +
+    clarity`` gives Intercept, clarity[...], carat) and an interaction before
+    a later numeric main effect; R keeps the formula's order, main effects
+    before two-way interactions. Coefficient tables, interval tables and
+    coefficient plots use this order.
+    """
+    from pyrsm.multivariate._lm import r_column_order
+
+    model = getattr(fitted, "model", fitted)
+    names = list(model.exog_names)
+    return [names[i] for i in r_column_order(model)]
+
+
 # The formula engine (patsy) evaluates every factor of a formula as Python, so
 # a formula built from names a user chose -- column names in an uploaded file,
 # interaction terms sent by a web form -- may hold only terms that cannot run
@@ -870,13 +887,16 @@ def or_ci(fitted, alpha=0.05, intercept=False, importance=False, data=None, dec=
     Pandas dataframe with Odd-ratios and confidence intervals
     """
 
-    df = pd.DataFrame(np.exp(fitted.params), columns=["OR"]).dropna()
+    # R's coefficient order (r_coef_order)
+    order = r_coef_order(fitted)
+    pvalues = fitted.pvalues[order]
+    df = pd.DataFrame(np.exp(fitted.params[order]), columns=["OR"]).dropna()
     df["OR%"] = 100 * ifelse(df["OR"] < 1, -(1 - df["OR"]), df["OR"] - 1)
 
     low, high = [100 * alpha / 2, 100 * (1 - (alpha / 2))]
-    df[[f"{low}%", f"{high}%"]] = np.exp(fitted.conf_int(alpha=alpha))
-    df["p.values"] = format_pvals(fitted.pvalues, dec)
-    df["  "] = sig_stars(fitted.pvalues)
+    df[[f"{low}%", f"{high}%"]] = np.exp(fitted.conf_int(alpha=alpha).loc[df.index].values)
+    df["p.values"] = format_pvals(pvalues[df.index], dec)
+    df["  "] = sig_stars(pvalues[df.index].values)
     df["OR%"] = [f"{round(o, max(dec - 2, 0))}%" for o in df["OR%"]]
     df = df.reset_index()
 
@@ -890,7 +910,9 @@ def or_ci(fitted, alpha=0.05, intercept=False, importance=False, data=None, dec=
         # using a fake response variable variable
         data = data.assign(__rvar__=1).copy()
         form = "__rvar__ ~ " + fitted.model.formula.split("~", 1)[1]
-        exog = pd.DataFrame(smf.logit(formula=form, data=data).exog)
+        design = smf.logit(formula=form, data=data)
+        exog = pd.DataFrame(design.exog, columns=design.exog_names)[list(df["index"])]
+        exog.columns = range(exog.shape[1])
         weights = fitted._freq_weights
         if sum(weights) > len(weights):
 
@@ -1363,7 +1385,10 @@ def coef_plot(
     plotnine.ggplot
         Coefficient plot
     """
-    df = fitted.conf_int(alpha=alpha).reset_index().iloc[::-1]
+    # R's coefficient order (r_coef_order), top to bottom
+    df = fitted.conf_int(alpha=alpha).loc[r_coef_order(fitted)]
+    df.index.name = None
+    df = df.reset_index().iloc[::-1]
     df["coefficient"] = fitted.params[df["index"]].dropna().values
     # columns dropped for perfect multicollinearity have no estimate (R: NA)
     df = df[~df["index"].isin(getattr(fitted, "aliased", []))]
@@ -1429,19 +1454,22 @@ def coef_ci(fitted, alpha: float = 0.05, intercept: bool = True, dec: int = 3):
     Pandas dataframe with regression coefficients and confidence intervals
     """
 
-    df = pd.DataFrame({"coefficient": fitted.params})
+    # R's coefficient order (r_coef_order)
+    order = r_coef_order(fitted)
+    pvalues = fitted.pvalues[order]
+    df = pd.DataFrame({"coefficient": fitted.params[order]})
     aliased = list(getattr(fitted, "aliased", []))
 
     low, high = [round(100 * alpha / 2, 4), round(100 * (1 - (alpha / 2)), 4)]
-    df[[f"{low:g}%", f"{high:g}%"]] = fitted.conf_int(alpha=alpha)
+    df[[f"{low:g}%", f"{high:g}%"]] = fitted.conf_int(alpha=alpha).loc[order].values
 
     if dec is None:
-        df["p.values"] = format_pvals(fitted.pvalues, 3)
+        df["p.values"] = format_pvals(pvalues, 3)
     else:
         df = df.round(dec)
-        df["p.values"] = format_pvals(fitted.pvalues, dec)
+        df["p.values"] = format_pvals(pvalues, dec)
 
-    df["  "] = sig_stars(fitted.pvalues)
+    df["  "] = sig_stars(pvalues.values)
     if intercept is False:
         df = df[df.index != "Intercept"]
 

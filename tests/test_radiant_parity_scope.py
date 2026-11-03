@@ -563,9 +563,10 @@ def test_regress_filter_that_drops_a_level_matches_r(diamonds):
         {"diamonds": diamonds}, rvar="price", evar=["carat", "clarity"],
         data_filter="clarity != 'I1'",
     )
+    # R's order: the formula's (carat before clarity); SI2 is the base
     assert reg.coef["index"].to_list() == [
-        "Intercept", "clarity[SI1]", "clarity[VS2]", "clarity[VS1]",
-        "clarity[VVS2]", "clarity[VVS1]", "clarity[IF]", "carat",
+        "Intercept", "carat", "clarity[SI1]", "clarity[VS2]", "clarity[VS1]",
+        "clarity[VVS2]", "clarity[VVS1]", "clarity[IF]",
     ]
     assert _coef(reg, "Intercept")["coefficient"] == pytest.approx(-4041.323510086, rel=1e-8)
     assert _coef(reg, "clarity[SI1]")["coefficient"] == pytest.approx(828.559323059, rel=1e-8)
