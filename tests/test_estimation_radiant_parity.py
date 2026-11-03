@@ -370,12 +370,6 @@ def model1_terms(formula: str) -> set:
 # file:line ("R:" when the cause is on radiant.model's side and pyrsm's value
 # is the defensible one). The mark comes off with the fix.
 
-LEV_DEFAULT = (
-    "no lev: pyrsm/model/logistic.py:186 skips the 0/1 conversion; statsmodels then models y = 1 for a 0/1 integer "
-    "response and the first Enum level (order of appearance for text) for a categorical one; radiant's logistic() "
-    "uses levels(rv)[1], i.e. the first factor level or the first sorted value (0; accept), so the signs flip; "
-    "fix: pick radiant's level when lev is None"
-)
 NA_SCALE = (
     "standardize / center with missing values: _calc_scaling (pyrsm/model/regress.py:331, logistic.py:392) uses "
     "every non-missing value of each column; radiant's get_data(na.rm = TRUE) drops incomplete rows (response, "
@@ -450,8 +444,6 @@ def _known() -> dict[str, dict[str, str]]:
         for c in cases.split():
             out.setdefault(c, {})[test] = reason
 
-    for t in ("coefficients", "ci", "residuals", "radiant_output"):
-        add("logistic_syn_resp_01_default", t, LEV_DEFAULT)
     for t in ("coefficients", "ci", "fit", "residuals"):
         add("regress_syn_na_std", t, NA_SCALE)
     for t in ("coefficients", "ci", "radiant_output"):
@@ -766,6 +758,27 @@ def test_logistic_radiant_output(case):
 
 
 # -- behaviour where no estimate exists --------------------------------------
+
+
+NO_LEV_CASES = [
+    "logistic_tit_lev_default", "logistic_syn_resp_factor_default", "logistic_syn_resp_factor_rev_default",
+    "logistic_syn_resp_text_default", "logistic_syn_resp_text2_default", "logistic_syn_resp_01_default",
+]
+
+
+@pytest.mark.parametrize("case", NO_LEV_CASES)
+def test_no_lev_models_radiants_first_level_and_says_so(case):
+    """Without lev, radiant.model models the first factor level, or the first
+    value sorted as text (0 for a 0/1 response). pyrsm does the same, warns
+    which level it models and prints it in the summary."""
+    fx = fixture(case)
+    m = fit(case)
+    assert str(m.lev) == fx["lev"]
+    assert any(
+        w.startswith("UserWarning: lev not given") and f"{fx['args']['rvar']} == " in w for w in m._parity_warnings
+    ), m._parity_warnings
+    out = captured(m.summary)
+    assert f"Level                : {fx['lev']} in {fx['args']['rvar']}" in out
 
 
 @pytest.mark.xfail(strict=True, reason=LEV_TEXT)

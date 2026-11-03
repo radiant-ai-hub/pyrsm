@@ -550,6 +550,29 @@ def r_text_order(values) -> list:
     return sorted(values, key=lambda v: (str(v).casefold(), str(v).swapcase()))
 
 
+def first_level(values: pl.Series):
+    """radiant.model's response level when none is given (logistic with
+    ``lev = ""``): the first factor level, otherwise the first value of
+    ``levels(as.factor(as.character(rv)))`` -- the values as R prints them,
+    sorted as text: 0 for a 0/1 column, FALSE for a logical one, the
+    alphabetically first text."""
+    if isinstance(values.dtype, pl.Enum):
+        return values.dtype.categories[0]
+    vals = values.drop_nulls().unique().to_list()
+    if not vals:
+        return None
+
+    def as_r_text(v) -> str:
+        if isinstance(v, bool):
+            return "TRUE" if v else "FALSE"
+        if isinstance(v, float) and v.is_integer():
+            return str(int(v))
+        return str(v)
+
+    first = r_text_order([as_r_text(v) for v in vals])[0]
+    return next(v for v in vals if as_r_text(v) == first)
+
+
 def data_cmd_value(value, dtype) -> pl.Expr:
     """A ``data_cmd`` value as a column of type ``dtype``.
 

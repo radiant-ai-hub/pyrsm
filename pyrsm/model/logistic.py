@@ -1,3 +1,4 @@
+import warnings
 from functools import lru_cache
 from typing import Literal
 
@@ -174,6 +175,9 @@ class logistic:
 
         self.ivar = r_powers(convert_to_list(ivar))
         self.formula = r_powers(formula) if formula else formula
+        if self.rvar is None and self.formula:
+            # the response of a formula: its level is chosen before estimation
+            self.rvar = self.formula.split("~", 1)[0].strip()
 
         # The response as the student knows it (e.g. Yes / No), for plots
         self.rv = (
@@ -182,8 +186,19 @@ class logistic:
             else None
         )
 
-        # Apply binary conversion on polars DataFrame
-        if self.lev is not None and self.rvar is not None:
+        # The level to model, as 0/1. Without lev, radiant.model's first level
+        # (the first factor level, or the first of the values sorted as text).
+        if self.rvar is not None and self.rvar in self.data.columns:
+            if self.lev is None:
+                from pyrsm.model.model import first_level
+
+                self.lev = first_level(self.data[self.rvar])
+                warnings.warn(
+                    f"lev not given: modelling {self.rvar} == {self.lev!r} (the first level), "
+                    "as radiant.model does; pass lev= to choose",
+                    UserWarning,
+                    stacklevel=2,
+                )
             self.data = check_binary(self.data, self.rvar, self.lev)
 
         # Estimation options (radiant.model's "check" boxes)
@@ -276,8 +291,6 @@ class logistic:
         self.fitted = self._glm(self.formula, pdf)
         if formula_given:
             self.rvar = extract_rvar(self.fitted.model, self.data.columns)
-            if self.lev is None:
-                self.lev = self.data[self.rvar][0]
 
         if self.stepwise:
             from pyrsm.model.model import step_select
