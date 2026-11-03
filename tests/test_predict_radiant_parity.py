@@ -25,8 +25,10 @@ pyrsm's naming conventions are mapped, not tested: ``Prediction`` is
 column (half the interval width) has no pyrsm counterpart, and a logical
 column R's crtree shows as a factor (``"FALSE"``) is pyrsm's Boolean.
 
-A known discrepancy is marked ``xfail(strict=True)`` with its root cause, so
-the suite passes now and fails once a fix lands (then remove the mark).
+A discrepancy found later goes in ``KNOWN``: it is marked
+``xfail(strict=True)`` with its root cause, so the suite passes until a fix
+lands and then fails (remove the mark). The differences pyrsm keeps on purpose
+are in ``INTENDED``, each with a test of pyrsm's behaviour that says why.
 """
 
 from __future__ import annotations
@@ -344,45 +346,27 @@ def compare_column(name: str, got: pl.Series, fx: dict, want_name: str, rtol: fl
         assert g.cast(pl.String).to_list() == want, name
 
 
-# -- known discrepancies ----------------------------------------------------
+# -- known discrepancies and intended differences ---------------------------
 #
-# Each root cause once, with the pyrsm file:line; ``KNOWN`` maps the cases it
-# breaks (case -> {test: reason}). Line numbers are those of pyrsm at the
-# commit that added this file.
+# A discrepancy found later goes in ``KNOWN`` (case -> {test: reason}, the
+# root cause with the pyrsm file:line), which marks it xfail(strict=True); the
+# mark comes off with the fix. None is open.
+#
+# ``INTENDED``: cases where pyrsm deliberately differs from R. They skip the
+# comparisons with R and each has a test of pyrsm's behaviour below.
 
-NEW_LEVEL_CRTREE = (
-    "a level not seen in estimation: R's predict refuses it (model.frame with "
-    "xlev: 'factor dom has new levels zz'); pyrsm's crtree codes it as missing "
-    "and predicts through surrogate splits (pyrsm/model/crtree.py:559, "
-    "code.get(x, np.nan))"
-)
-CRTREE_ADJPROB = (
-    "R bug, not pyrsm: radiant.model::crtree ignores adjprob = FALSE (it tests "
-    "!is.empty(adjprob), which is TRUE for FALSE) and always rescales the "
-    "probabilities for the prior; pyrsm honours adjprob=False "
-    "(pyrsm/model/crtree.py:538)"
-)
-STD_CI = (
-    "R refuses intervals for a standardized/centered regression ('Standard "
-    "error calculations not supported ...') and returns the prediction only; "
-    "pyrsm returns the interval in original units (pyrsm/model/regress.py:764-775)"
-)
 KNOWN: dict[str, dict[str, str]] = {}
 
-
-def _known(reason: str, tests: str, *cases: str) -> None:
-    for case in cases:
-        for test in tests.split():
-            have = KNOWN.setdefault(case, {}).get(test)
-            KNOWN[case][test] = f"{have} || {reason}" if have else reason
-
-
-# ties
-# levels not seen in estimation
-_known(NEW_LEVEL_CRTREE, "grid", "crtree_syn_newlevel")
-# model-specific
-_known(CRTREE_ADJPROB, "predictions", "crtree_tit_prior_noadj")
-_known(STD_CI, "grid layout", "regress_dia_std_ci_cmd")
+INTENDED = {
+    # R refuses a level not seen in estimation; pyrsm's crtree predicts it
+    # through surrogate splits (test_crtree_unseen_level_uses_surrogates)
+    "crtree_syn_newlevel": ("grid", "predictions", "layout"),
+    # R ignores adjprob = FALSE, a bug (test_crtree_adjprob_false_is_unadjusted)
+    "crtree_tit_prior_noadj": ("predictions",),
+    # R gives no interval for a standardized regression; pyrsm's is correct
+    # (test_regress_standardized_interval_is_the_unscaled_one)
+    "regress_dia_std_ci_cmd": ("grid", "layout"),
+}
 
 
 def _xfails() -> dict[tuple[str, str], str]:
@@ -393,6 +377,8 @@ def params(test: str, cases=None):
     xf = _xfails()
     out = []
     for case in cases if cases is not None else CASES:
+        if test in INTENDED.get(case, ()):
+            continue
         marks = []
         if (case, test) in xf:
             marks.append(pytest.mark.xfail(strict=True, reason=xf[(case, test)]))
@@ -589,6 +575,65 @@ def test_rforest_int_column_as_float_is_estimation_data():
     assert m.is_estimation_data(d.with_columns(pl.col("sibsp").cast(pl.Float64)))
     assert not m.is_estimation_data(d.with_columns(pl.col("sibsp") + 1))
 
+
+
+# -- intended differences from R --------------------------------------------
+
+
+def test_crtree_unseen_level_uses_surrogates():
+    """R's predict refuses a level the tree has not seen ("factor dom has new
+    levels zz": model.frame with the estimation levels). pyrsm keeps rpart's
+    own rule: an unknown level is a missing value, sent down the tree by the
+    surrogate splits (or the majority direction), so the row still gets a
+    prediction (crtree._encode). Kept on purpose: a new level in new data is
+    common and rpart can handle it."""
+    fx = fixture("crtree_syn_newlevel")
+    assert "new levels zz" in fx["error"]
+    m = fit(fx)
+    new = frame(fx["pred"]["data"])
+    got = m.predict(new)
+    assert got.height == new.height
+    p = got["prediction"].to_numpy()
+    assert np.isfinite(p).all() and ((p >= 0) & (p <= 1)).all()
+    # the "zz" row is predicted as a row whose dom is missing
+    X = m._encode(new.with_columns(pl.col("dom").cast(pl.String)))
+    assert np.isnan(X[1, m.evar.index("dom")])
+
+
+def test_crtree_adjprob_false_is_unadjusted():
+    """radiant.model's crtree ignores adjprob = FALSE: it tests
+    !is.empty(adjprob), which is TRUE for FALSE as for TRUE, so R always
+    rescales the probabilities for the prior (its adjprob = FALSE fixture
+    equals its adjprob = TRUE one). pyrsm honours adjprob=False and returns the
+    probabilities under the prior; R's rescaling of them gives R's values."""
+    fx = fixture("crtree_tit_prior_noadj")
+    adj = fixture("crtree_tit_prior")
+    want = np.array(fx["table"]["values"]["Prediction"])
+    assert want.tolist() == adj["table"]["values"]["Prediction"]  # R: the same
+    p = predict(fx)["prediction"].to_numpy()
+    assert not np.allclose(p, want)
+    prior = fx["args"]["prior"]
+    bp = float((load_dataset("titanic")["survived"] == "Yes").mean())
+    rescaled = bp * (p - p * prior) / (prior - p * prior + bp * p - prior * bp)
+    np.testing.assert_allclose(rescaled, want, rtol=RTOL)
+    np.testing.assert_allclose(predict(adj)["prediction"].to_numpy(), want, rtol=RTOL)
+
+
+def test_regress_standardized_interval_is_the_unscaled_one():
+    """radiant.model gives no interval for a standardized (or centered)
+    regression ("Standard error calculations not supported when coefficients
+    are centered or standardized") and returns the prediction only. pyrsm
+    returns the interval in the response's units: standardizing is linear, so
+    it is exactly the interval of the same model estimated without it."""
+    fx = fixture("regress_dia_std_ci_cmd")
+    assert fx["table"]["columns"] == ["clarity", "carat", "Prediction"]
+    got = predict(fx)
+    np.testing.assert_allclose(got["prediction"].to_numpy(), fx["table"]["values"]["Prediction"], rtol=RTOL)
+    a = fx["args"]
+    plain = rsm.model.regress({a["dataset"]: load_dataset(a["dataset"])}, rvar=a["rvar"], evar=as_list(a["evar"]))
+    want = plain.predict(**predict_kwargs(fx))
+    for c in ("prediction", "2.50%", "97.50%"):
+        np.testing.assert_allclose(got[c].to_numpy(), want[c].to_numpy(), rtol=1e-9)
 
 # -- numeric gap of the engines that differ ---------------------------------
 
