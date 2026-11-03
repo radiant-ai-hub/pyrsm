@@ -1,0 +1,1 @@
+{"case":"syn_const","model":"logistic","args":{"dataset":"synth","rvar":"yb","evar":["x1","const"],"lev":"yes"},"py":[],"sum_check":["vif","confint","odds"],"test_var":"","conf_lev":0.95,"note":"a constant column: radiant refuses the model","warnings":[],"error":"The following variable(s) show no variation. Please select other variables.\n\n** const **"}
