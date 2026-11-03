@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import math
 import re
+import warnings
 from typing import Literal
 
 import numpy as np
@@ -781,14 +782,41 @@ class mnl:
             cmd = {k: [v] if isinstance(v, str) or not hasattr(v, "__len__") else list(v)
                    for k, v in cmd.items()}
             pred_data = sim_prediction(data=self.data.select(self.evar), vary=cmd)
+        # A row with a level the model has not seen (or a missing level) gets
+        # missing probabilities, as R's predict.mnl, where factor(x, levels =
+        # <estimation levels>) makes the level NA; the other rows are predicted
+        bad = np.zeros(pred_data.height, dtype=bool)
+        unseen = {}
+        for c in self.evar:
+            if c not in self.xlevels:
+                continue
+            s = pred_data[c]
+            labels = s.cast(pl.Utf8).str.to_lowercase() if s.dtype == pl.Boolean else s.cast(pl.Utf8)
+            known = labels.is_in(list(self.xlevels[c])).fill_null(False).to_numpy()
+            new = ~known & labels.is_not_null().to_numpy()
+            if new.any():
+                unseen[c] = sorted(set(labels.filter(pl.Series(new)).to_list()))
+            bad |= ~known
+        if unseen:
+            levels = "; ".join(f"{c}: {', '.join(v)}" for c, v in unseen.items())
+            warnings.warn(
+                f"Level(s) not in the estimation data ({levels}). Those rows get missing "
+                "probabilities, as in Radiant.",
+                stacklevel=2,
+            )
         # keep the estimation data's column types (Enum levels, numeric types)
-        pred_data = pred_data.with_columns(
-            [pl.col(c).cast(self.data[c].dtype) for c in self.evar
-             if pred_data[c].dtype != self.data[c].dtype and c in self.xlevels]
-        )
-        P = self._probs(pred_data)
+        casts = [pl.col(c).cast(self.data[c].dtype) for c in self.evar
+                 if pred_data[c].dtype != self.data[c].dtype and c in self.xlevels]
+        P = np.full((pred_data.height, len(self.levels)), np.nan)
+        if bad.any():
+            good = pred_data.filter(pl.Series(~bad)).with_columns(casts)
+            if good.height:
+                P[~bad] = self._probs(good)
+        else:
+            pred_data = pred_data.with_columns(casts)
+            P = self._probs(pred_data)
         out = pred_data.with_columns(
-            [pl.Series(lv, P[:, i]) for i, lv in enumerate(self.levels)]
+            [pl.Series(lv, P[:, i]).fill_nan(None) for i, lv in enumerate(self.levels)]
         )
         if dec is not None:
             out = out.with_columns(

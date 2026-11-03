@@ -359,11 +359,6 @@ NEW_LEVEL_CRTREE = (
     "and predicts through surrogate splits (pyrsm/model/crtree.py:559, "
     "code.get(x, np.nan))"
 )
-NEW_LEVEL_MNL = (
-    "a level not seen in estimation: R's mnl gives that row NA probabilities "
-    "(predict.mnl re-levels with factor(x, levels)), pyrsm raises polars' "
-    "InvalidOperationError from a strict cast (pyrsm/model/mnl.py:786)"
-)
 CRTREE_ADJPROB = (
     "R bug, not pyrsm: radiant.model::crtree ignores adjprob = FALSE (it tests "
     "!is.empty(adjprob), which is TRUE for FALSE) and always rescales the "
@@ -401,7 +396,6 @@ _known(NA_ROWS, "grid layout", "regress_syn_na_data", "logistic_syn_na_data", "c
 # ties
 # levels not seen in estimation
 _known(NEW_LEVEL_CRTREE, "grid", "crtree_syn_newlevel")
-_known(NEW_LEVEL_MNL, "grid predictions layout", "mnl_syn_newlevel")
 # model-specific
 _known(CRTREE_ADJPROB, "predictions", "crtree_tit_prior_noadj")
 _known(STD_CI, "grid", "regress_dia_std_ci_cmd")
@@ -412,7 +406,7 @@ def _layout_known() -> None:
     for case in CASES:
         fx = fixture(case)
         p = fx["pred"]
-        if "error" in fx or p["mode"] != "cmd" or case in ("mnl_syn_newlevel",):
+        if "error" in fx or p["mode"] != "cmd":
             continue
         cmd = list(p["cmd"])
         evar = as_list(fx["r_evar"])
@@ -460,6 +454,15 @@ def test_reference_data_is_pyrsm_data():
                 assert d[c].dtype.is_integer(), (name, c)
         for c, s in want["sums"].items():
             np.testing.assert_allclose(float(d[c].cast(pl.Float64).sum()), s, rtol=1e-12, err_msg=f"{name}.{c}")
+
+
+def test_mnl_unseen_level_warns():
+    """A level the model has not seen: missing probabilities for that row (as
+    R's predict.mnl) and a warning that names it."""
+    fx = fixture("mnl_syn_newlevel")
+    with pytest.warns(UserWarning, match="dom: zz"):
+        got = predict(fx)
+    assert got["A"].is_null().to_list() == [False, True]
 
 
 def test_r_text_order_is_r_table_order():
