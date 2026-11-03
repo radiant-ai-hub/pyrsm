@@ -1271,7 +1271,10 @@ def profile_ci(fitted, alpha: float = 0.05) -> pd.DataFrame:
                 bounds.append(np.nan)
                 continue
             lo, hi = sorted([params[j], edge])
-            bounds.append(brentq(lambda b: excess(j, b), lo, hi, xtol=1e-10))
+            # the root to 1e-10 standard errors: an absolute tolerance would
+            # be coarse for a coefficient on a small scale (1e-7)
+            xtol = 1e-10 * max(bse[j], 1e-300)
+            bounds.append(brentq(lambda b: excess(j, b), lo, hi, xtol=xtol))
         out.append(bounds)
     return pd.DataFrame(out, index=fitted.params.index)
 

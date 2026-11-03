@@ -384,10 +384,6 @@ LL_W = (
     "weights (dbinom(round(w y), round(w), mu)); pyrsm (statsmodels freq_weights, model.py:813-819) uses "
     "sum(w log-lik), consistent with the deviance and pseudo R-squared both programs report"
 )
-PROFILE_XTOL = (
-    "profile_ci's brentq xtol=1e-10 is absolute (pyrsm/model/model.py:1144): an upper bound of 3.5e-7 (ext, a "
-    "coefficient on a 1e-7 scale) is off by 5.9e-13, 1.7e-6 relative; fix: xtol relative to the standard error"
-)
 CONST = (
     "a column without variation: radiant refuses the model ('The following variable(s) show no variation. Please "
     "select other variables.'); pyrsm (no does_vary check in regress.py / logistic.py __init__) fits it and drops "
@@ -409,7 +405,6 @@ def _known() -> dict[str, dict[str, str]]:
 
     add("logistic_syn_wts_frac", "fit", LL_W)
     add("logistic_syn_wts_sampling", "fit", LL_W)
-    add("logistic_syn_ext", "ci", PROFILE_XTOL)
     add("regress_syn_const logistic_syn_const", "error", CONST)
     add("regress_dia_robust_int logistic_tit_robust_int", "variables_test", R_ROBUST_INT)
     return out
