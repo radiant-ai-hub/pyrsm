@@ -384,10 +384,6 @@ LL_W = (
     "weights (dbinom(round(w y), round(w), mu)); pyrsm (statsmodels freq_weights, model.py:813-819) uses "
     "sum(w log-lik), consistent with the deviance and pseudo R-squared both programs report"
 )
-NOBS_SW = (
-    "sampling weights (two values, the smallest below 1): radiant's Nr obs (and BIC) use the number of rows; "
-    "model_fit (pyrsm/model/model.py:1308-1312) uses the sum of the weights whenever it is larger (241 vs 200)"
-)
 PROFILE_WARM = (
     "profile_ci (pyrsm/model/model.py:1126) warm-starts every constrained refit at the full-model estimates; for "
     "x1 >= 0.773 statsmodels' IRLS from there converges to a bad fit (deviance +5,598), the profile jumps and "
@@ -423,7 +419,7 @@ def _known() -> dict[str, dict[str, str]]:
             out.setdefault(c, {})[test] = reason
 
     add("logistic_syn_wts_frac", "fit", LL_W)
-    add("logistic_syn_wts_sampling", "fit", f"{LL_W}. {NOBS_SW}")
+    add("logistic_syn_wts_sampling", "fit", LL_W)
     add("logistic_syn_na_x", "ci", PROFILE_WARM)
     add("logistic_syn_na_x", "radiant_output", PROFILE_WARM)
     add("logistic_syn_quasi_sep", "ci", PROFILE_SEP)
@@ -799,6 +795,24 @@ def test_weighted_auc_is_the_auc_of_the_weighted_rows(case):
         assert got == pytest.approx(max(a, 1 - a), rel=1e-12)
     if case == "logistic_tit_wts_agg":
         assert fx["fit"]["auc"] == 0.5 and got == pytest.approx(0.8212488102, rel=1e-9)
+
+
+@pytest.mark.parametrize("case", WEIGHTED)
+def test_weighted_nobs_and_bic_penalty(case):
+    """With weights, radiant's Nr obs is the sum of the weights, except for
+    sampling weights (two values, the smallest below 1): the number of rows
+    with a non-zero weight, as without weights. BIC uses that n: its penalty
+    (BIC + 2 logLik = log(n) k) is R's. (Its log-likelihood is R's too except
+    for non-integer weights, see LL_W.)"""
+    fx = fixture(case)
+    m = fit(case)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        mf = model_fit(m.fitted, prn=False).iloc[0]
+    want = fx["fit"]
+    assert float(mf["nobs"]) == pytest.approx(want["nobs"], rel=1e-12)
+    assert float(mf["BIC"] + 2 * mf["log_likelihood"]) == pytest.approx(want["bic"] + 2 * want["loglik"], rel=1e-9)
+    assert float(mf["AIC"] + 2 * mf["log_likelihood"]) == pytest.approx(want["aic"] + 2 * want["loglik"], rel=1e-9)
 
 
 # -- behaviour where no estimate exists --------------------------------------

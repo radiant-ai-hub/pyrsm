@@ -862,6 +862,20 @@ def sig_stars(pval) -> pl.Series:
     )["sig"]
 
 
+def glm_nobs(fitted) -> float:
+    """radiant.model's "Nr obs" for a logistic regression, also the n in its
+    BIC: the sum of the weights for frequency weights (more than two values,
+    or none below 1), otherwise the number of rows with a non-zero weight
+    (R's ``nobs.glm``) -- without weights and with sampling weights."""
+    model = fitted.model
+    if getattr(model, "_has_freq_weights", False):
+        w = np.asarray(model.freq_weights, dtype=float)
+        if len(np.unique(w)) > 2 or w.min() >= 1:
+            return float(w.sum())
+        return float(np.count_nonzero(w))
+    return float(np.asarray(model.endog).shape[0])
+
+
 def get_mfit(fitted) -> tuple[dict | None, str | None]:
     """
     Get model fit statistics
@@ -880,19 +894,21 @@ def get_mfit(fitted) -> tuple[dict | None, str | None]:
 
         # gets same results as in R
         lrtest = -2 * (fitted.llnull - fitted.llf)
+        nobs = glm_nobs(fitted)
         mfit_dct = {
             "pseudo_rsq_mcf": [1 - fitted.llf / fitted.llnull],
             "pseudo_rsq_mcf_adj": [1 - (fitted.llf - fitted.df_model) / fitted.llnull],
             "AUC": [auc(fitted.model.endog, fitted.fittedvalues, weights=fw)],
             "log_likelihood": fitted.llf,
             "AIC": [fitted.aic],
-            "BIC": [fitted.bic_llf],
+            # radiant.model: -2 logLik + log(Nr obs) * (number of coefficients)
+            "BIC": [-2 * fitted.llf + np.log(nobs) * (fitted.df_model + 1)],
             # "chisq": [fitted.pearson_chi2],
             "chisq": [lrtest],
             "chisq_df": [fitted.df_model],
             # "chisq_pval": [1 - stats.chi2.cdf(fitted.pearson_chi2, fitted.df_model)],
             "chisq_pval": [stats.chi2.sf(lrtest, fitted.df_model)],
-            "nobs": [fitted.nobs],
+            "nobs": [nobs],
         }
 
         model_type = "logistic"
@@ -1397,7 +1413,8 @@ def model_fit(fitted, dec: int = 3, prn: bool = True) -> str | pd.DataFrame:
     -------
         If prn is True, print output, else return a Pandas dataframe with the results
     """
-    if hasattr(fitted, "df_resid"):
+    glm = isinstance(fitted, sm.genmod.generalized_linear_model.GLMResultsWrapper)
+    if hasattr(fitted, "df_resid") and not glm:  # a GLM's nobs is glm_nobs
         weighted_nobs = (
             fitted.df_resid + fitted.df_model + int(hasattr(fitted.params, "Intercept"))
         )
