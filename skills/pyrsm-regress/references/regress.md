@@ -137,15 +137,18 @@ reg.predict(
     ci=True,        # add 2.5% / 97.5% confidence interval columns
     conf=0.95,      # confidence level
     dec=3,          # rounding for float columns
+    drop_missing=True,  # False: keep rows with a missing evar (empty prediction)
 )
 ```
 
 Two main modes:
 
 - **Score new data**: pass `data=<new_df>`. The new DataFrame must contain all the `evar` columns. Categorical levels not seen in training will error; pyrsm reapplies the stored Enum types to keep things consistent.
-- **Counterfactual / scenario**: pass `cmd={"Income": [50, 100, 150]}`. Other variables are held at their means (numeric) or modes (categorical). Useful for "predict sales for households earning $50K, $100K, $150K".
+- **Counterfactual / scenario**: pass `cmd={"Income": [50, 100, 150]}`. Other variables are held at their means (numeric) or modes (categorical) in the rows the model was estimated on. Useful for "predict sales for households earning $50K, $100K, $150K".
 
 `ci=True` is mutually exclusive with `data_cmd`.
+
+Rows with a missing value (null or NaN) in an explanatory variable are left out of the predictions, as in Radiant. To attach predictions to data that have such rows, pass `drop_missing=False`: every row stays, in order, with an empty prediction on those rows, so the predictions line up with the data.
 
 ## 4. `plot()` — what each plot is for
 

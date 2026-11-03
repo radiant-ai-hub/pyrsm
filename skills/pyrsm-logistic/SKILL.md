@@ -363,9 +363,13 @@ pattern is:
 ```python
 import pyrsm as rsm
 
-# 1. Attach predictions to the data
-pred = clf.predict()
-data_with_pred = clf.data.with_columns(pl.Series("prediction", pred["prediction"]))
+# 1. Attach predictions to the data the model was fit on (df, whose <rvar>
+#    still holds the level names; drop_missing=False keeps a row for every row
+#    of df, with an empty prediction where an explanatory value is missing; the
+#    perf functions need a prediction on every row, so drop those)
+data_with_pred = df.with_columns(
+    prediction=clf.predict(df, drop_missing=False).get_column("prediction")
+).drop_nulls("prediction")
 
 # 2. Overall evaluation metrics (binary classification)
 rsm.model.perf.evalbin(

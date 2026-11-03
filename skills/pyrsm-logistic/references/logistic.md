@@ -152,6 +152,7 @@ clf.predict(
     ci=True,        # add 2.5% / 97.5% confidence interval columns
     conf=0.95,      # confidence level
     dec=3,          # rounding for float columns
+    drop_missing=True,  # False: keep rows with a missing evar (empty prediction)
 )
 ```
 
@@ -160,11 +161,14 @@ Two main modes:
 - **Score new data**: `data=<new_df>`. The new DataFrame must contain all
   `evar` columns. Returns predicted probability of `lev` for each row.
 - **Counterfactual / scenario**: `cmd={"<var>": [v1, v2, v3]}`. Other
-  variables are held at their means (numeric) or modes (categorical). Useful
+  variables are held at their means (numeric) or modes (categorical) in the
+  rows the model was estimated on. Useful
   for "predict the probability of purchase for customers earning $50K, $75K,
   $100K."
 
 `ci=True` is mutually exclusive with `data_cmd`.
+
+Rows with a missing value (null or NaN) in an explanatory variable are left out of the predictions, as in Radiant. To attach predictions to data that have such rows, pass `drop_missing=False`: every row stays, in order, with an empty prediction on those rows, so the predictions line up with the data.
 
 Output columns: the `evar` columns used in the scenario, `prediction`
 (probability of `lev`), `2.50%`, `97.50%` (if `ci=True`).

@@ -180,10 +180,11 @@ mlp_model.predict(
     cmd=None,                        # counterfactual dict
     data_cmd=None,                   # row-wise overrides
     dec=None,                        # rounding
+    drop_missing=True,               # False: keep rows with a missing evar (empty prediction)
 )
 ```
 
-Returns a `pl.DataFrame` with predictor columns + `prediction` column.
+Returns a `pl.DataFrame` with predictor columns + `prediction` column. Rows with a missing value (null or NaN) in an explanatory variable are left out of the predictions, as in Radiant. To attach predictions to data that have such rows, pass `drop_missing=False`: every row stays, in order, with an empty prediction on those rows, so the predictions line up with the data.
 
 Internally:
 1. The input is z-scored using `self.means` and `self.stds` (the training-set statistics).
