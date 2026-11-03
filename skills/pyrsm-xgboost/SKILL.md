@@ -71,7 +71,7 @@ Confirm the spec with the user. You need:
 
 - **Response (`rvar`)**: one column. Binary categorical → `mod_type="classification"`. Continuous numeric → `mod_type="regression"`.
 - **Level (`lev`)** *(classification only)*: which level of `rvar` is the positive outcome.
-- **Predictors (`evar`)**: list of one or more columns. Categoricals are auto-dummy-coded.
+- **Predictors (`evar`)**: list of one or more columns. Categoricals are auto-dummy-coded (a 0/1 column for every level but the first, as Radiant's gbt).
 - **Hyperparameters** (key ones — see Step 7 for tuning):
   - `n_estimators` (default 100) — number of boosting rounds.
   - `max_depth` (default 6) — maximum tree depth. XGBoost trees are typically shallow (3–8) compared to Random Forest's unbounded trees.
@@ -130,7 +130,7 @@ xgb_model.summary()
 
 Notes:
 - The model is fit inside `__init__` — no separate `.fit()`. Pyrsm passes `eval_set=[(X_train, y_train)]` under the hood for the early-stopping interface (though `early_stopping_rounds` is not exposed by default).
-- The dummy-encoding is done internally; categoricals don't need pre-processing.
+- The dummy-encoding is done internally; categoricals don't need pre-processing. It is R's treatment coding, the design radiant.model's gbt estimates on: a categorical gets a 0/1 column `<var>_<level>` for every level but the first (also with 3+ levels), so pclass + sex + age on Titanic is `Nr. of features: (3, 4)`.
 - For regression, set `mod_type="regression"` and omit `lev`.
 
 ## Step 5 — Interpret the summary
@@ -165,7 +165,7 @@ test_auc = rsm.model.perf.auc(rvar=test_df["<rvar>"], pred=test_df["pred_xgb"], 
 print("Held-out test AUC:", test_auc)
 ```
 
-For Titanic with default hyperparameters: in-sample AUC ≈ 0.96+, held-out AUC ≈ 0.83–0.85. The gap of ~0.10+ is the memorization premium that disappears on test data. **Always report the test AUC, not the summary's AUC.**
+For Titanic (pclass, sex, age; the 70/30 split from `make_train(..., strat_var="survived", random_state=1234)`) with the default hyperparameters: in-sample AUC 0.932, held-out AUC 0.873. The gap of ~0.06 is the memorization premium that disappears on test data. **Always report the test AUC, not the summary's AUC.**
 
 ## Step 6 — Feature importance and partial dependence
 
@@ -251,6 +251,8 @@ pred = xgb_model.predict(cmd={"age": [10, 30, 50]})
 
 For classification, `prediction` is `P(rvar = lev)`. For regression, it's the predicted continuous value.
 
+Rows with a missing value (null or NaN) in an explanatory variable are left out of the predictions, as in Radiant. To attach predictions to data that have such rows, pass `drop_missing=False`: every row stays, in order, with an empty prediction on those rows, so the predictions line up with the data.
+
 **Critical for honest evaluation**: predictions on training rows are overoptimistic (memorization). Use the test-set predictions for any reported AUC / RMSE / profit metric. Unlike Random Forest, there is no OOB workaround — you genuinely need a held-out split.
 
 ## Step 9 — Evaluate classification performance
@@ -313,18 +315,23 @@ pip_plot.save("pip.png", width=8, height=5, dpi=120)       # save the plot for v
 
 ### What the printed PIP DataFrame looks like
 
-The DataFrame is one row per predictor (in `evar`), with the **importance** column reporting the drop in model fit when that predictor's values are randomly shuffled. For regression: R² drop. For classification (logistic, rforest, xgboost, mlp): AUC drop.
+The DataFrame is one row per predictor (in `evar`, a categorical as one variable, not per dummy column), with the **importance** column reporting the drop in model fit when that predictor's values are randomly shuffled. For regression: R² drop. For classification (logistic, rforest, xgboost, mlp): AUC drop.
+
+For the diamonds regression in `references/xgboost.md` §10 (`make_train(diamonds, test_size=0.3, random_state=1234)`, `n_estimators=200, max_depth=4, learning_rate=0.1`):
 
 ```
-shape: (5, 2)
+shape: (6, 2)
 ┌──────────┬────────────┐
 │ variable ┆ importance │
+│ ---      ┆ ---        │
+│ str      ┆ f64        │
 ╞══════════╪════════════╡
-│ carat    ┆ 0.920      │
-│ clarity  ┆ 0.090      │
-│ color    ┆ 0.036      │
-│ table    ┆ 0.002      │
-│ depth    ┆ 0.001      │
+│ carat    ┆ 0.984579   │
+│ clarity  ┆ 0.106646   │
+│ color    ┆ 0.052786   │
+│ depth    ┆ 0.017061   │
+│ table    ┆ 0.005988   │
+│ cut      ┆ 0.003652   │
 └──────────┴────────────┘
 ```
 
@@ -346,7 +353,7 @@ Walk through the scores in order from largest to smallest:
 
 ### What NOT to do
 
-- **Do NOT re-interpret the regression coefficients in response to a PIP request.** "Carat has a positive coefficient of $8,438" is a regression-summary statement; "carat has importance 0.92" is a PIP statement. They answer different questions. If the user asked for PIP, lead with PIP.
+- **Do NOT re-interpret the regression coefficients in response to a PIP request.** "Carat has a positive coefficient of $8,438" is a regression-summary statement; "carat has importance 0.98" is a PIP statement. They answer different questions. If the user asked for PIP, lead with PIP.
 - **Do NOT skip the verbatim DataFrame** — print the polars output exactly as it comes back, before any prose interpretation.
 - **Do NOT skip the plot save** — call `.save("pip.png", ...)` so a human can also inspect it visually.
 - **Do NOT skip the closing disclaimer** — the same disclaimer at the end of any interpretation still applies (it explains *why* PIP is the right tool).

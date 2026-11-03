@@ -46,6 +46,7 @@ If `cv` is supplied with a `best_params_` attribute (e.g., a fitted `GridSearchC
 Internally:
 - Classification → `xgboost.XGBClassifier` with `objective="binary:logistic"`.
 - Regression → `xgboost.XGBRegressor` with `objective="reg:squarederror"`.
+- The design is radiant.model gbt's (R's `model.matrix` treatment coding, no intercept): the explanatory variables in order, a categorical as a 0/1 column `<var>_<level>` for every level but the first (text levels in alphabetical order, as R's `factor`). With the same design pyrsm's trees match Radiant's. Prediction, PDP and permutation-importance plots use these feature names; `pip` reports one row per explanatory variable.
 
 The fit call passes `eval_set=[(X_train, y_train)]` to enable early stopping if the user wants to pass `early_stopping_rounds` via `**kwargs`. By default, no early stopping is used and all `n_estimators` rounds run.
 
@@ -148,7 +149,7 @@ test_auc = rsm.model.perf.auc(rvar=test_df[rvar], pred=test_df["pred_xgb"], lev=
 print(f"Test AUC: {test_auc:.3f}")
 ```
 
-For Titanic with defaults (n_estimators=100, max_depth=3, learning_rate=0.1): in-sample AUC ≈ 0.89; held-out test AUC ≈ 0.83–0.85. The 0.04–0.06 gap is the memorization premium. With `max_depth=6, learning_rate=0.3` (the constructor defaults), the gap is even larger.
+For Titanic (pclass, sex, age; the 70/30 split from `make_train(..., strat_var="survived", random_state=1234)`) with conservative settings (n_estimators=100, max_depth=3, learning_rate=0.1): in-sample AUC 0.893; held-out test AUC 0.870. With `max_depth=6, learning_rate=0.3` (the constructor defaults), the gap is larger: in-sample 0.932, test 0.873. The gap is the memorization premium.
 
 **Always report the test AUC, not the summary's AUC, in any writeup.**
 
@@ -160,10 +161,11 @@ xgb_model.predict(
     cmd=None,                        # counterfactual dict
     data_cmd=None,                   # row-wise overrides
     dec=None,                        # rounding
+    drop_missing=True,               # False: keep rows with a missing evar (empty prediction)
 )
 ```
 
-Returns a `pl.DataFrame` with predictor columns + `prediction` column.
+Returns a `pl.DataFrame` with predictor columns + `prediction` column. Rows with a missing value (null or NaN) in an explanatory variable are left out of the predictions, as in Radiant. To attach predictions to data that have such rows, pass `drop_missing=False`: every row stays, in order, with an empty prediction on those rows, so the predictions line up with the data.
 
 **Critical difference from Random Forest**: there is no OOB option. If you pass training rows to `predict(data=...)`, you get in-sample (memorized) predictions. Always score the test rows separately and use those for evaluation:
 
@@ -352,7 +354,7 @@ xgb_baseline = rsm.model.xgboost(
     n_estimators=100, max_depth=3, learning_rate=0.1,
 )
 xgb_baseline.summary()
-# In-sample AUC: ~0.89 (overoptimistic!)
+# In-sample AUC: 0.893 (overoptimistic!)
 
 # Honest test AUC
 titanic = titanic.with_columns(
@@ -360,7 +362,7 @@ titanic = titanic.with_columns(
 )
 test = titanic.filter(pl.col("training") == 0)
 print(rsm.model.perf.auc(rvar=test["survived"], pred=test["pred_xgb"], lev="Yes"))
-# Test AUC: ~0.83
+# Test AUC: 0.870
 ```
 
 Now tune:
@@ -423,7 +425,7 @@ reg.summary()
 - **Tuning `max_depth` to RF-typical depths (unlimited or 10+).** XGBoost trees should be shallow (2–6) because boosting amplifies fits. Deep trees overfit fast.
 - **Trusting `pip_sklearn` (xgboost gain) as importance.** Biased; use `pip` (permutation) for cross-predictor / cross-model comparison.
 - **Reporting profit / ROME without `cost` and `margin`.** They are user-supplied business parameters.
-- **Comparing in-sample AUC of XGBoost (0.96) against OOB AUC of Random Forest (0.81) and concluding XGBoost is better.** This is a category error — compare apples to apples. Use test-set AUC for both.
+- **Comparing in-sample AUC of XGBoost (0.93) against OOB AUC of Random Forest (0.81) and concluding XGBoost is better.** This is a category error — compare apples to apples. Use test-set AUC for both.
 - **Forgetting the dict wrapper.** `xgboost(df, ...)` works but the summary prints `"Not provided"`. Use `xgboost({"<name>": df_train}, ...)`.
 - **Setting `early_stopping_rounds` while using the default `eval_set`.** The default eval_set is the training set itself, so early stopping triggers on training loss — useless. Construct your own validation set for proper early stopping.
 - **Treating the printed in-sample AUC ≈ 1.0 as "the model is perfect".** No — it's memorizing. Test AUC will be much lower.
