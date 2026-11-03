@@ -360,13 +360,6 @@ NA_FILL = (
     "scoped data before rows with missing values are dropped: regress.py:737 -> "
     ":755, logistic.py:757 -> :775"
 )
-TEXT_MODE = (
-    "cmd: tied modes in a text (String) column: pyrsm breaks the tie by first "
-    "appearance (text becomes an Enum in order of appearance, "
-    "pyrsm/model/model.py:141-146; sim_prediction then takes the first tied "
-    "level, :1886-1890; nb.py:564-570 the same), R by its alphabetical "
-    "table(): names(which.max(table(x)))"
-)
 NEW_LEVEL_CRTREE = (
     "a level not seen in estimation: R's predict refuses it (model.frame with "
     "xlev: 'factor dom has new levels zz'); pyrsm's crtree codes it as missing "
@@ -421,7 +414,6 @@ def _known(reason: str, tests: str, *cases: str) -> None:
 _known(NA_ROWS, "grid layout", "regress_syn_na_data", "logistic_syn_na_data", "crtree_syn_na_data")
 _known(NA_FILL, "grid predictions", "regress_syn_na_x_cmd", "regress_syn_na_y_cmd", "logistic_syn_na_x_cmd")
 # ties
-_known(TEXT_MODE, "grid predictions", "regress_syn_tie_text", "nb_syn_tie_text")
 # levels not seen in estimation
 _known(NEW_LEVEL_CRTREE, "grid", "crtree_syn_newlevel")
 _known(NEW_LEVEL_MNL, "grid predictions layout", "mnl_syn_newlevel")
@@ -485,6 +477,14 @@ def test_reference_data_is_pyrsm_data():
                 assert d[c].dtype.is_integer(), (name, c)
         for c, s in want["sums"].items():
             np.testing.assert_allclose(float(d[c].cast(pl.Float64).sum()), s, rtol=1e-12, err_msg=f"{name}.{c}")
+
+
+def test_r_text_order_is_r_table_order():
+    """Alphabetical as R's table() in an en_US locale:
+    names(table(c("b", "B", "a", "A", "_z", "Z1"))) is "_z" "a" "A" "b" "B" "Z1"."""
+    from pyrsm.model.model import r_text_order
+
+    assert r_text_order(["b", "B", "a", "A", "_z", "Z1"]) == ["_z", "a", "A", "b", "B", "Z1"]
 
 
 @pytest.mark.parametrize("case", params("grid"))

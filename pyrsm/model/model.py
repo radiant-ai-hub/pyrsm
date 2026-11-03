@@ -513,6 +513,13 @@ def check_pred_vars(evar, data=None, cmd=None, data_cmd=None) -> None:
             )
 
 
+def r_text_order(values) -> list:
+    """Text values in R's alphabetical order, as ``sort()`` and ``table()``
+    order them in an en_US locale: ignoring case first, lowercase before
+    uppercase on a tie ("a" < "A" < "b")."""
+    return sorted(values, key=lambda v: (str(v).casefold(), str(v).swapcase()))
+
+
 def data_cmd_value(value, dtype) -> pl.Expr:
     """A ``data_cmd`` value as a column of type ``dtype``.
 
@@ -1870,6 +1877,7 @@ def sim_prediction(
     nnv: int = 5,
     minq: float = 0,
     maxq: float = 1,
+    text: list[str] | None = None,
 ) -> pl.DataFrame:
     """
     Simulate data for prediction
@@ -1884,6 +1892,10 @@ def sim_prediction(
         Quantile to use for the minimum value of numeric variables
     maxq : float
         Quantile to use for the maximum value of numeric variables
+    text : list[str], optional
+        Columns that were text in the data the model was given (and have since
+        become an Enum in order of appearance). A tie for their most common
+        value goes to the alphabetically first, as for a text column.
 
     Returns:
     ----------
@@ -1892,6 +1904,7 @@ def sim_prediction(
     # Convert to polars
     if isinstance(data, pd.DataFrame):
         data = pl.from_pandas(data)
+    text_cols = set(text or [])
 
     def fix_value(col_name):
         col = data[col_name]
@@ -1902,12 +1915,18 @@ def sim_prediction(
             # an exact tie is FALSE (not the value that happens to come first)
             share = col.drop_nulls().cast(pl.Float64).mean()
             return bool(share is not None and share > 0.5)
-        # most common value; ties go to the first level (Enum order, dates in
-        # date order), as R's names(which.max(table(x)))
+        # most common value; a tie goes to the first tied value in R's order
+        # for names(which.max(table(x))): the level order of an Enum (a
+        # factor), alphabetical for text (table() sorts text), date order
         counts = col.drop_nulls().value_counts()
         best = counts["count"].max()
         tied = set(counts.filter(pl.col("count") == best)[col_name].to_list())
-        order = cat_levels(col) if not col.dtype.is_temporal() else sorted(tied)
+        if col.dtype.is_temporal():
+            order = sorted(tied)
+        elif col.dtype == pl.String or col_name in text_cols:
+            order = r_text_order(tied)
+        else:
+            order = cat_levels(col)
         return next(v for v in order if v in tied)
 
     dct = {c: [fix_value(c)] for c in data.columns}

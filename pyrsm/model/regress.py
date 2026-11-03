@@ -208,6 +208,9 @@ class regress:
                 self._enum_types[c] = dtype
             elif dtype in (pl.Utf8, pl.String, pl.Categorical):
                 cols_to_convert.append(c)
+        # Text columns (R: character) break a tie for the most common value
+        # alphabetically when a prediction command fills them
+        self._text_cols = [c for c in cols_to_convert if self.data[c].dtype == pl.String]
 
         if cols_to_convert:
             self.data, enum_types = model_utils.convert_categoricals_to_enum(
@@ -752,7 +755,7 @@ class regress:
                 pred_data = model_utils.apply_enum_types(pred_data, self._enum_types)
         elif cmd is not None:
             cmd = {k: ifelse(isinstance(v, str), [v], v) for k, v in cmd.items()}
-            pred_data = model_utils.sim_prediction(data=pred_data, vary=cmd)
+            pred_data = model_utils.sim_prediction(data=pred_data, vary=cmd, text=self._text_cols)
             # Re-apply Enum types after sim_prediction creates new data
             if self._enum_types:
                 pred_data = model_utils.apply_enum_types(pred_data, self._enum_types)

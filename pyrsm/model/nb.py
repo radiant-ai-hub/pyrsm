@@ -42,7 +42,7 @@ import polars as pl
 
 from pyrsm.data_scope import apply_scope, print_scope
 from pyrsm.model.crtree import _r_format, _r_num2str
-from pyrsm.model.model import convert_to_list, data_cmd_value, nobs_dropped
+from pyrsm.model.model import convert_to_list, data_cmd_value, nobs_dropped, r_text_order
 from pyrsm.utils import check_dataframe
 
 __all__ = ["nb"]
@@ -567,6 +567,9 @@ class nb:
                 cnt = {lv: 0 for lv in levs}
                 for x in labels:
                     cnt[x] += 1
+                # (text: alphabetically, as R's table() sorts it)
+                if s.dtype == pl.String:
+                    levs = r_text_order(levs)
                 best = max(levs, key=lambda lv: cnt[lv])
                 values[v] = [s.filter(pl.Series(_labels(s)) == best)[0]]
         rows = list(product(*values.values()))
