@@ -553,13 +553,6 @@ def test_layout(case):
             assert [_key(v) for v in _values(got[c][rows])] == [_key(v) for v in as_list(t["values"][c])], f"row order of {c}"
 
 
-RF_OOB = (
-    "random forest on its own estimation data: R's predict.rforest compares the "
-    "prediction data with the model frame (all.equal) and then returns the "
-    "out-of-bag predictions; pyrsm returns out-of-bag predictions only for "
-    "predict() without data and in-sample predictions for predict(data=<the same "
-    "data>) (pyrsm/model/rforest.py:291-296)"
-)
 RF_OOB_CASES = [
     c for c in CASES
     if fixture(c)["model"] == "rforest" and fixture(c)["pred"]["mode"] == "data"
@@ -567,13 +560,59 @@ RF_OOB_CASES = [
 ]
 
 
-@pytest.mark.parametrize("case", [pytest.param(c, marks=pytest.mark.xfail(strict=True, reason=RF_OOB)) for c in RF_OOB_CASES])
+@pytest.mark.parametrize("case", RF_OOB_CASES)
 def test_rforest_estimation_data_is_out_of_bag(case):
     """As R: predicting a forest's own estimation data gives out-of-bag
     predictions (the values differ by engine, so pyrsm is compared to itself)."""
     fx = fixture(case)
     m = fit(fx)
     np.testing.assert_allclose(predict(fx)["prediction"].to_numpy(), m.predict()["prediction"].to_numpy())
+
+
+def _titanic():
+    return load_dataset("titanic")
+
+
+# R's predict.rforest: "Using OOB predictions" or not (radiant.model 1.6.12,
+# run by hand: rforest(titanic, "survived", c("pclass", "sex", "age"), lev =
+# "Yes") with the scope below, then predict(..., pred_data = <data>)).
+OOB_RULE = [
+    ("same data", {}, lambda d: d, None, True),
+    ("first 500 rows", {}, lambda d: d.head(500), None, False),
+    ("sex as text", {}, lambda d: d.with_columns(pl.col("sex").cast(pl.String)), None, False),
+    ("age + 1e-10", {}, lambda d: d.with_columns(pl.col("age") + 1e-10), None, True),
+    ("pclass levels reordered", {}, lambda d: d.with_columns(pl.col("pclass").cast(pl.String).cast(pl.Enum(["3rd", "2nd", "1st"]))), None, False),
+    ("columns reordered plus extra", {}, lambda d: d.select("age", "sex", "pclass", "fare"), None, True),
+    ("data_cmd that changes sex", {}, lambda d: d, {"sex": "male"}, False),
+    ("filtered model, full data", {"data_filter": "age > 10"}, lambda d: d, None, False),
+    ("filtered model, filtered data", {"data_filter": "age > 10"}, lambda d: d.filter(pl.col("age") > 10), None, True),
+    ("sorted model, data as is", {"sort": "-fare"}, lambda d: d, None, False),
+    ("sorted model, sorted data", {"sort": "-fare"}, lambda d: d.sort("fare", descending=True, maintain_order=True), None, True),
+    ("sliced model, full data", {"slice": "1:500"}, lambda d: d, None, False),
+    ("sliced model, first 500 rows (3 pclass levels, 2 used)", {"slice": "1:500"}, lambda d: d.head(500), None, False),
+]
+
+
+@pytest.mark.parametrize("label, scope, make, data_cmd, want", OOB_RULE, ids=[r[0] for r in OOB_RULE])
+def test_rforest_out_of_bag_rule_is_r(label, scope, make, data_cmd, want):
+    m = rsm.model.rforest(
+        {"titanic": _titanic()}, rvar="survived", lev="Yes", evar=["pclass", "sex", "age"], **scope
+    )
+    data = make(_titanic())
+    kw = {"data_cmd": data_cmd} if data_cmd else {}
+    got = m.predict(data, **kw)["prediction"].to_numpy()
+    oob = m.fitted.oob_decision_function_[:, 1]
+    used_oob = got.shape == oob.shape and np.allclose(got, oob)
+    assert used_oob == want
+
+
+def test_rforest_int_column_as_float_is_estimation_data():
+    """R: all.equal(1L, 1) is TRUE, so an integer column given as float still
+    counts as the estimation data."""
+    d = _titanic()
+    m = rsm.model.rforest({"titanic": d}, rvar="survived", lev="Yes", evar=["pclass", "sibsp"])
+    assert m.is_estimation_data(d.with_columns(pl.col("sibsp").cast(pl.Float64)))
+    assert not m.is_estimation_data(d.with_columns(pl.col("sibsp") + 1))
 
 
 # -- numeric gap of the engines that differ ---------------------------------

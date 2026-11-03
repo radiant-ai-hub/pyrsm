@@ -1634,6 +1634,12 @@ def pip_plot_sk(model, rep=5, ret=False):
 
     # Get data as polars
     data = model.data.select([rvar] + evars).drop_nulls()
+    # Every prediction comes from all trees: a random forest would give
+    # out-of-bag predictions for the unshuffled estimation data (as Radiant)
+    # but not for the shuffled copies, which would not compare
+    import inspect
+
+    oob = {"oob": False} if "oob" in inspect.signature(model.predict).parameters else {}
 
     def imp_calc_reg(base, pred):
         return base - _calc_r_squared(data[rvar], pred)
@@ -1644,11 +1650,11 @@ def pip_plot_sk(model, rep=5, ret=False):
     # Calculate the baseline performance
     if hasattr(model.fitted, "classes_"):
         xlab = "Importance (AUC decrease)"
-        baseline_pred = model.predict(data.select(evars))
+        baseline_pred = model.predict(data.select(evars), **oob)
         baseline_fit = auc(data[rvar].to_list(), baseline_pred["prediction"].to_list())
         imp_calc = imp_calc_clf
     else:
-        baseline_pred = model.predict(data.select(evars))
+        baseline_pred = model.predict(data.select(evars), **oob)
         baseline_fit = _calc_r_squared(data[rvar], baseline_pred["prediction"])
         imp_calc = imp_calc_reg
         xlab = "Importance (R-square decrease)"
@@ -1661,7 +1667,7 @@ def pip_plot_sk(model, rep=5, ret=False):
         for feature in evars:
             # Shuffle the feature column
             permuted = data.with_columns(pl.col(feature).shuffle(seed=i).alias(feature))
-            pred_result = model.predict(permuted.select(evars))
+            pred_result = model.predict(permuted.select(evars), **oob)
             importance_values[feature] += imp_calc(
                 baseline_fit, pred_result["prediction"].to_list()
             )

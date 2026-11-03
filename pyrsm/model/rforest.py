@@ -2,6 +2,7 @@ from functools import lru_cache
 from math import log2, sqrt
 from typing import Literal
 
+import numpy as np
 import pandas as pd
 import polars as pl
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
@@ -16,7 +17,7 @@ from pyrsm.model.model import (
     on_prediction_rows,
     sim_prediction,
 )
-from pyrsm.utils import check_dataframe, ifelse
+from pyrsm.utils import cat_levels, check_dataframe, ifelse
 from pyrsm.data_scope import apply_scope, print_scope
 from pyrsm.basics import display_utils as du
 
@@ -267,7 +268,47 @@ class rforest:
 
         return ml_residuals(self)
 
-    def predict(self, data=None, cmd=None, data_cmd=None, dec=None, drop_missing=True) -> pl.DataFrame:
+    def is_estimation_data(self, data: pl.DataFrame) -> bool:
+        """Whether ``data`` are the data the forest was estimated on, by
+        radiant.model's rule for out-of-bag predictions: predict.rforest
+        compares the prediction data (rows with a missing explanatory value
+        left out) with the estimation data using all.equal. The same rows in
+        the same order; numbers equal to a relative 1.5e-8 (an integer column
+        may come as float); the same kind of column (an Enum is not text); and
+        the same levels, where the estimation data have only the levels that
+        occur in them (R's get_data drops unused levels, e.g. after a filter or
+        slice) and the prediction data keep all of theirs."""
+        est = self.data.select(self.evar)
+        if any(v not in data.columns for v in self.evar) or data.height != est.height:
+            return False
+        for v in self.evar:
+            a, b = est.get_column(v), data.get_column(v)
+            if a.dtype == pl.Boolean or b.dtype == pl.Boolean:
+                if a.dtype != b.dtype or not a.equals(b):
+                    return False
+            elif a.dtype.is_numeric():
+                if not b.dtype.is_numeric():
+                    return False
+                x = a.cast(pl.Float64).to_numpy()
+                y = b.cast(pl.Float64).to_numpy()
+                scale = float(np.mean(np.abs(x))) if x.size else 0.0
+                diff = float(np.mean(np.abs(x - y))) if x.size else 0.0
+                if (diff / scale if scale > 1.5e-8 else diff) >= 1.5e-8:
+                    return False
+            elif isinstance(a.dtype, pl.Enum | pl.Categorical):
+                if not isinstance(b.dtype, pl.Enum | pl.Categorical):
+                    return False
+                if cat_levels(a, drop_unused=True) != cat_levels(b):
+                    return False
+                if a.cast(pl.Utf8).to_list() != b.cast(pl.Utf8).to_list():
+                    return False
+            elif b.dtype not in (pl.Utf8, pl.String) or a.cast(pl.Utf8).to_list() != b.to_list():
+                return False
+        return True
+
+    def predict(
+        self, data=None, cmd=None, data_cmd=None, dec=None, drop_missing=True, oob=None
+    ) -> pl.DataFrame:
         """
         Predict probabilities or values for a random forest model
 
@@ -282,6 +323,14 @@ class rforest:
             ``data`` stays, in order, and those rows get a missing prediction,
             so the predictions line up with the rows of ``data`` (e.g. to store
             them in it).
+        oob : bool, optional
+            Out-of-bag predictions: each row predicted by the trees that did
+            not see it during estimation. By default (None) they are used, as
+            in Radiant, when the prediction data are the estimation data: the
+            same rows in the same order with the same values and column types
+            (``predict()`` without data, or data equal to the data after the
+            filter, sort and slice). True asks for them, False never uses them.
+            They need ``oob_score=True``.
 
         Returns
         -------
@@ -296,35 +345,36 @@ class rforest:
             cmd=cmd if isinstance(cmd, dict) else None,
             data_cmd=data_cmd if isinstance(data_cmd, dict) else None,
         )
-        if (
-            data is None
-            and self.oob_score
-            and (data_cmd is None or data_cmd == "")
-            and (cmd is None or cmd == "")
-        ):
+        if data is None:
             pred_data = self.data.select(self.evar)
+        else:
+            pred_data = check_dataframe(data).select(self.evar)
+
+        if data_cmd is not None and data_cmd != "":
+            pred_data = pred_data.with_columns(
+                [pl.lit(v).alias(k) for k, v in data_cmd.items()]
+            )
+        elif cmd is not None and cmd != "":
+            cmd = {k: ifelse(isinstance(v, str), [v], v) for k, v in cmd.items()}
+            pred_data = sim_prediction(data=pred_data, vary=cmd)
+        full = pred_data
+        pred_data, keep = drop_missing_rows(pred_data, self.evar)
+
+        if oob is None:
+            oob = self.oob_score and self.is_estimation_data(pred_data)
+        if oob:
+            if not self.oob_score:
+                raise ValueError("Out-of-bag predictions need a forest estimated with oob_score=True")
+            if pred_data.height != self.data.height:
+                raise ValueError(
+                    "Out-of-bag predictions are only available for the data the forest "
+                    f"was estimated on ({self.data.height:,} rows, not {pred_data.height:,})"
+                )
             if self.mod_type == "classification":
                 predictions = self.fitted.oob_decision_function_[:, 1]
             else:
                 predictions = self.fitted.oob_prediction_
-
-            pred = pred_data.with_columns(pl.lit(predictions).alias("prediction"))
         else:
-            if data is None:
-                pred_data = self.data.select(self.evar)
-            else:
-                pred_data = check_dataframe(data).select(self.evar)
-
-            if data_cmd is not None and data_cmd != "":
-                pred_data = pred_data.with_columns(
-                    [pl.lit(v).alias(k) for k, v in data_cmd.items()]
-                )
-            elif cmd is not None and cmd != "":
-                cmd = {k: ifelse(isinstance(v, str), [v], v) for k, v in cmd.items()}
-                pred_data = sim_prediction(data=pred_data, vary=cmd)
-            full = pred_data
-            pred_data, keep = drop_missing_rows(pred_data, self.evar)
-
             # Use categories to preserve all levels
             data_onehot = conditional_get_dummies(
                 pred_data[self.evar], drop_nonvarying=False, categories=self.categories
@@ -338,9 +388,9 @@ class rforest:
             else:
                 predictions = self.fitted.predict(data_onehot.to_pandas())
 
-            pred = pred_data.with_columns(pl.lit(predictions).alias("prediction"))
-            if not drop_missing:
-                pred = on_prediction_rows(pred, full, keep)
+        pred = pred_data.with_columns(pl.lit(predictions).alias("prediction"))
+        if not drop_missing:
+            pred = on_prediction_rows(pred, full, keep)
 
         if dec is not None:
             pred = pred.with_columns(
