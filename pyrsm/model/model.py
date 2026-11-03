@@ -40,6 +40,7 @@ from sklearn import metrics
 from sklearn.model_selection import (
     GridSearchCV,
     KFold,
+    ShuffleSplit,
     StratifiedKFold,
     StratifiedShuffleSplit,
 )
@@ -338,22 +339,29 @@ def make_train(
     random_state: int = 1234,
 ):
     """
-    If a stratification variable has been provide, will use stratified sampling on one or more variables to create a training variable for your dataset.
+    A training variable for a dataset: 1 for the rows to estimate a model on,
+    0 for the ``test_size`` share of rows held out.
+
+    With ``strat_var`` (one variable, or several as blocks) the split is
+    stratified, so every group keeps its share of training rows. Without it the
+    rows are drawn at random. Either way ``random_state`` alone fixes the split:
+    the same seed gives the same split, and numpy's global random state is
+    neither used nor changed.
     """
     data = check_dataframe(data)
 
+    training_var = np.zeros(data.height)
     if strat_var:
-        training_var = np.zeros(data.height)
         strat_values = data.select(pl.concat_str(strat_var, separator="_")).to_series()
         splits = StratifiedShuffleSplit(
             n_splits=1, test_size=test_size, random_state=random_state
-        )
-        for train_index, test_index in splits.split(training_var, strat_values):
-            training_var[train_index] = 1
+        ).split(training_var, strat_values)
     else:
-        training_var = np.random.choice(
-            [0, 1], size=data.height, p=[test_size, 1 - test_size]
-        )
+        splits = ShuffleSplit(
+            n_splits=1, test_size=test_size, random_state=random_state
+        ).split(training_var)
+    for train_index, test_index in splits:
+        training_var[train_index] = 1
 
     return pl.Series(training_var).cast(int)
 

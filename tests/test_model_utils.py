@@ -56,8 +56,9 @@ class TestMakeTrain:
 
     def test_make_train_reproducible(self, salary_data):
         """Test that random_state makes it reproducible."""
-        make_train(salary_data, test_size=0.2, random_state=42)
-        make_train(salary_data, test_size=0.2, random_state=42)
+        train1 = make_train(salary_data, test_size=0.2, random_state=42)
+        train2 = make_train(salary_data, test_size=0.2, random_state=42)
+        assert np.array_equal(train1, train2)
         # Stratified splits should be identical
         train1_strat = make_train(
             salary_data, strat_var="sex", test_size=0.2, random_state=42
@@ -184,6 +185,84 @@ class TestMakeTrain:
             salary_data, strat_var="sex", test_size=0.2, random_state=42
         )
         assert np.array_equal(train_list, train_str)
+
+
+@pytest.fixture(scope="module")
+def titanic_pl():
+    return pl.read_parquet("examples/data/model/titanic.parquet")
+
+
+@pytest.fixture(scope="module")
+def diamonds_pl():
+    return pl.read_parquet("examples/data/model/diamonds.parquet")
+
+
+# No stratification, one stratification variable, and blocks (several
+# stratification variables, as R's make_train(blocks = ...)).
+SPLIT_KINDS = {
+    "random": {},
+    "strat_var": {"strat_var": "survived"},
+    "blocks": {"strat_var": ["sex", "pclass"]},
+}
+
+
+class TestMakeTrainSeed:
+    """The seed alone fixes the split: same seed, same split; another seed, another split."""
+
+    @pytest.mark.parametrize("kind", SPLIT_KINDS)
+    def test_same_seed_same_split(self, titanic_pl, kind):
+        kw = SPLIT_KINDS[kind]
+        # Whatever happens to numpy's global random state in between.
+        np.random.seed(1)
+        first = make_train(titanic_pl, test_size=0.3, random_state=1234, **kw)
+        np.random.seed(2)
+        np.random.random(17)
+        second = make_train(titanic_pl, test_size=0.3, random_state=1234, **kw)
+        assert first.to_list() == second.to_list()
+
+    @pytest.mark.parametrize("kind", SPLIT_KINDS)
+    def test_different_seed_different_split(self, titanic_pl, kind):
+        kw = SPLIT_KINDS[kind]
+        a = make_train(titanic_pl, test_size=0.3, random_state=1234, **kw)
+        b = make_train(titanic_pl, test_size=0.3, random_state=4321, **kw)
+        assert a.to_list() != b.to_list()
+        assert a.sum() == b.sum()  # the same number of training rows
+
+    @pytest.mark.parametrize("kind", SPLIT_KINDS)
+    def test_leaves_global_random_state_alone(self, titanic_pl, kind):
+        np.random.seed(7)
+        expected = np.random.random(3)
+        np.random.seed(7)
+        make_train(titanic_pl, test_size=0.3, random_state=1234, **SPLIT_KINDS[kind])
+        assert np.array_equal(np.random.random(3), expected)
+
+    def test_random_split_has_exact_size(self, diamonds_pl):
+        """Without strat_var the test set is exactly test_size of the rows, as with it."""
+        train = make_train(diamonds_pl, test_size=0.3, random_state=1234)
+        assert train.dtype == pl.Int64
+        assert train.len() == 3000
+        assert train.sum() == 2100
+
+    @pytest.mark.parametrize(
+        "data, kw, n_train, sha256",
+        [
+            ("titanic_pl", dict(strat_var="survived", test_size=0.3, random_state=1234),
+             730, "7b8141c7b0bc2b40061ee66f14c250d1de33d7fad14538342c43db0a38a70077"),
+            ("titanic_pl", dict(strat_var=["sex", "pclass"], test_size=0.2, random_state=42),
+             834, "e560f3e0b007bff62c1365edf4d9f19415f9882ed51feeb0aad3134c71cefacb"),
+            ("diamonds_pl", dict(strat_var="cut", test_size=0.3, random_state=1234),
+             2100, "cdf94f20f628061e0d945a8938c4d6caf48acd7b3202cec411d3fcb3fc4fe334"),
+        ],
+    )
+    def test_stratified_split_unchanged(self, request, data, kw, n_train, sha256):
+        """Stratified and blocked splits are byte for byte those of pyrsm before the
+        seed fix (2026-11-02), so notebooks and gold numbers built on them stay."""
+        import hashlib
+
+        train = make_train(request.getfixturevalue(data), **kw)
+        assert train.dtype == pl.Int64
+        assert train.sum() == n_train
+        assert hashlib.sha256(train.to_numpy().tobytes()).hexdigest() == sha256
 
 
 class TestConvertToList:
