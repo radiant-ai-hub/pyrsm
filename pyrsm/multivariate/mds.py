@@ -4,11 +4,11 @@ Builds a symmetric dissimilarity matrix from a long-format
 (id1, id2, dissimilarity) table and performs metric (classical, ``cmdscale``) or
 non-metric (``MASS::isoMDS``-style Kruskal) multidimensional scaling.
 
-Metric MDS reproduces R's ``cmdscale`` up to sign. Non-metric MDS uses SMACOF
-with monotone (isotonic) disparities initialized from the classical solution; it
-targets ``MASS::isoMDS`` and matches its Kruskal stress-1 closely (typically to
-< 1e-2), though the coordinates can differ by a rotation/reflection because the
-two optimizers can settle in different but equivalent minima.
+Metric MDS reproduces R's ``cmdscale`` up to sign. Non-metric MDS is
+``MASS::isoMDS`` as radiant calls it (started from cmdscale, at most 50
+iterations, ``tol = 1e-6``; see ``_isomds``): the coordinates, the stress and the
+recovered distances match radiant.multivariate up to the sign of each dimension,
+and the recovered distances are on the scale of the dissimilarities.
 """
 
 from __future__ import annotations
@@ -63,8 +63,8 @@ class mds:
     dis : str
         Dissimilarity / distance column.
     method : str, default "metric"
-        ``"metric"`` (classical MDS / cmdscale) or ``"non-metric"`` (SMACOF;
-        match to ``MASS::isoMDS``).
+        ``"metric"`` (classical MDS / cmdscale) or ``"non-metric"`` (Kruskal,
+        as ``MASS::isoMDS``).
     nr_dim : int, default 2
     seed : int, default 1234
 
@@ -171,43 +171,13 @@ class mds:
         return float(np.sqrt(((rec - orig) ** 2).sum() / (orig**2).sum()))
 
     def _isomds(self, D: np.ndarray, k: int, seed: int):
-        import warnings
+        """radiant: ``MASS::isoMDS(d, k = nr_dim, tol = 1e-6)`` (maxit 50),
+        started from cmdscale; stress as a share, not a percent. isoMDS has no
+        random start, so the seed changes nothing (as in radiant)."""
+        from ._isomds import isomds
 
-        from sklearn.manifold import smacof
-
-        init = self._cmdscale(D, k)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            points, _ = smacof(
-                D,
-                metric=False,
-                n_components=k,
-                init=init,
-                n_init=1,
-                max_iter=1000,
-                eps=1e-10,
-                random_state=seed,
-                normalized_stress=False,
-            )
-        return points, self._kruskal_stress(points, D)
-
-    @staticmethod
-    def _kruskal_stress(points: np.ndarray, D: np.ndarray) -> float:
-        """Kruskal stress-1 with monotone (isotonic) disparities (isoMDS)."""
-        from scipy.spatial.distance import squareform
-        from sklearn.isotonic import IsotonicRegression
-
-        rec = squareform(
-            np.sqrt(((points[:, None, :] - points[None, :, :]) ** 2).sum(-1)),
-            checks=False,
-        )
-        orig = squareform(D, checks=False)
-        order = np.argsort(orig)
-        dhat = np.empty_like(rec)
-        dhat[order] = IsotonicRegression().fit_transform(
-            np.arange(len(rec)), rec[order]
-        )
-        return float(np.sqrt(((rec - dhat) ** 2).sum() / (rec**2).sum()))
+        points, stress_pct = isomds(D, self._cmdscale(D, k), maxit=50, tol=1e-6)
+        return points, stress_pct / 100
 
     def recovered_dist(self) -> np.ndarray:
         """Recovered distance matrix from the coordinates."""

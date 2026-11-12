@@ -84,21 +84,10 @@ def test_mds_metric_3d_parity(mv_data, mv_ref):
     assert disp < 1e-6
 
 
-@pytest.mark.parametrize("case,dataset,i1,i2,dis", [
-    ("city_nonmetric", "city", "from", "to", "distance"),
-    ("tpbrands_nonmetric", "tpbrands", "id1", "id2", "dissimilarity"),
-])
-def test_mds_nonmetric_parity(mv_data, mv_ref, case, dataset, i1, i2, dis):
-    """Non-metric MDS matches MASS::isoMDS Kruskal stress-1 (and, up to a
-    rotation/reflection, the configuration) to a tight tolerance."""
-    ref = mv_ref(f"mds_{case}")
-    m = mds({dataset: mv_data(dataset)}, i1, i2, dis, method="non-metric")
-    # both stresses are small; SMACOF can converge below MASS::isoMDS's floor, so
-    # the configuration match (Procrustes) is the primary parity check.
-    Pref = mv_mat(ref["points"])
-    _, _, disp = procrustes(Pref, m.points)
-    assert disp < 1e-2
-    assert m.stress <= ref["stress"] + 5e-3
+# Non-metric MDS against radiant (recovered distances, coordinates, stress and
+# the printed summary in the data's units): tests/test_mds_radiant_parity.py.
+# A Procrustes check of the coordinates, which used to be here, rescales both
+# maps and so passed while every recovered distance was around 1.
 
 
 def test_mds_flip(mv_data):

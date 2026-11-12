@@ -238,30 +238,7 @@ dump_kclus("shopping_2", shopping, "v1:v6", nr_clus = 2)
 dump_kclus("shopping_3", shopping, "v1:v6", nr_clus = 3)
 dump_kclus("toothpaste_3", toothpaste, "v1:v6", nr_clus = 3)
 
-# ---- mds -------------------------------------------------------------------
-
-dump_mds <- function(name, dataset, id1, id2, dis, method = "metric",
-                     nr_dim = 2, seed = 1234) {
-  res <- mds(dataset, id1, id2, dis, method = method, nr_dim = nr_dim, seed = seed)
-  recovered <- as.matrix(dist(res$res$points))
-  orig <- as.matrix(res$mds_dis_mat)
-  out <- list(
-    case = name,
-    method = method,
-    nr_dim = nr_dim,
-    points = mat_to_list(res$res$points),
-    stress = as.numeric(res$res$stress),
-    orig_dist = mat_to_list(orig),
-    recovered_dist = mat_to_list(recovered),
-    labels = rownames(res$res$points)
-  )
-  write_fixture(paste0("mds_", name), out)
-}
-
-dump_mds("city_metric", city, "from", "to", "distance", method = "metric")
-dump_mds("city_nonmetric", city, "from", "to", "distance", method = "non-metric")
-dump_mds("tpbrands_metric", tpbrands, "id1", "id2", "dissimilarity", method = "metric")
-dump_mds("tpbrands_nonmetric", tpbrands, "id1", "id2", "dissimilarity", method = "non-metric")
+# ---- mds: scripts/generate_mds_reference.R writes every mds_* and isomds_* fixture
 
 # ---- prmap -----------------------------------------------------------------
 
@@ -440,10 +417,6 @@ dump_kclus_kproto <- function(name, dataset, vars, nr_clus = 3, standardize = TR
 
 dump_kclus_kproto("toothpaste_kproto", toothpaste, c("v1", "v2", "v3", "gender"), nr_clus = 3)
 set.seed(1234)
-
-# ---- mds: 3 dimensions ------------------------------------------------------
-
-dump_mds("city_metric_3d", city, "from", "to", "distance", method = "metric", nr_dim = 3)
 
 # ---- prmap: categorical preferences (hcor) + 3 dimensions -------------------
 
