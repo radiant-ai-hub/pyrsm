@@ -90,6 +90,29 @@ def test_wtp(choc):
         cc.wtp("brand")
 
 
+def test_wtp_for_numeric_attributes(choc):
+    """0/1 columns in place of categorical attributes: one WTP per column (the
+    value of a one-unit increase, here having the level), equal to the WTP of
+    the same level coded as a categorical; only the price row is left out."""
+    dummies = choc.with_columns(
+        (pl.col("brand").cast(pl.Utf8) == "Lindt").cast(pl.Int64).alias("brand_Lindt"),
+        (pl.col("brand").cast(pl.Utf8) == "Godiva").cast(pl.Int64).alias("brand_Godiva"),
+        (pl.col("chocolate").cast(pl.Utf8) == "Dark").cast(pl.Int64).alias("dark"),
+        (pl.col("chocolate").cast(pl.Utf8) == "White").cast(pl.Int64).alias("white"),
+        (pl.col("nuts").cast(pl.Utf8) == "Yes").cast(pl.Int64).alias("nuts_yes"),
+    )
+    numeric = ["brand_Lindt", "brand_Godiva", "dark", "white", "nuts_yes", "price"]
+    w = conjoint_choice(dummies, rvar="chosen", evar=numeric, id="choice_id").wtp("price")
+    assert w["Attributes"].to_list() == numeric[:-1]
+    assert w["WTP"].is_not_null().all()
+
+    cat = conjoint_choice(choc, rvar="chosen", evar=EVAR, id="choice_id").wtp("price")
+    lookup = dict(zip(cat["Attributes"] + ":" + cat["Levels"], cat["WTP"]))
+    expected = [lookup[k] for k in ("brand:Lindt", "brand:Godiva", "chocolate:Dark",
+                                    "chocolate:White", "nuts:Yes")]
+    assert np.allclose(w["WTP"], expected, rtol=1e-5)
+
+
 def test_predict_market_simulation(choc):
     cc = conjoint_choice(choc, rvar="chosen", evar=EVAR, id="choice_id")
     sim = cc.predict(cmd={"brand": ["Hershey", "Lindt", "Godiva"]})

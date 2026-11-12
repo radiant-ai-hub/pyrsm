@@ -383,6 +383,9 @@ class conjoint_choice:
         """
         Willingness to pay: each level's part-worth divided by -(price slope).
 
+        A numeric attribute other than price (e.g., a 0/1 column for a
+        feature) gets one row: the WTP for a one-unit increase.
+
         Parameters
         ----------
         price : str, default "price"
@@ -393,7 +396,7 @@ class conjoint_choice:
         if price not in self.evar or price in self.levels:
             raise ValueError(f"'{price}' must be a numeric attribute in evar")
         bp = float(self.coef.filter(pl.col("index") == price)["coefficient"][0])
-        out = self.PW.filter(pl.col("Levels") != "(slope)").with_columns(
+        out = self.PW.filter(pl.col("Attributes") != price).with_columns(
             (pl.col("PW") / -bp).alias("WTP")
         )
         return out.with_columns(pl.col("PW", "WTP").round(dec)) if dec is not None else out
