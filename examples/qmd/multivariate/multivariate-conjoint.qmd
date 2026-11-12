@@ -11,7 +11,7 @@ To set up a conjoint study from scratch we first determine the **attributes** an
 
 Once data is available from respondents, their evaluations are analyzed to determine **Part-Worths (PW)** and **Importance Weights (IW)**.
 
-To estimate a model with `pyrsm` we pass the respondent's ratings (or rankings) as the response variable (`rvar`) and the profile attributes as the explanatory variables (`evar`). Under the hood, conjoint fits an ordinary least squares (OLS) regression of the evaluation on the attributes, where each attribute is treated as a categorical factor with its first level used as the base (treatment coding). The regression coefficients become the part-worths, and the part-worth ranges become the importance weights.
+To estimate a model with `pyrsm` we pass the respondent's ratings (or rankings) as the response variable (`rvar`) and the profile attributes as the explanatory variables (`evar`). Under the hood, conjoint fits an ordinary least squares (OLS) regression of the evaluation on the attributes, where each attribute is treated as a categorical variable with its first level used as the base (treatment coding). A numeric attribute with at most 4 distinct values (`max_levels=4`), such as a price tested at 3 levels, is categorical too, with its lowest value as the base. The regression coefficients become the part-worths, and the part-worth ranges become the importance weights.
 
 ```{python}
 import polars as pl

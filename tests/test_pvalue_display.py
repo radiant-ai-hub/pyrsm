@@ -283,7 +283,7 @@ def test_cbc_pvalues_do_not_underflow():
 
 
 def test_conjoint_choice(choc):
-    cc = conjoint_choice({"choc": choc}, rvar="chosen", evar=EVAR, id="choice_id")
+    cc = conjoint_choice({"choc": choc}, rvar="chosen", evar=EVAR, id="choice_id", price="price")
     cells = check_display(capture(cc.summary), min_sig=5)
     # coefficient table plus the model chi-squared line
     assert len(cells) == cc.coef.height + 1

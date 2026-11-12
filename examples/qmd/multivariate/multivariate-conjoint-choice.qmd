@@ -74,7 +74,7 @@ The data are in **long** format: one row per minivan per task, so 3,000 tasks ×
 
 In the first task respondent 1, who does not carpool, chose alternative 2 (6 seats, 3ft, electric, $35K) over two 8-seat minivans.
 
-Price is **numeric**, so the model estimates one price slope; that slope is what willingness to pay is computed from. The other attributes are categorical (polars `Enum`), so each level gets its own part-worth relative to the first level (6 seats, 2ft, gas).
+Price is **numeric** and the model names it with `price="price"`, so it estimates one price slope; that slope is what willingness to pay is computed from. The other attributes are categorical (polars `Enum`), so each level gets its own part-worth relative to the first level (6 seats, 2ft, gas). Without `price=`, a numeric attribute with at most 4 values (`max_levels=4`) is categorical too, with a part-worth for each value and the lowest value as the base: price, with 3 values, would get part-worths for 35 and 40 instead of a slope, and there would be no WTP.
 
 Before estimating, check that every task has exactly one chosen alternative, and that `task` (not `ques`) identifies a task:
 
@@ -97,6 +97,7 @@ cc = rsm.multivariate.conjoint_choice(
     evar=["seat", "cargo", "eng", "price"],
     id="task",
     alt="alt",
+    price="price",
 )
 cc.summary()
 ```
@@ -232,6 +233,7 @@ for c in ["yes", "no"]:
         evar=["seat", "cargo", "eng", "price"],
         id="task",
         alt="alt",
+        price="price",
         data_filter=f"carpool == '{c}'",
     )
 seg["yes"].summary()

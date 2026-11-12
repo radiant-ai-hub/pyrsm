@@ -44,7 +44,7 @@ CASES = {
 def test_matches_clogit(choc, case):
     r = ref(case)
     cc = conjoint_choice({"choc": choc}, rvar="chosen", evar=EVAR, id="choice_id",
-                         **CASES[case])
+                         price="price", **CASES[case])
     assert cc.nobs == r["nobs"] and cc.ntasks == r["ntasks"]
     assert [r_name(n) for n in cc.coef["index"]] == r["names"]
     assert np.allclose(cc.coef["coefficient"], r["coef"], atol=1e-6)
@@ -60,12 +60,12 @@ def test_matches_clogit(choc, case):
 
 
 def test_tiny_p_values_are_not_rounded_to_zero(choc):
-    cc = conjoint_choice(choc, rvar="chosen", evar=EVAR, id="choice_id")
+    cc = conjoint_choice(choc, rvar="chosen", evar=EVAR, id="choice_id", price="price")
     assert (cc.coef["p.value"] > 0).all()
 
 
 def test_part_worths_and_importance(choc):
-    cc = conjoint_choice(choc, rvar="chosen", evar=EVAR, id="choice_id")
+    cc = conjoint_choice(choc, rvar="chosen", evar=EVAR, id="choice_id", price="price")
     pw = cc.PW
     assert pw.filter(pl.col("Levels") == "Hershey")["PW"][0] == 0
     lindt = cc.coef.filter(pl.col("index") == "brand[Lindt]")["coefficient"][0]
@@ -82,7 +82,7 @@ def test_part_worths_and_importance(choc):
 
 
 def test_wtp(choc):
-    cc = conjoint_choice(choc, rvar="chosen", evar=EVAR, id="choice_id")
+    cc = conjoint_choice(choc, rvar="chosen", evar=EVAR, id="choice_id", price="price")
     w = cc.wtp("price")
     bp = cc.coef.filter(pl.col("index") == "price")["coefficient"][0]
     assert np.allclose(w["WTP"], w["PW"] / -bp)
@@ -90,31 +90,133 @@ def test_wtp(choc):
         cc.wtp("brand")
 
 
-def test_wtp_for_numeric_attributes(choc):
-    """0/1 columns in place of categorical attributes: one WTP per column (the
-    value of a one-unit increase, here having the level), equal to the WTP of
-    the same level coded as a categorical; only the price row is left out."""
-    dummies = choc.with_columns(
+def _dummies(choc):
+    """choc with each categorical level as a 0/1 column."""
+    return choc.with_columns(
         (pl.col("brand").cast(pl.Utf8) == "Lindt").cast(pl.Int64).alias("brand_Lindt"),
         (pl.col("brand").cast(pl.Utf8) == "Godiva").cast(pl.Int64).alias("brand_Godiva"),
         (pl.col("chocolate").cast(pl.Utf8) == "Dark").cast(pl.Int64).alias("dark"),
         (pl.col("chocolate").cast(pl.Utf8) == "White").cast(pl.Int64).alias("white"),
         (pl.col("nuts").cast(pl.Utf8) == "Yes").cast(pl.Int64).alias("nuts_yes"),
     )
-    numeric = ["brand_Lindt", "brand_Godiva", "dark", "white", "nuts_yes", "price"]
-    w = conjoint_choice(dummies, rvar="chosen", evar=numeric, id="choice_id").wtp("price")
-    assert w["Attributes"].to_list() == numeric[:-1]
-    assert w["WTP"].is_not_null().all()
 
-    cat = conjoint_choice(choc, rvar="chosen", evar=EVAR, id="choice_id").wtp("price")
-    lookup = dict(zip(cat["Attributes"] + ":" + cat["Levels"], cat["WTP"]))
-    expected = [lookup[k] for k in ("brand:Lindt", "brand:Godiva", "chocolate:Dark",
-                                    "chocolate:White", "nuts:Yes")]
-    assert np.allclose(w["WTP"], expected, rtol=1e-5)
+
+DUMMIES = ["brand_Lindt", "brand_Godiva", "dark", "white", "nuts_yes", "price"]
+LEVEL_OF = {"brand_Lindt": "brand:Lindt", "brand_Godiva": "brand:Godiva",
+            "dark": "chocolate:Dark", "white": "chocolate:White", "nuts_yes": "nuts:Yes"}
+
+
+def _cat_wtp(choc):
+    cat = conjoint_choice(choc, rvar="chosen", evar=EVAR, id="choice_id", price="price").wtp()
+    return dict(zip(cat["Attributes"] + ":" + cat["Levels"], cat["WTP"]))
+
+
+def test_wtp_for_numeric_attributes(choc):
+    """0/1 columns kept numeric (max_levels=0): one WTP per column (the value
+    of a one-unit increase, here having the level), equal to the WTP of the
+    same level coded as a categorical; only the price row is left out."""
+    cc = conjoint_choice(_dummies(choc), rvar="chosen", evar=DUMMIES, id="choice_id",
+                         price="price", max_levels=0)
+    assert cc.as_categorical == []
+    w = cc.wtp()
+    assert w["Attributes"].to_list() == DUMMIES[:-1]
+    assert w["WTP"].is_not_null().all()
+    lookup = _cat_wtp(choc)
+    assert np.allclose(w["WTP"], [lookup[LEVEL_OF[v]] for v in DUMMIES[:-1]], rtol=1e-5)
+
+
+def test_few_valued_numeric_attributes_are_categorical(choc):
+    """By default a numeric attribute with at most 4 values is categorical: a
+    part-worth for each value, the lowest (0) the base. Price stays numeric."""
+    d = _dummies(choc)
+    cc = conjoint_choice({"d": d}, rvar="chosen", evar=DUMMIES, id="choice_id", price="price")
+    assert cc.as_categorical == DUMMIES[:-1]
+    assert cc.xnames == [f"{v}[1]" for v in DUMMIES[:-1]] + ["price"]
+    assert cc.levels["dark"] == ["0", "1"]
+    # the same model as the slopes: a 0/1 column's slope is its level-1 part-worth
+    slopes = conjoint_choice(d, rvar="chosen", evar=DUMMIES, id="choice_id", price="price",
+                             max_levels=0)
+    assert np.allclose(cc.coef["coefficient"], slopes.coef["coefficient"], atol=1e-10)
+    assert np.isclose(cc.fit_stats["loglik"], slopes.fit_stats["loglik"])
+    w = cc.wtp()
+    ones = w.filter(pl.col("Levels") == "1")
+    lookup = _cat_wtp(choc)
+    assert np.allclose(ones["WTP"], [lookup[LEVEL_OF[v]] for v in DUMMIES[:-1]], rtol=1e-5)
+    assert (w.filter(pl.col("Levels") == "0")["WTP"] == 0).all()
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        cc.summary()
+    assert "Coded as categorical : brand_Lindt, brand_Godiva, dark, white, nuts_yes" in buf.getvalue()
+
+
+def test_price_with_few_values_is_categorical_unless_named(choc):
+    """choc's price has 3 values: without price= it gets a part-worth per
+    value (lowest first), and WTP asks for price= instead of dividing by a
+    slope that is not there."""
+    cc = conjoint_choice(choc, rvar="chosen", evar=EVAR, id="choice_id")
+    assert cc.as_categorical == ["price"]
+    assert cc.levels["price"] == ["2.99", "3.99", "4.99"]
+    assert "price[3.99]" in cc.xnames and "price" not in cc.xnames
+    with pytest.raises(ValueError, match="price='price'"):
+        cc.wtp()
+    with pytest.raises(ValueError, match="numeric attribute in evar"):
+        conjoint_choice(choc, rvar="chosen", evar=EVAR, id="choice_id", price="brand")
+    with pytest.raises(ValueError, match="numeric attribute in evar"):
+        conjoint_choice(choc, rvar="chosen", evar=EVAR, id="choice_id", price="cost")
+    # more values than max_levels: one slope
+    sl = conjoint_choice(choc, rvar="chosen", evar=EVAR, id="choice_id", max_levels=2)
+    assert sl.as_categorical == [] and "price" in sl.xnames
+
+
+def test_predict_with_numeric_levels(choc):
+    """A level coded as a number is the same level as 1, 1.0 or "1"; a value
+    the design did not test is refused, as for any categorical level."""
+    d = _dummies(choc)
+    cc = conjoint_choice(d, rvar="chosen", evar=DUMMIES, id="choice_id", price="price")
+    a = cc.predict(cmd={"dark": [0, 1], "price": [3.99]})
+    b = cc.predict(cmd={"dark": ["0", 1.0], "price": [3.99]})
+    assert np.allclose(a["prediction"], b["prediction"])
+    assert a["dark"].to_list() == ["0", "1"]
+    profiles = pl.DataFrame({"brand_Lindt": [1, 0], "brand_Godiva": [0, 1], "dark": [1, 0],
+                             "white": [0, 0], "nuts_yes": [0, 1], "price": [3.99, 4.99]})
+    p = cc.predict(profiles)
+    q = cc.predict(profiles.with_columns(pl.col("dark").cast(pl.Float64)))
+    assert np.allclose(p["utility"], q["utility"])
+    params = dict(zip(cc.xnames, cc._fit["params"]))
+    u0 = params["brand_Lindt[1]"] + params["dark[1]"] + 3.99 * params["price"]
+    assert np.isclose(p["utility"][0], u0)
+    p2 = cc.predict(profiles, data_cmd={"dark": 0})
+    assert p2["dark"].to_list() == ["0", "0"]
+    with pytest.raises(ValueError, match="Unknown level"):
+        cc.predict(cmd={"dark": [2]})
+    with pytest.raises(ValueError, match="Unknown level"):
+        cc.predict(profiles.with_columns(pl.lit(2).alias("white")))
+
+
+def test_part_worth_plot_includes_numeric_attributes(choc):
+    """Every attribute gets a part-worth panel, so the default plot is never
+    empty: a numeric one shows the utility of each value relative to its
+    lowest (slope x difference), the same range its importance weight uses."""
+    cc = conjoint_choice(_dummies(choc), rvar="chosen", evar=DUMMIES, id="choice_id",
+                         price="price", max_levels=0)
+    assert cc.levels == {}
+    assert len(cc.plot("pw")) == len(DUMMIES)
+    assert len(cc.plot("pw", scale_plot=True)) == len(DUMMIES)
+    curve = cc._numeric_pw("price")
+    bp = float(cc.coef.filter(pl.col("index") == "price")["coefficient"][0])
+    assert curve["value"].tolist() == [2.99, 3.99, 4.99]
+    assert np.allclose(curve["PW"], [0, bp, 2 * bp])
+    total = sum(abs(float(c)) * (1 if v != "price" else 2)
+                for v, c in zip(cc.xnames, cc.coef["coefficient"]))
+    iw = cc.IW.filter(pl.col("Attributes") == "price")["IW"][0]
+    assert iw == pytest.approx(abs(bp) * 2 / total)
+    # choc: one panel per attribute, price included
+    mixed = conjoint_choice(choc, rvar="chosen", evar=EVAR, id="choice_id", price="price")
+    assert len(mixed.plot("pw")) == len(EVAR)
 
 
 def test_predict_market_simulation(choc):
-    cc = conjoint_choice(choc, rvar="chosen", evar=EVAR, id="choice_id")
+    cc = conjoint_choice(choc, rvar="chosen", evar=EVAR, id="choice_id", price="price")
     sim = cc.predict(cmd={"brand": ["Hershey", "Lindt", "Godiva"]})
     assert sim.height == 3 and sim["prediction"].sum() == pytest.approx(1)
     # shares follow the brand part-worths
@@ -137,22 +239,22 @@ def test_categorical_response_with_lev(choc):
         pl.when(pl.col("chosen") == 1).then(pl.lit("yes")).otherwise(pl.lit("no"))
         .cast(pl.Enum(["no", "yes"])).alias("choice")
     )
-    a = conjoint_choice(d, rvar="choice", lev="yes", evar=EVAR, id="choice_id")
-    b = conjoint_choice(d, rvar="chosen", evar=EVAR, id="choice_id")
+    a = conjoint_choice(d, rvar="choice", lev="yes", evar=EVAR, id="choice_id", price="price")
+    b = conjoint_choice(d, rvar="chosen", evar=EVAR, id="choice_id", price="price")
     assert np.allclose(a.coef["coefficient"], b.coef["coefficient"])
     with pytest.raises(ValueError, match="Please specify the level"):
-        conjoint_choice(d, rvar="choice", evar=EVAR, id="choice_id")
+        conjoint_choice(d, rvar="choice", evar=EVAR, id="choice_id", price="price")
 
 
 def test_errors(choc):
     with pytest.raises(ValueError, match="exactly one chosen"):
         conjoint_choice(choc.with_columns(pl.lit(1).alias("chosen")), rvar="chosen",
-                        evar=EVAR, id="choice_id")
+                        evar=EVAR, id="choice_id", price="price")
     with pytest.raises(ValueError, match="not in evar"):
         conjoint_choice(choc, rvar="chosen", evar=EVAR, id="choice_id", ivar=["brand:size"])
     with pytest.raises(ValueError, match="Response variable contained"):
         conjoint_choice(choc, rvar="chosen", evar=EVAR + ["chosen"], id="choice_id")
-    cc = conjoint_choice(choc, rvar="chosen", evar=EVAR, id="choice_id")
+    cc = conjoint_choice(choc, rvar="chosen", evar=EVAR, id="choice_id", price="price")
     with pytest.raises(ValueError, match="Unknown level"):
         cc.predict(cmd={"brand": ["Mars"]})
     with pytest.raises(ValueError, match="Unknown plot"):
@@ -161,7 +263,7 @@ def test_errors(choc):
 
 def test_summary_and_plots(choc):
     cc = conjoint_choice({"choc": choc}, rvar="chosen", evar=EVAR, id="choice_id",
-                         alt="alt", data_filter="resp <= 150")
+                         alt="alt", price="price", data_filter="resp <= 150")
     buf = io.StringIO()
     with redirect_stdout(buf):
         cc.summary()
@@ -169,19 +271,19 @@ def test_summary_and_plots(choc):
     for s in ("Conjoint choice model", "Data                 : choc", "Filter",
               "brand[Lindt]", "Hit rate", "Conjoint part-worths", "importance weights"):
         assert s in out
-    assert len(cc.plot("pw")) == 3  # one panel per categorical attribute
+    assert len(cc.plot("pw")) == 4  # one panel per attribute, price included
     assert cc.plot("iw") is not None and cc.plot("or") is not None
 
 
 def test_store_and_plot_options(choc):
-    cc = conjoint_choice({"choc": choc}, rvar="chosen", evar=EVAR, id="choice_id")
+    cc = conjoint_choice({"choc": choc}, rvar="chosen", evar=EVAR, id="choice_id", price="price")
     assert cc.store("PW").columns == ["Attributes", "Levels", "PW"]
     assert cc.store("IW").height == len(EVAR)
     assert "WTP" in cc.store("WTP").columns
     assert cc.store("coef").height == 6
     with pytest.raises(ValueError):
         cc.store("bogus")
-    assert len(cc.plot("pw", scale_plot=True)) == 3
+    assert len(cc.plot("pw", scale_plot=True)) == 4
     assert cc.plot(["iw", "or"]) is not None
 
 
@@ -189,7 +291,7 @@ def test_minivan_example_matches_clogit_and_converges():
     """The minivan example (price in $1,000s) converges and matches R's clogit."""
     mv = pl.read_parquet(ROOT / "examples" / "data" / "multivariate" / "minivan.parquet")
     cc = conjoint_choice({"minivan": mv}, rvar="choice", evar=["seat", "cargo", "eng", "price"],
-                         id="task", alt="alt")
+                         id="task", alt="alt", price="price")
     assert cc.converged
     # survival::clogit(choice ~ seat + cargo + eng + price + strata(task))
     r_coef = [-0.570436, -0.445111, 0.420322, -0.780185, -1.585133, -0.153654]

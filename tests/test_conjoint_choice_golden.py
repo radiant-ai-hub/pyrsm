@@ -65,7 +65,7 @@ def _cases() -> dict:
         out[name] = res
 
     cc = rsm.multivariate.conjoint_choice(
-        {"minivan": minivan}, rvar="choice", lev="1", evar=attrs, id="task", alt="alt"
+        {"minivan": minivan}, rvar="choice", lev="1", evar=attrs, id="task", alt="alt", price="price"
     )
     record(
         "minivan",
@@ -86,6 +86,7 @@ def _cases() -> dict:
                 evar=attrs,
                 id="task",
                 alt="alt",
+                price="price",
                 data_filter=f"carpool == '{c}'",
             ),
             wtp="price",
@@ -98,6 +99,7 @@ def _cases() -> dict:
             evar=attrs,
             ivar=["seat:price", "cargo:eng"],
             id="task",
+            price="price",
         ),
         preds=[lambda m: m.predict(market)],
     )
@@ -109,6 +111,7 @@ def _cases() -> dict:
             evar=["brand", "chocolate", "price", "nuts"],
             id="choice_id",
             alt="alt",
+            price="price",
         ),
         wtp="price",
         preds=[lambda m: m.predict(cmd={"brand": ["Hershey", "Lindt", "Godiva"], "price": [3.99]})],

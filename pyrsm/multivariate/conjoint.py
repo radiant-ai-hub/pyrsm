@@ -15,6 +15,7 @@ import polars as pl
 
 from pyrsm.utils import cat_levels
 
+from ._attribute_levels import MAX_LEVELS, few_valued, level_labels, level_text
 from ._plotting import as_plot_result
 from ._utils import get_data, get_vars
 from pyrsm.data_scope import apply_scope, print_scope
@@ -118,13 +119,19 @@ class conjoint:
     rvar : str
         Response variable (ratings / rankings).
     evar : str | list[str]
-        Explanatory attributes; supports ``"a:b"`` ranges.
+        Explanatory attributes; supports ``"a:b"`` ranges. A numeric attribute
+        with at most ``max_levels`` distinct values is categorical, with the
+        lowest value as the base level.
     int : str | list[str], default ""
         Interaction terms, e.g. ``"Memory:Shape"``.
     by : str, default "none"
         Optional grouping variable; a separate model is fit per level.
     reverse : bool, default False
         Reverse the response as ``(max + 1) - x`` (useful for rankings).
+    max_levels : int, default 4
+        Numeric attributes with at most this many distinct values are
+        categorical. 0 keeps every numeric attribute numeric (one slope, and
+        no part-worths).
 
     Attributes
     ----------
@@ -157,6 +164,7 @@ class conjoint:
         int="",
         by: str = "none",
         reverse: bool = False,
+        max_levels: int = MAX_LEVELS,
         data_filter: str = "",
         sort: str = "",
         slice: str = "",
@@ -186,9 +194,23 @@ class conjoint:
         sub = self.data.select(sel).drop_nulls()
         self.nobs = sub.height
 
+        # A numeric attribute with a few values is categorical: its values
+        # become levels, lowest first.
+        self.max_levels = max_levels
+        few = few_valued(sub, self.evar, max_levels)
+        self.as_categorical = list(few)
+        if few:
+            sub = sub.with_columns(
+                [level_text(sub, v).cast(pl.Enum(labels)) for v, labels in few.items()]
+            )
+            # rows left out of the estimation may hold other values: missing
+            self.data = self.data.with_columns(
+                [level_text(self.data, v).cast(pl.Enum(labels), strict=False) for v, labels in few.items()]
+            )
+
         # Level order of each categorical attribute (Enum order, else order of
-        # appearance); the first level is the treatment-coding base. Numeric
-        # attributes stay numeric (one linear term), as in R's lm().
+        # appearance); the first level is the treatment-coding base. Other
+        # numeric attributes stay numeric (one linear term), as in R's lm().
         self._levels = {}
         for v in self.evar:
             s = sub[v]
@@ -197,8 +219,13 @@ class conjoint:
             ):
                 self._levels[v] = [str(x) for x in cat_levels(s.cast(pl.Utf8) if s.dtype == pl.Boolean else s)]
         self.numeric = [v for v in self.evar if v not in self._levels]
-        # Radiant's part-worth table needs factors only
-        self.pw_msg = "Only factors can be used." if self.numeric else ""
+        # the part-worth table needs categorical attributes only
+        many = f" (more than {max_levels} values)" if max_levels and max_levels > 0 else ""
+        self.pw_msg = (
+            f"Part-worths need categorical attributes. Numeric{many}: {', '.join(self.numeric)}."
+            if self.numeric
+            else ""
+        )
 
         import pandas as pd
 
@@ -399,7 +426,10 @@ class conjoint:
             print(f"Show                 : {self.by} == {show}")
         rv = f"{self.rvar} (reversed)" if self.reverse else self.rvar
         print(f"Response variable    : {rv}")
-        print(f"Explanatory variables: {', '.join(self.evar)}\n")
+        print(f"Explanatory variables: {', '.join(self.evar)}")
+        if self.as_categorical:
+            print(f"Coded as categorical : {', '.join(self.as_categorical)}")
+        print()
 
         def fixed(df, cols):
             # fixed decimals (0.000, 8.500), as Radiant prints them
@@ -550,6 +580,8 @@ class conjoint:
             unknown = [k for k in cmd if k not in self.evar]
             if unknown:
                 raise ValueError(f"Not an attribute in the model: {', '.join(unknown)}")
+            # 50, 50.0 and "50" are the same level of an attribute coded from numbers
+            cmd = {k: level_labels(v, k) if k in self.as_categorical else v for k, v in cmd.items()}
 
         if cmd is not None and data is not None:
             # Radiant: pred_cmd changes the given data (one value per attribute)
@@ -609,7 +641,8 @@ class conjoint:
         exprs = []
         for v, levels in self._levels.items():
             if v in df.columns:
-                exprs.append(pl.col(v).cast(pl.Utf8).cast(pl.Enum(levels)))
+                text = level_text(df, v) if v in self.as_categorical else pl.col(v).cast(pl.Utf8)
+                exprs.append(text.cast(pl.Enum(levels)))
         return df.with_columns(exprs) if exprs else df
 
     def store(self, what: str = "PW", show=None) -> pl.DataFrame:

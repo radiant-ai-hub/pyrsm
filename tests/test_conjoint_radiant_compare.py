@@ -16,6 +16,8 @@ and therefore fail - once pyrsm is fixed, so the marker must then be removed.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import itertools
 import re
 import warnings
@@ -319,13 +321,53 @@ def test_character_attribute_base_level(mv_data, mv_ref):
     assert cj.PW["Levels"].to_list() == ref["PW"]["Levels"]
 
 
-def test_numeric_attribute(mv_data, mv_ref):
-    ref = _ref(mv_ref, "num_attr")
-    d = mv_data("mp3").with_columns(
+def _numeric_price(mv_data):
+    return mv_data("mp3").with_columns(
         pl.col("Price").cast(pl.Utf8).str.replace(r"\$", "").cast(pl.Float64)
     )
-    cj = conjoint({"mp3": d}, rvar="Rating", evar="Memory:Shape")
+
+
+def test_numeric_attribute(mv_data, mv_ref):
+    """With max_levels=0 a numeric attribute keeps one slope, as in R's lm(),
+    and there are no part-worths."""
+    ref = _ref(mv_ref, "num_attr")
+    cj = conjoint({"mp3": _numeric_price(mv_data)}, rvar="Rating", evar="Memory:Shape", max_levels=0)
     assert cj.coeff["label"].to_list() == ref["coeff"]["label"]
+    np.testing.assert_allclose(cj.coeff["coefficient"].to_numpy(), ref["coeff"]["coefficient"])
+    assert cj.PW is None and cj.as_categorical == []
+    assert cj.pw_msg == "Part-worths need categorical attributes. Numeric: Price."
+    with pytest.raises(ValueError, match="categorical attributes"):
+        cj.plot("pw")
+
+
+def test_numeric_attribute_with_few_values_is_categorical(mv_data, mv_ref):
+    """Deliberate difference from R (pyrsm policy): by default a numeric
+    attribute with at most 4 values is categorical, its lowest value the base.
+    Price 50/100/150 then gives R's estimates for Price as a factor in that
+    order."""
+    d = _numeric_price(mv_data)
+    cj = conjoint({"mp3": d}, rvar="Rating", evar="Memory:Shape")
+    assert cj.as_categorical == ["Price"]
+    assert cj.PW.filter(pl.col("Attributes") == "Price")["Levels"].to_list() == ["50", "100", "150"]
+    e = mv_data("mp3").with_columns(pl.col("Price").cast(pl.Utf8).cast(pl.Enum(["$50", "$100", "$150"])))
+    ce = conjoint({"mp3": e}, rvar="Rating", evar="Memory:Shape")
+    np.testing.assert_allclose(cj.coeff["coefficient"].to_numpy(), ce.coeff["coefficient"].to_numpy())
+    np.testing.assert_allclose(cj.PW["PW"].to_numpy(), ce.PW["PW"].to_numpy())
+    np.testing.assert_allclose(cj.IW["IW"].to_numpy(), ce.IW["IW"].to_numpy())
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        cj.summary()
+    assert "Coded as categorical : Price" in buf.getvalue()
+    # 50, 50.0 and "50" are one level; a value not in the design is refused
+    a = cj.predict(pred_cmd={"Price": [50, 150]})
+    b = cj.predict(pred_cmd="Price = 50, 150")
+    c = cj.predict(pred_cmd={"Price": ["50", 150.0]})
+    np.testing.assert_allclose(a["Prediction"].to_numpy(), b["Prediction"].to_numpy())
+    np.testing.assert_allclose(a["Prediction"].to_numpy(), c["Prediction"].to_numpy())
+    np.testing.assert_allclose(cj.predict(d)["Prediction"].to_numpy(), ce.predict(e)["Prediction"].to_numpy())
+    with pytest.raises(Exception):
+        cj.predict(pred_cmd={"Price": [75]})
+    assert len(cj.plot("pw")) == 5
 
 
 # ---------------------------------------------------------------------------

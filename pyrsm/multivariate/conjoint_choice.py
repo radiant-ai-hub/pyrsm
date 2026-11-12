@@ -42,6 +42,7 @@ from pyrsm.data_scope import apply_scope, print_scope
 from pyrsm.model.model import sig_stars, sim_prediction
 from pyrsm.utils import cat_levels, check_dataframe
 
+from ._attribute_levels import MAX_LEVELS, few_valued, level_labels, level_text
 from ._plotting import as_plot_result
 from pyrsm._logit import clogit_fit as _mnl_fit
 from pyrsm._logit import segment_probs as _segment_probs
@@ -90,7 +91,10 @@ class conjoint_choice:
         ``rvar``; required for a categorical one (e.g. "yes").
     evar : list[str]
         Product attributes. Categorical attributes get a part-worth per level
-        (first level = 0); numeric attributes (e.g. price) a single slope.
+        (first level = 0). A numeric attribute with at most ``max_levels``
+        distinct values (a 0/1 feature, 6/7/8 seats) is categorical too, with
+        the lowest value as the base; other numeric attributes, and ``price``,
+        get a single slope.
     ivar : list[str], optional
         Interactions between attributes, e.g. ``["brand:price"]``.
     id : str
@@ -98,6 +102,13 @@ class conjoint_choice:
         alternative.
     alt : str, optional
         Alternative identifier within a task (used to label predictions).
+    price : str, optional
+        The price attribute (numeric, in money). It keeps a single slope,
+        whatever its number of values, and ``wtp`` divides by it.
+    max_levels : int, default 4
+        Numeric attributes (other than ``price``) with at most this many
+        distinct values are categorical. 0 keeps every numeric attribute as a
+        single slope.
     data_filter : str, default ""
         Expression used to filter the data before the analysis, e.g.,
         "price > 5000 and cut in ['Ideal', 'Premium']". A bare name is a column
@@ -133,6 +144,8 @@ class conjoint_choice:
         ivar: list[str] | str | None = None,
         id: str | None = None,
         alt: str | None = None,
+        price: str | None = None,
+        max_levels: int = MAX_LEVELS,
         data_filter: str = "",
         sort: str = "",
         slice: str = "",
@@ -157,6 +170,8 @@ class conjoint_choice:
         self.ivar = _as_list(ivar)
         self.id = id
         self.alt = alt
+        self.price = price or None
+        self.max_levels = max_levels
         if rvar is None or not self.evar or id is None:
             raise ValueError("Please specify rvar, evar and id")
         if rvar in self.evar:
@@ -177,6 +192,17 @@ class conjoint_choice:
         data = data.select(cols).drop_nulls()
         self.nobs = data.height
         self.nobs_dropped = self.nobs_all - self.nobs
+        if self.price and (self.price not in self.evar or not data[self.price].dtype.is_numeric()):
+            raise ValueError(f"The price attribute '{self.price}' must be a numeric attribute in evar")
+
+        # a numeric attribute with a few values is a categorical one: its
+        # values become levels, lowest first
+        few = few_valued(data, self.evar, max_levels, keep={self.price})
+        self.as_categorical = list(few)
+        if few:
+            data = data.with_columns(
+                [level_text(data, v).cast(pl.Enum(labels)) for v, labels in few.items()]
+            )
 
         # which rows were chosen
         rv = data[rvar]
@@ -268,6 +294,12 @@ class conjoint_choice:
             )
         return [v], [df[v].cast(pl.Float64).to_numpy()]
 
+    def _as_levels(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Attributes coded from numbers as their level labels (29 -> "29"),
+        whatever type a profile gives them."""
+        exprs = [level_text(df, v) for v in self.as_categorical if v in df.columns]
+        return df.with_columns(exprs) if exprs else df
+
     def _design(self, df: pl.DataFrame):
         names, cols = [], []
         coded = {}
@@ -316,6 +348,15 @@ class conjoint_choice:
         )
         return PW, IW
 
+    def _numeric_pw(self, v: str) -> pd.DataFrame:
+        """A numeric attribute's utility at its values (up to 10 of them,
+        else its lowest and highest) relative to the lowest value."""
+        values = sorted(self.data[v].cast(pl.Float64).unique().to_list())
+        if len(values) > 10:
+            values = [values[0], values[-1]]
+        slope = float(self._fit["params"][self.xnames.index(v)])
+        return pd.DataFrame({"value": values, "PW": [slope * (x - values[0]) for x in values]})
+
     # -- output ----------------------------------------------------------------
     def summary(self, dec: int = 3, plain: bool = True) -> None:
         """
@@ -343,6 +384,8 @@ class conjoint_choice:
         if self.alt:
             print(f"Alternative id       : {self.alt}")
         print(f"Explanatory variables: {', '.join(self.evar)}")
+        if self.as_categorical:
+            print(f"Coded as categorical : {', '.join(self.as_categorical)}")
         if self.ivar:
             print(f"Interactions         : {', '.join(self.ivar)}")
         print(f"Null hyp.: There is no effect of x on the choice of {self.rvar}")
@@ -379,20 +422,27 @@ class conjoint_choice:
         print("\nConjoint importance weights:")
         du.print_plain_tables(self.IW.with_columns(pl.col("IW").round(dec)))
 
-    def wtp(self, price: str = "price", dec: int | None = None) -> pl.DataFrame:
+    def wtp(self, price: str | None = None, dec: int | None = None) -> pl.DataFrame:
         """
         Willingness to pay: each level's part-worth divided by -(price slope).
 
-        A numeric attribute other than price (e.g., a 0/1 column for a
-        feature) gets one row: the WTP for a one-unit increase.
+        A numeric attribute with a slope (more than ``max_levels`` values)
+        gets one row: the WTP for a one-unit increase.
 
         Parameters
         ----------
-        price : str, default "price"
-            A numeric attribute in ``evar`` measured in money.
+        price : str, optional
+            A numeric attribute in ``evar`` measured in money. Defaults to the
+            model's ``price``, else "price".
         dec : int, optional
             Round the result.
         """
+        price = price or self.price or "price"
+        if price in self.as_categorical:
+            raise ValueError(
+                f"'{price}' is categorical in this model (at most {self.max_levels} values). "
+                f"Estimate with price='{price}' so it keeps one slope."
+            )
         if price not in self.evar or price in self.levels:
             raise ValueError(f"'{price}' must be a numeric attribute in evar")
         bp = float(self.coef.filter(pl.col("index") == price)["coefficient"][0])
@@ -401,7 +451,7 @@ class conjoint_choice:
         )
         return out.with_columns(pl.col("PW", "WTP").round(dec)) if dec is not None else out
 
-    def store(self, what: str = "PW", price: str = "price") -> pl.DataFrame:
+    def store(self, what: str = "PW", price: str | None = None) -> pl.DataFrame:
         """
         Results as a data frame to store as a new dataset.
 
@@ -411,8 +461,8 @@ class conjoint_choice:
             "PW" part-worths, "IW" importance weights, "WTP" willingness to
             pay (needs the numeric ``price`` attribute) or "coef" the
             coefficient table.
-        price : str, default "price"
-            Price attribute used for "WTP".
+        price : str, optional
+            Price attribute used for "WTP" (default: the model's ``price``).
         """
         what = what.upper() if what.lower() != "coef" else "coef"
         if what == "PW":
@@ -453,6 +503,8 @@ class conjoint_choice:
         """
         if cmd is not None and cmd != "":
             cmd = {k: [v] if isinstance(v, (str, int, float)) else list(v) for k, v in cmd.items()}
+            # 1, 1.0 and "1" are the same level of an attribute coded from numbers
+            cmd = {k: level_labels(v, k) if k in self.as_categorical else v for k, v in cmd.items()}
             for k, vals in cmd.items():
                 unknown = [x for x in vals if k in self.levels and str(x) not in self.levels[k]]
                 if unknown:
@@ -465,10 +517,15 @@ class conjoint_choice:
             pred = check_dataframe(data)
             keep = [c for c in [self.id, self.alt] if c and c in pred.columns] + self.evar
             pred = pred.select(keep)
+        pred = self._as_levels(pred)
         if data_cmd is not None and data_cmd != "":
             pred = pred.with_columns(
-                [pl.lit(v).cast(pred[k].dtype).alias(k) for k, v in data_cmd.items()]
+                [
+                    pl.lit(v).alias(k) if k in self.as_categorical else pl.lit(v).cast(pred[k].dtype).alias(k)
+                    for k, v in data_cmd.items()
+                ]
             )
+            pred = self._as_levels(pred)
         for v, levs in self.levels.items():
             unknown = set(pred[v].cast(pl.Utf8).unique().to_list()) - set(levs)
             if unknown:
@@ -501,9 +558,10 @@ class conjoint_choice:
         Parameters
         ----------
         plots : str | list[str], default "pw"
-            "pw" plots the part-worths of each categorical attribute, "iw" the
-            importance weights, and "or" the odds ratios with confidence
-            intervals.
+            "pw" plots the part-worths of each attribute (for a numeric one,
+            the utility of each value relative to its lowest value: the slope
+            times the difference), "iw" the importance weights, and "or" the
+            odds ratios with confidence intervals.
         conf : float, default 0.95
             Confidence level for the "or" plot.
         scale_plot : bool, default False
@@ -525,20 +583,31 @@ class conjoint_choice:
             raise ValueError(f"Unknown plot type(s): {', '.join(unknown)}. Use 'pw', 'iw' or 'or'")
         out = []
         if "pw" in plots:
-            pw = self.PW.filter(pl.col("Levels") != "(slope)")["PW"]
-            ylim = (min(pw.min(), 0.0), max(pw.max(), 0.0)) if pw.len() else None
-            for v, levs in self.levels.items():
-                dat = self.PW.filter(pl.col("Attributes") == v).to_pandas()
-                g = (
-                    ggplot(dat, aes(x="Levels", y="PW", group=1))
-                    + geom_line(color=LINE, linetype="dashdot", size=0.7)
-                    + geom_point(color=LINE, size=4, fill=POINT_FILL)
-                    + scale_x_discrete(limits=levs)
-                    + labs(title=f"Part-worths for {v}", x="", y="PW")
-                    + theme_pyrsm()
-                    + theme(axis_text_x=element_text(angle=45, hjust=1))
-                )
-                if scale_plot and ylim:
+            curves = {v: self._numeric_pw(v) for v in self.evar if v not in self.levels}
+            pw = self.PW.filter(pl.col("Levels") != "(slope)")["PW"].to_list()
+            pw += [y for c in curves.values() for y in c["PW"]]
+            ylim = (min(min(pw), 0.0), max(max(pw), 0.0))
+            for v in self.evar:
+                if v in self.levels:
+                    dat = self.PW.filter(pl.col("Attributes") == v).to_pandas()
+                    g = (
+                        ggplot(dat, aes(x="Levels", y="PW", group=1))
+                        + geom_line(color=LINE, linetype="dashdot", size=0.7)
+                        + geom_point(color=LINE, size=4, fill=POINT_FILL)
+                        + scale_x_discrete(limits=self.levels[v])
+                        + labs(title=f"Part-worths for {v}", x="", y="PW")
+                        + theme_pyrsm()
+                        + theme(axis_text_x=element_text(angle=45, hjust=1))
+                    )
+                else:
+                    g = (
+                        ggplot(curves[v], aes(x="value", y="PW"))
+                        + geom_line(color=LINE, linetype="dashdot", size=0.7)
+                        + geom_point(color=LINE, size=4, fill=POINT_FILL)
+                        + labs(title=f"Part-worths for {v} (slope)", x=v, y="PW")
+                        + theme_pyrsm()
+                    )
+                if scale_plot:
                     g = g + coord_cartesian(ylim=ylim)
                 out.append(g)
         if "iw" in plots:

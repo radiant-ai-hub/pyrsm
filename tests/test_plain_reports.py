@@ -143,7 +143,7 @@ CASES = {
             {"confusion": True}, ["Coefficient Estimates", "RRR", "Confusion matrix"]),
     "conjoint_choice": (lambda: rsm.multivariate.conjoint_choice({"choc": _data("multivariate", "choc")}, rvar="chosen",
                                                                  evar=["brand", "chocolate", "price", "nuts"], id="choice_id",
-                                                                 alt="alt"), {}, ["Conjoint part-worths", "4,800"]),
+                                                                 alt="alt", price="price"), {}, ["Conjoint part-worths", "4,800"]),
     "uplift": (lambda: uplift(_dvd(), ["pred_logit", "pred_rnd"], "buy", tvar="treat", lev="yes", tlev="yes",
                                         qnt=10, cost=1, margin=6), {}, ["Uplift by quantile"]),
 }
