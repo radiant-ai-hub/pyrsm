@@ -11,8 +11,9 @@ Tolerances: from the same start pyrsm's isoMDS is R's to the last bit
 (``test_isomds_is_mass_isomds_to_the_last_bit``). The start, cmdscale, comes
 from numpy's LAPACK, which differs from R's reference LAPACK by about 1e-12;
 on the city data isoMDS stops near its stress floor (0.01%), where that moves
-the recovered distances by up to 4e-5 (0.014 miles). Hence rtol 1e-4 below,
-a factor of 10,000 tighter than the bug (a factor of about 2,000).
+the recovered distances by up to 9e-5 (city2 without Atlanta: 0.03 miles in
+339). Hence rtol 1e-4 below, a factor of 10,000 tighter than the bug (a factor
+of about 2,000).
 """
 
 import json
@@ -41,7 +42,7 @@ CASES = [
     for name in COLS
     for method in ("metric", "nonmetric")
     for dim in ("", "_3d")
-] + ["city2_nonmetric_filter"]
+] + ["city2_nonmetric_filter", "city2_nonmetric_fromfilter", "city_metric_fromfilter"]
 
 
 def ref(case: str) -> dict:
@@ -76,7 +77,7 @@ def lower(M: np.ndarray) -> np.ndarray:
 
 
 def test_fixtures_cover_city_city2_tpbrands_both_methods_both_dims():
-    assert len(CASES) == 13
+    assert len(CASES) == 15
     for case in CASES:
         r = ref(case)
         assert r["case"] == case
@@ -167,9 +168,9 @@ def test_printed_summary_matches_radiant(fitted, case, capsys):
         got = _py_rows(_block(py, title))
         assert list(got) == list(want), title
         for label in want:
-            # both round to 2 decimals (a last-digit tie), plus the 4e-5 above
+            # both round to 2 decimals (a last-digit tie), plus the 1e-4 above
             np.testing.assert_allclose(
-                got[label], want[label], rtol=5e-5, atol=0.0101, err_msg=f"{title} {label}"
+                got[label], want[label], rtol=1e-4, atol=0.0101, err_msg=f"{title} {label}"
             )
     stress = lambda lines: next(l for l in lines if l.startswith("Stress:")).split()[1]  # noqa: E731
     assert float(stress(py)) == pytest.approx(float(stress(R)), abs=1e-3)
@@ -276,7 +277,8 @@ ISOMDS = sorted(f.stem for f in REF.glob("isomds_*.json"))
 
 def test_isomds_fixtures_cover_radiants_setting_and_the_stopping_rules():
     assert {"isomds_city_radiant", "isomds_city2_radiant", "isomds_city_3d_radiant",
-            "isomds_city2_3d_radiant", "isomds_tpbrands_radiant"} <= set(ISOMDS)
+            "isomds_city2_3d_radiant", "isomds_tpbrands_radiant",
+            "isomds_city2_fromfilter_radiant"} <= set(ISOMDS)
     caps = {_fixture(name)["maxit"] for name in ISOMDS}
     assert {1, 5, 50, 200} <= caps
 

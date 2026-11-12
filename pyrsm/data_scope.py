@@ -41,6 +41,9 @@ from __future__ import annotations
 
 import ast
 import datetime as _dt
+import io
+import keyword
+import tokenize
 from typing import Any
 
 import polars as pl
@@ -176,12 +179,57 @@ class _DottedNames(ast.NodeTransformer):
         return self.generic_visit(node)
 
 
-def _parse(expression: str) -> ast.expr:
+#: Keywords a filter uses as operators; any other keyword can be a column.
+_FILTER_KEYWORDS = {"and", "or", "not", "in", "is", "True", "False", "None"}
+_KEYWORD_COLUMN = "__rsm_column_"
+
+
+def _escape_keywords(expression: str) -> tuple[str, dict[str, str]]:
+    """Make a column named like a Python keyword readable as a name.
+
+    ``from != 'Atlanta'`` (the city data's ``from`` column) is a syntax error
+    to Python, so each keyword that is not a filter operator becomes a plain
+    name that ``_parse`` maps back. Text in quotes is left as it is.
+    """
     try:
-        tree = ast.parse(expression.strip(), mode="eval").body
+        tokens = list(tokenize.generate_tokens(io.StringIO(expression).readline))
+    except (tokenize.TokenError, SyntaxError):
+        return expression, {}
+    lines = expression.splitlines(keepends=True)
+    starts = [0]
+    for line in lines:
+        starts.append(starts[-1] + len(line))
+    spans = []
+    for tok in tokens:
+        if tok.type == tokenize.NAME and keyword.iskeyword(tok.string) and tok.string not in _FILTER_KEYWORDS:
+            (r0, c0), (r1, c1) = tok.start, tok.end
+            spans.append((starts[r0 - 1] + c0, starts[r1 - 1] + c1, tok.string))
+    names = {}
+    for start, end, word in reversed(spans):
+        names[_KEYWORD_COLUMN + word] = word
+        expression = expression[:start] + _KEYWORD_COLUMN + word + expression[end:]
+    return expression, names
+
+
+class _KeywordNames(ast.NodeTransformer):
+    """Give escaped keyword columns their own names back (also in ``a.b``)."""
+
+    def __init__(self, names: dict[str, str]):
+        self.names = names
+
+    def visit_Name(self, node: ast.Name) -> ast.Name:
+        node.id = ".".join(self.names.get(part, part) for part in node.id.split("."))
+        return node
+
+
+def _parse(expression: str) -> ast.expr:
+    escaped, names = _escape_keywords(expression.strip())
+    try:
+        tree = ast.parse(escaped, mode="eval").body
     except SyntaxError as exc:
         raise ScopeError(f"Could not read the filter {expression!r}: {exc.msg}") from exc
-    return _DottedNames().visit(tree)
+    tree = _DottedNames().visit(tree)
+    return _KeywordNames(names).visit(tree) if names else tree
 
 
 def _columns(node: ast.expr, found: set[str]) -> set[str]:

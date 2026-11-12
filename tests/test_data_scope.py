@@ -16,6 +16,7 @@ from __future__ import annotations
 import datetime as dt
 import io
 from contextlib import redirect_stdout
+from pathlib import Path
 
 import polars as pl
 import pytest
@@ -30,6 +31,8 @@ from pyrsm.data_scope import (
     sort_code,
     sort_spec,
 )
+
+_DATA = Path(__file__).resolve().parents[1] / "examples" / "data"
 
 
 @pytest.fixture
@@ -270,6 +273,61 @@ def test_a_column_name_with_dots_is_one_column():
     data = df  # noqa: F841 -- the generated code refers to ``data``
     assert eval(f"data.filter({code})", {"pl": pl, "data": df}).height == 2
     assert apply_scope(df, "is_null(price.heinz28)").height == 0
+
+
+@pytest.mark.parametrize(
+    ("data_filter", "expected"),
+    [
+        ("from != 'Atlanta'", ["Boston", "Boston", "Tampa"]),
+        ("from == 'Boston' and to == 'Atlanta'", ["Boston"]),
+        ("not from == 'Boston'", ["Atlanta", "Tampa"]),
+        ("from in ['Tampa', 'Atlanta']", ["Atlanta", "Tampa"]),
+        ("from not in ['Tampa']", ["Atlanta", "Boston", "Boston"]),
+        ("contains(from, 'amp')", ["Tampa"]),
+        ("lower(from) == 'boston' or class > 2", ["Boston", "Boston", "Tampa"]),
+        ("is_null(if)", ["Boston"]),
+        # quoted text is data, never a column: 'from' and 'class' stay strings
+        ("to == 'from' or to == 'class'", ["Boston"]),
+        ("from.to == 1", ["Atlanta"]),
+    ],
+)
+def test_a_column_named_like_a_python_keyword_is_a_column(data_filter, expected):
+    """city and city2 have a ``from`` column (a Python keyword): a filter reads
+    ``from`` as that column, in comparisons, membership, functions and with
+    and/or/not, and the generated polars code selects the same rows."""
+    df = pl.DataFrame(
+        {
+            "from": ["Atlanta", "Boston", "Boston", "Tampa"],
+            "to": ["Boston", "Atlanta", "from", "Boston"],
+            "class": [1, 2, 2, 3],
+            "if": [1.0, None, 2.0, 3.0],
+            "from.to": [1, 2, 3, 4],
+        }
+    )
+    assert apply_scope(df, data_filter)["from"].to_list() == expected
+    code = filter_code(data_filter, df.schema)
+    assert "__rsm" not in code
+    assert eval(f"data.filter({code})", {"pl": pl, "data": df})["from"].to_list() == expected
+
+
+def test_a_keyword_column_that_is_missing_is_named():
+    df = pl.DataFrame({"from": ["Atlanta"]})
+    with pytest.raises(ScopeError, match="Unknown column in filter: class"):
+        apply_scope(df, "class == 1")
+    # a real syntax error still shows the filter as typed
+    with pytest.raises(ScopeError, match="Could not read the filter \"from = 'Atlanta'\""):
+        apply_scope(df, "from = 'Atlanta'")
+
+
+def test_the_city_data_filters_on_from():
+    """The (Dis)similarity example data: drop Atlanta through its ``from`` and
+    ``to`` columns."""
+    city2 = pl.read_parquet(_DATA / "multivariate" / "city2.parquet")
+    out = apply_scope(city2, "from != 'Atlanta' and to != 'Atlanta'")
+    assert "Atlanta" not in set(out["from"].cast(pl.Utf8)) | set(out["to"].cast(pl.Utf8))
+    assert out.height == city2.filter(
+        (pl.col("from") != "Atlanta") & (pl.col("to") != "Atlanta")
+    ).height
 
 
 def test_a_method_call_on_a_dotted_name_is_still_refused():

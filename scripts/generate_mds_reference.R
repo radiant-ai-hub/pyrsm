@@ -48,15 +48,17 @@ write_fixture <- function(name, obj) {
 
 data(city, city2, tpbrands, package = "radiant.multivariate")
 
+# py_filter: the same filter in pyrsm's syntax (and/or, '...'), when it differs
 dump_mds <- function(name, dataset, id1, id2, dis, method = "metric",
-                     nr_dim = 2, seed = 1234, data_filter = "") {
+                     nr_dim = 2, seed = 1234, data_filter = "", py_filter = data_filter) {
   res <- mds(dataset, id1, id2, dis, method = method, nr_dim = nr_dim,
              seed = seed, data_filter = data_filter)
   write_fixture(paste0("mds_", name), list(
     case = name,
     method = method,
     nr_dim = nr_dim,
-    data_filter = data_filter,
+    data_filter = py_filter,
+    r_filter = data_filter,
     nobs = res$nrObs,
     points = mat_to_list(res$res$points),
     stress = as.numeric(res$res$stress),
@@ -86,11 +88,19 @@ for (nm in names(DATA)) {
 # which leaves exactly the lower triangle (66 rows for 12 cities)
 dump_mds("city2_nonmetric_filter", city2, "from", "to", "distance",
          method = "non-metric", data_filter = "distance > 0")
+# a filter on the id columns, which are called from and to (`from` is a Python
+# keyword, which pyrsm's filter reads as the column)
+dump_mds("city2_nonmetric_fromfilter", city2, "from", "to", "distance",
+         method = "non-metric", data_filter = 'from != "Atlanta" & to != "Atlanta"',
+         py_filter = "from != 'Atlanta' and to != 'Atlanta'")
+dump_mds("city_metric_fromfilter", city, "from", "to", "distance",
+         data_filter = 'from != "Seattle" & to != "Seattle"',
+         py_filter = "from != 'Seattle' and to != 'Seattle'")
 
 # ---- isoMDS internals ------------------------------------------------------
 
-dis_matrix <- function(dataset, id1, id2, dis) {
-  res <- mds(dataset, id1, id2, dis, method = "metric")
+dis_matrix <- function(dataset, id1, id2, dis, data_filter = "") {
+  res <- mds(dataset, id1, id2, dis, method = "metric", data_filter = data_filter)
   res$mds_dis_mat
 }
 
@@ -121,6 +131,8 @@ dump_isomds("city_3d_radiant", city_d, k = 3, tol = 1e-6)
 dump_isomds("city2_radiant", city2_d, tol = 1e-6)
 dump_isomds("city2_3d_radiant", city2_d, k = 3, tol = 1e-6)
 dump_isomds("tpbrands_radiant", dis_matrix(tpbrands, "id1", "id2", "dissimilarity"), tol = 1e-6)
+dump_isomds("city2_fromfilter_radiant",
+            dis_matrix(city2, "from", "to", "distance", 'from != "Atlanta" & to != "Atlanta"'), tol = 1e-6)
 # a 1-7 rating scale where the starting map is already close: few iterations
 dump_isomds("tpbrands_3d_maxit1", dis_matrix(tpbrands, "id1", "id2", "dissimilarity"), k = 3, maxit = 1)
 
